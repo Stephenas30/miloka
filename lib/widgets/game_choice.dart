@@ -11,7 +11,9 @@ class GameChoices extends StatelessWidget {
       children: const [
         GameChoiceCard(title: "Belote", isBelote: true),
         SizedBox(width: 20),
-        GameChoiceCard(title: "Rami", isBelote: false),
+        GameChoiceCard(title: "Ludo", isLudo: true),
+        SizedBox(width: 20),
+        GameChoiceCard(title: "Rami"),
       ],
     );
   }

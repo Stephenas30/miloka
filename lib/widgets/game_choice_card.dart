@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import '../screens/belote_screen.dart';
+import '../screens/ludo_screen.dart';
 
 class GameChoiceCard extends StatefulWidget {
   final String title;
   final bool isBelote;
+  final bool isLudo;
   final VoidCallback? onTap;
   final VoidCallback? onClosePopup;
 
-  const GameChoiceCard({super.key, required this.title, required this.isBelote, this.onTap, this.onClosePopup});
+  const GameChoiceCard({
+    super.key,
+    required this.title,
+    this.isBelote = false,
+    this.isLudo = false,
+    this.onTap,
+    this.onClosePopup,
+  });
 
   @override
   State<GameChoiceCard> createState() => GameChoiceCardState();
@@ -42,6 +51,20 @@ class GameChoiceCardState extends State<GameChoiceCard>
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
             pageBuilder: (_, __, ___) => const BeloteScreen(),
+            transitionsBuilder: (_, animation, __, child) {
+              return ScaleTransition(
+                scale: animation,
+                child: child,
+              );
+            },
+          ),
+        );
+      } else if (widget.isLudo) {
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder: (_, __, ___) => const LudoScreen(),
             transitionsBuilder: (_, animation, __, child) {
               return ScaleTransition(
                 scale: animation,
