@@ -150,7 +150,7 @@ class _LudoScreenState extends State<LudoScreen>
     }
 
     return Scaffold(
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.startTop,
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF006400),
         onPressed: () => Navigator.pop(context),
@@ -430,14 +430,14 @@ class _LudoBoardPainter extends CustomPainter {
     );
 
     // Bases colorées
-    _drawBase(canvas, LudoColor.red, 6, 6);
+    _drawBase(canvas, LudoColor.red, 9, 9);
     _drawBase(canvas, LudoColor.green, 0, 0);
-    _drawBase(canvas, LudoColor.yellow, 0, 6);
-    _drawBase(canvas, LudoColor.blue, 6, 0);
+    _drawBase(canvas, LudoColor.yellow, 0, 9);
+    _drawBase(canvas, LudoColor.blue, 9, 0);
 
     // Couloirs maison
-    _drawHomeStretch(canvas, LudoColor.red);
     _drawHomeStretch(canvas, LudoColor.green);
+    _drawHomeStretch(canvas, LudoColor.red);
     _drawHomeStretch(canvas, LudoColor.yellow);
     _drawHomeStretch(canvas, LudoColor.blue);
 
@@ -507,18 +507,18 @@ class _LudoBoardPainter extends CustomPainter {
 
   void _drawCenter(Canvas canvas) {
     final center = Offset(7.5 * cellSize, 7.5 * cellSize);
-    final r = cellSize * 1.4;
+    final r = cellSize * 1.5;
     final colors = [
       LudoBoardLayout.colorValues[LudoColor.red]!,
+      LudoBoardLayout.colorValues[LudoColor.blue]!,
       LudoBoardLayout.colorValues[LudoColor.green]!,
       LudoBoardLayout.colorValues[LudoColor.yellow]!,
-      LudoBoardLayout.colorValues[LudoColor.blue]!,
     ];
 
     for (var i = 0; i < 4; i++) {
       final paint = Paint()..color = colors[i];
       final path = Path();
-      final angle = -math.pi / 2 + i * math.pi / 2;
+      final angle = -math.pi / 4 + i * math.pi / 2;
       path.moveTo(center.dx, center.dy);
       path.arcTo(
         Rect.fromCircle(center: center, radius: r),

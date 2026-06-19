@@ -4,16 +4,12 @@ import '../screens/ludo_screen.dart';
 
 class GameChoiceCard extends StatefulWidget {
   final String title;
-  final bool isBelote;
-  final bool isLudo;
   final VoidCallback? onTap;
   final VoidCallback? onClosePopup;
 
   const GameChoiceCard({
     super.key,
     required this.title,
-    this.isBelote = false,
-    this.isLudo = false,
     this.onTap,
     this.onClosePopup,
   });
@@ -45,7 +41,7 @@ class GameChoiceCardState extends State<GameChoiceCard>
         widget.onTap!();
         return;
       }
-      if (widget.isBelote) {
+      if (widget.title == 'Belote') {
         Navigator.push(
           context,
           PageRouteBuilder(
@@ -59,7 +55,7 @@ class GameChoiceCardState extends State<GameChoiceCard>
             },
           ),
         );
-      } else if (widget.isLudo) {
+      } else if (widget.title == 'Ludo') {
         Navigator.push(
           context,
           PageRouteBuilder(
@@ -119,8 +115,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
 
   Widget _buildFrontFace() {
     return Container(
-      width: 120,
-      height: 180,
+      width: 80,
+      height: 40,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         image: const DecorationImage(
@@ -157,8 +153,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
 
   Widget _buildBackFace() {
     return Container(
-      width: 120,
-      height: 180,
+      width: 80,
+      height: 40,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),

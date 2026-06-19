@@ -21,15 +21,14 @@ class HomeScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 40),
               child: Center(
-                child: Image.asset(
-                  "assets/images/logo.png",
-                  height: 200,
-                ),
+                child: Image.asset("assets/images/logo.png", height: 200),
               ),
             ),
 
             // Les cartes au centre
-            const GameChoices(),
+            Expanded(
+              child: Padding(padding: EdgeInsets.all(8), child: GameChoices()),
+            ),
 
             // Signature en bas
             Padding(

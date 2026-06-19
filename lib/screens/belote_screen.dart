@@ -58,7 +58,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 GameChoiceCard(
                   key: card1Key,
                   title: "1 vs 1",
-                  isBelote: false,
                   onTap: () {
                     showDialog(
                       context: context,
@@ -75,7 +74,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 GameChoiceCard(
                   key: card2Key,
                   title: "Classique",
-                  isBelote: false,
                   onTap: () {
                     showDialog(
                       context: context,
@@ -92,7 +90,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 GameChoiceCard(
                   key: card3Key,
                   title: "Tournoi",
-                  isBelote: false,
                   onTap: () {
                     showDialog(
                       context: context,
@@ -116,7 +113,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 GameChoiceCard(
                   key: card4Key,
                   title: "En ligne",
-                  isBelote: false,
                   onTap: () {
                     showDialog(
                       context: context,
@@ -133,7 +129,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 GameChoiceCard(
                   key: card5Key,
                   title: "Contre IA",
-                  isBelote: false,
                   onTap: () {
                     showDialog(
                       context: context,
