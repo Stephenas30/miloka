@@ -207,6 +207,7 @@ class LudoEngine {
   void _nextPlayer() {
     extraTurn = false;
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+    print(currentPlayerIndex);
     message = 'Tour de ${currentPlayer.color.label}';
   }
 
@@ -226,6 +227,7 @@ class LudoEngine {
 
   void aiPlay() {
     if (winner != null || currentPlayer.isHuman) return;
+    print('diceRolled = $diceRolled');
 
     if (!diceRolled) {
       rollDice();

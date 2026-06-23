@@ -21,6 +21,7 @@ class _LudoScreenState extends State<LudoScreen>
   int _displayDice = 1;
   LudoPawn? _selectedPawn;
   bool _winnerDialogShown = false;
+  bool _beginGame = false;
 
   @override
   void initState() {
@@ -42,7 +43,7 @@ class _LudoScreenState extends State<LudoScreen>
     _aiTimer?.cancel();
     if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
 
-    _aiTimer = Timer(const Duration(milliseconds: 900), () {
+    _aiTimer = Timer(const Duration(milliseconds: 1900), () {
       if (!mounted) return;
       setState(() {
         if (!_engine.diceRolled) {
@@ -61,7 +62,8 @@ class _LudoScreenState extends State<LudoScreen>
     });
     for (var i = 0; i < 6; i++) {
       Future.delayed(Duration(milliseconds: i * 70), () {
-        if (mounted) setState(() => _displayDice = math.Random().nextInt(6) + 1);
+        if (mounted)
+          setState(() => _displayDice = math.Random().nextInt(6) + 1);
       });
     }
     Future.delayed(const Duration(milliseconds: 420), () {
@@ -164,15 +166,38 @@ class _LudoScreenState extends State<LudoScreen>
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(child: Center(child: _buildBoard())),
-              _buildControls(),
-              const SizedBox(height: 16),
-            ],
-          ),
+          child: _beginGame
+              ? Column(
+                  children: [
+                    _buildHeader(),
+                    Expanded(child: Center(child: _buildBoard())),
+                    _buildControls(),
+                    const SizedBox(height: 16),
+                  ],
+                )
+              : _buildMain(),
         ),
+      ),
+    );
+  }
+
+  Widget _buildMain() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _beginGame = true;
+              });
+            },
+            child: Text('Jouer Solo'),
+          ),
+          ElevatedButton(onPressed: () {}, child: Text('Jouer En ligne')),
+          ElevatedButton(onPressed: () {}, child: Text('Jouer Multiplayer')),
+          ElevatedButton(onPressed: () {}, child: Text('Sortir')),
+        ],
       ),
     );
   }
@@ -182,19 +207,30 @@ class _LudoScreenState extends State<LudoScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         children: [
-          ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFFFFD700), Color(0xFF8B0000)],
-            ).createShader(bounds),
-            child: const Text(
-              'Ludo',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: 100,),
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFFFFD700), Color(0xFF8B0000)],
+                ).createShader(bounds),
+                child: const Text(
+                  'Ludo',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
               ),
-            ),
+              SizedBox(width: 50,),
+              IconButton(onPressed: (){
+                _restartGame();
+              }, icon: Icon(Icons.refresh, color: Colors.amber,))
+            ],
           ),
+
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -241,11 +277,14 @@ class _LudoScreenState extends State<LudoScreen>
     for (final player in _engine.players) {
       for (final pawn in player.pawns) {
         final pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
-        final isSelectable = _engine.currentPlayer.isHuman &&
+
+        final isSelectable =
+            _engine.currentPlayer.isHuman &&
             _engine.diceRolled &&
             _engine.canMovePawn(pawn);
-        final isSelected = _selectedPawn?.id == pawn.id &&
-            _selectedPawn?.color == pawn.color;
+
+        final isSelected =
+            _selectedPawn?.id == pawn.id && _selectedPawn?.color == pawn.color;
 
         widgets.add(
           Positioned(
@@ -264,8 +303,8 @@ class _LudoScreenState extends State<LudoScreen>
                     color: isSelected
                         ? Colors.white
                         : isSelectable
-                            ? Colors.amber
-                            : Colors.black87,
+                        ? Colors.amber
+                        : Colors.black87,
                     width: isSelected || isSelectable ? 3 : 1.5,
                   ),
                   boxShadow: [
@@ -289,8 +328,11 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildControls() {
-    final isHumanTurn =
-        _engine.currentPlayer.isHuman && _engine.winner == null;
+    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
+
+    print(isHumanTurn);
+    print(!_engine.diceRolled);
+
     final canRoll = isHumanTurn && !_engine.diceRolled;
 
     return Padding(
@@ -334,6 +376,7 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildDice(bool canRoll) {
+    print('canRoll = $canRoll');
     return GestureDetector(
       onTap: canRoll ? _onRollDice : null,
       child: AnimatedBuilder(
@@ -383,9 +426,27 @@ class _DiceFace extends StatelessWidget {
       1: [Offset(0.5, 0.5)],
       2: [Offset(0.25, 0.25), Offset(0.75, 0.75)],
       3: [Offset(0.25, 0.25), Offset(0.5, 0.5), Offset(0.75, 0.75)],
-      4: [Offset(0.25, 0.25), Offset(0.75, 0.25), Offset(0.25, 0.75), Offset(0.75, 0.75)],
-      5: [Offset(0.25, 0.25), Offset(0.75, 0.25), Offset(0.5, 0.5), Offset(0.25, 0.75), Offset(0.75, 0.75)],
-      6: [Offset(0.25, 0.2), Offset(0.75, 0.2), Offset(0.25, 0.5), Offset(0.75, 0.5), Offset(0.25, 0.8), Offset(0.75, 0.8)],
+      4: [
+        Offset(0.25, 0.25),
+        Offset(0.75, 0.25),
+        Offset(0.25, 0.75),
+        Offset(0.75, 0.75),
+      ],
+      5: [
+        Offset(0.25, 0.25),
+        Offset(0.75, 0.25),
+        Offset(0.5, 0.5),
+        Offset(0.25, 0.75),
+        Offset(0.75, 0.75),
+      ],
+      6: [
+        Offset(0.25, 0.2),
+        Offset(0.75, 0.2),
+        Offset(0.25, 0.5),
+        Offset(0.75, 0.5),
+        Offset(0.25, 0.8),
+        Offset(0.75, 0.8),
+      ],
     };
 
     return LayoutBuilder(
@@ -478,7 +539,12 @@ class _LudoBoardPainter extends CustomPainter {
       ..color = LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize),
+        Rect.fromLTWH(
+          col * cellSize,
+          row * cellSize,
+          6 * cellSize,
+          6 * cellSize,
+        ),
         Radius.circular(cellSize * 0.3),
       ),
       paint,
