@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/material.dart';
+
 enum LudoColor { red, green, yellow, blue }
 
 extension LudoColorExt on LudoColor {
@@ -85,24 +87,26 @@ class LudoEngine {
   LudoPlayer get currentPlayer => players[currentPlayerIndex];
 
   int rollDice() {
-    if (diceRolled || winner != null) return lastDice;
-    lastDice = _random.nextInt(6) + 1;
-    diceRolled = true;
+    if (/* diceRolled || */ winner != null) return lastDice;
+    lastDice =  _random.nextInt(6) + 1;
+    //diceRolled = true;
     final moves = getValidMoves();
     if (moves.isEmpty) {
       message =
           '${currentPlayer.color.label} : $lastDice — aucun coup possible';
-      _scheduleTurnEnd(extraTurn: lastDice == 6);
+      //_scheduleTurnEnd(extraTurn: lastDice == 6);
     } else {
       message = lastDice == 6
           ? '${currentPlayer.color.label} : 6 ! Choisis un pion'
           : '${currentPlayer.color.label} : $lastDice — choisis un pion';
     }
+
+    print('View DiceRolled (${currentPlayer.color.label}) => $lastDice');
     return lastDice;
   }
 
   List<LudoMove> getValidMoves() {
-    if (!diceRolled || winner != null) return [];
+    if (/* !diceRolled || */ winner != null) return [];
     final moves = <LudoMove>[];
     for (final pawn in currentPlayer.pawns) {
       final move = _evaluateMove(pawn, lastDice);
@@ -135,7 +139,7 @@ class LudoEngine {
   }
 
   bool applyMove(LudoPawn pawn) {
-    if (winner != null || !diceRolled) return false;
+    if (winner != null /* || !diceRolled */) return false;
 
     final move = getValidMoves().where((m) => m.pawn.id == pawn.id).firstOrNull;
     if (move == null) return false;
@@ -149,7 +153,7 @@ class LudoEngine {
     if (currentPlayer.hasWon) {
       winner = currentPlayer.color;
       message = '${winner!.label} a gagné !';
-      diceRolled = false;
+      //diceRolled = false;
       return true;
     }
 
@@ -157,14 +161,14 @@ class LudoEngine {
     final captured = _lastCapture;
     _lastCapture = false;
 
-    diceRolled = false;
+    //diceRolled = false;
     if (rolledSix || captured) {
       extraTurn = true;
       message = captured
           ? 'Capture ! ${currentPlayer.color.label} rejoue'
           : '6 obtenu ! ${currentPlayer.color.label} rejoue';
     } else {
-      _nextPlayer();
+      //_nextPlayer();
     }
     return true;
   }
@@ -187,10 +191,10 @@ class LudoEngine {
     }
   }
 
-  void _scheduleTurnEnd({required bool extraTurn}) {
+  void scheduleTurnEnd({required bool extraTurn}) {
     this.extraTurn = extraTurn;
     if (!extraTurn) {
-      _nextPlayer();
+       _nextPlayer();
     } else {
       diceRolled = false;
       message = '${currentPlayer.color.label} rejoue (6)';
@@ -198,13 +202,15 @@ class LudoEngine {
   }
 
   void skipTurnIfNoMoves() {
-    if (diceRolled && getValidMoves().isEmpty) {
-      diceRolled = false;
-      _nextPlayer();
-    }
+    //if (diceRolled && getValidMoves().isEmpty) {
+      //diceRolled = false;
+    //_nextPlayer();
+    //}
   }
 
   void _nextPlayer() {
+      print('Lancer');
+
     extraTurn = false;
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
     print(currentPlayerIndex);
@@ -214,7 +220,7 @@ class LudoEngine {
   void reset() {
     currentPlayerIndex = 0;
     lastDice = 0;
-    diceRolled = false;
+    //diceRolled = false;
     extraTurn = false;
     winner = null;
     message = 'Lance le dé pour commencer';
@@ -227,12 +233,12 @@ class LudoEngine {
 
   void aiPlay() {
     if (winner != null || currentPlayer.isHuman) return;
-    print('diceRolled = $diceRolled');
+    //print('diceRolled = $diceRolled');
 
-    if (!diceRolled) {
+    //if (!diceRolled) {
       rollDice();
-      return;
-    }
+      // return;
+    //} 
 
     final moves = getValidMoves();
     if (moves.isEmpty) {
@@ -253,7 +259,7 @@ class LudoEngine {
       return score(b).compareTo(score(a));
     });
 
-    applyMove(moves.first.pawn);
+    applyMove(moves.first.pawn); 
   }
 }
 

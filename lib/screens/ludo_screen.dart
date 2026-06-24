@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-
 import '../game/ludo/ludo_board_layout.dart';
 import '../game/ludo/ludo_engine.dart';
 
@@ -15,6 +13,7 @@ class LudoScreen extends StatefulWidget {
 
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
+
   final LudoEngine _engine = LudoEngine();
   Timer? _aiTimer;
   late AnimationController _diceController;
@@ -40,23 +39,21 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _scheduleAiTurn() {
+    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
+    if (isHumanTurn) return;
     _aiTimer?.cancel();
     if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
 
     _aiTimer = Timer(const Duration(milliseconds: 1900), () {
       if (!mounted) return;
       setState(() {
-        if (!_engine.diceRolled) {
-          _animateDiceRoll(_engine.rollDice());
-        } else {
-          _engine.aiPlay();
-        }
+        _animateDiceRoll(_engine.rollDice());
+        _engine.aiPlay();
       });
-      _scheduleAiTurn();
     });
   }
 
-  void _animateDiceRoll(int value) {
+  Future<void> _animateDiceRoll(int value) async {
     _diceController.forward(from: 0).then((_) {
       if (mounted) setState(() => _displayDice = value);
     });
@@ -66,14 +63,17 @@ class _LudoScreenState extends State<LudoScreen>
           setState(() => _displayDice = math.Random().nextInt(6) + 1);
       });
     }
-    Future.delayed(const Duration(milliseconds: 420), () {
+    await Future.delayed(const Duration(milliseconds: 420), () {
       if (mounted) setState(() => _displayDice = value);
     });
+
+    _engine.scheduleTurnEnd(extraTurn: value == 6); 
+
+    return Future.value();
   }
 
   void _onRollDice() {
     if (_engine.winner != null ||
-        _engine.diceRolled ||
         !_engine.currentPlayer.isHuman) {
       return;
     }
@@ -81,15 +81,15 @@ class _LudoScreenState extends State<LudoScreen>
       _selectedPawn = null;
       _animateDiceRoll(_engine.rollDice());
     });
-    if (_engine.getValidMoves().isEmpty && _engine.diceRolled == false) {
+    if (_engine.getValidMoves().isEmpty /* && _engine.diceRolled == false */) {
       _scheduleAiTurn();
     }
   }
 
   void _onPawnTap(LudoPawn pawn) {
     if (_engine.winner != null ||
-        !_engine.currentPlayer.isHuman ||
-        !_engine.diceRolled) {
+        !_engine.currentPlayer.isHuman /* ||
+        !_engine.diceRolled */) {
       return;
     }
     if (!_engine.canMovePawn(pawn)) return;
@@ -99,7 +99,7 @@ class _LudoScreenState extends State<LudoScreen>
       _engine.applyMove(pawn);
       _selectedPawn = null;
     });
-    _scheduleAiTurn();
+  _scheduleAiTurn();
   }
 
   void _restartGame() {
@@ -143,12 +143,16 @@ class _LudoScreenState extends State<LudoScreen>
 
   @override
   Widget build(BuildContext context) {
+    print('Humain => ${_engine.currentPlayer.isHuman}');
+
+
     if (_engine.winner != null && !_winnerDialogShown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showWinnerDialog();
       });
     } else if (_engine.winner == null && !_engine.currentPlayer.isHuman) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleAiTurn());
+       print('àààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààà');
     }
 
     return Scaffold(
@@ -210,7 +214,7 @@ class _LudoScreenState extends State<LudoScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              SizedBox(width: 100,),
+              SizedBox(width: 100),
               ShaderMask(
                 shaderCallback: (bounds) => const LinearGradient(
                   colors: [Color(0xFFFFD700), Color(0xFF8B0000)],
@@ -224,10 +228,13 @@ class _LudoScreenState extends State<LudoScreen>
                   ),
                 ),
               ),
-              SizedBox(width: 50,),
-              IconButton(onPressed: (){
-                _restartGame();
-              }, icon: Icon(Icons.refresh, color: Colors.amber,))
+              SizedBox(width: 50),
+              IconButton(
+                onPressed: () {
+                  _restartGame();
+                },
+                icon: Icon(Icons.refresh, color: Colors.amber),
+              ),
             ],
           ),
 
@@ -280,7 +287,7 @@ class _LudoScreenState extends State<LudoScreen>
 
         final isSelectable =
             _engine.currentPlayer.isHuman &&
-            _engine.diceRolled &&
+            /* _engine.diceRolled && */
             _engine.canMovePawn(pawn);
 
         final isSelected =
@@ -330,10 +337,12 @@ class _LudoScreenState extends State<LudoScreen>
   Widget _buildControls() {
     final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
 
-    print(isHumanTurn);
-    print(!_engine.diceRolled);
+    //t('==> ${_engine.currentPlayerIndex}');
+    //print(isHumanTurn);
+    //print(!_engine.diceRolled);
+    //print('/n/n');
 
-    final canRoll = isHumanTurn && !_engine.diceRolled;
+    final canRoll = isHumanTurn /* && !_engine.diceRolled */;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -376,7 +385,7 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildDice(bool canRoll) {
-    print('canRoll = $canRoll');
+    //print('canRoll = $canRoll');
     return GestureDetector(
       onTap: canRoll ? _onRollDice : null,
       child: AnimatedBuilder(
@@ -491,10 +500,10 @@ class _LudoBoardPainter extends CustomPainter {
     );
 
     // Bases colorées
-    _drawBase(canvas, LudoColor.red, 9, 9);
+    _drawBase(canvas, LudoColor.red, 9, 0);
     _drawBase(canvas, LudoColor.green, 0, 0);
     _drawBase(canvas, LudoColor.yellow, 0, 9);
-    _drawBase(canvas, LudoColor.blue, 9, 0);
+    _drawBase(canvas, LudoColor.blue, 9, 9);
 
     // Couloirs maison
     _drawHomeStretch(canvas, LudoColor.green);
@@ -575,8 +584,8 @@ class _LudoBoardPainter extends CustomPainter {
     final center = Offset(7.5 * cellSize, 7.5 * cellSize);
     final r = cellSize * 1.5;
     final colors = [
-      LudoBoardLayout.colorValues[LudoColor.red]!,
       LudoBoardLayout.colorValues[LudoColor.blue]!,
+      LudoBoardLayout.colorValues[LudoColor.red]!,
       LudoBoardLayout.colorValues[LudoColor.green]!,
       LudoBoardLayout.colorValues[LudoColor.yellow]!,
     ];
