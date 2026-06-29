@@ -5,8 +5,37 @@ import '../game/call_system.dart';
 class CallPopup extends StatelessWidget {
   final String playerName;
   final Function(CallOption) onCall;
+  final List<CallOption> availableCalls;
 
-  const CallPopup({super.key, required this.playerName, required this.onCall});
+  const CallPopup({
+    super.key,
+    required this.playerName,
+    required this.onCall,
+    required this.availableCalls,
+  });
+
+  String _callOptionLabel(CallOption option) {
+    switch (option) {
+      case CallOption.treble:
+        return "Trèfle";
+      case CallOption.diamond:
+        return "Carreau";
+      case CallOption.heart:
+        return "Cœur";
+      case CallOption.spade:
+        return "Pique";
+      case CallOption.sansAs:
+        return "Sans As";
+      case CallOption.toutAs:
+        return "Tout As";
+      case CallOption.x2:
+        return "x2";
+      case CallOption.x4:
+        return "x4";
+      case CallOption.pass:
+        return "Passer";
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,28 +70,43 @@ class CallPopup extends StatelessWidget {
                     radius * math.sin((2 * math.pi / options.length) * i) -
                     30,
                 child: ElevatedButton(
-                  onPressed: () {
-                    onCall(options[i]);
-                    Navigator.pop(context);
-                  },
+                  onPressed: availableCalls.contains(options[i])
+                      ? () {
+                          onCall(options[i]);
+                          Navigator.pop(context);
+                        }
+                      : null,
                   style: ElevatedButton.styleFrom(
                     shape: const CircleBorder(),
                     padding: const EdgeInsets.all(20),
+                    backgroundColor: availableCalls.contains(options[i])
+                        ? null
+                        : Colors.grey[400],
+                    foregroundColor: availableCalls.contains(options[i])
+                        ? null
+                        : Colors.grey[600],
                   ),
-                  child: Text(options[i].name),
+                  child: Text(_callOptionLabel(options[i])),
                 ),
               ),
 
             // Bouton "Passer" au centre
             ElevatedButton(
-              onPressed: () {
-                onCall(CallOption.pass);
-                Navigator.pop(context);
-              },
+              onPressed: availableCalls.contains(CallOption.pass)
+                  ? () {
+                      onCall(CallOption.pass);
+                      Navigator.pop(context);
+                    }
+                  : null,
               style: ElevatedButton.styleFrom(
                 shape: const CircleBorder(),
                 padding: const EdgeInsets.all(30),
-                backgroundColor: Colors.red,
+                backgroundColor: availableCalls.contains(CallOption.pass)
+                    ? null
+                    : Colors.grey[400],
+                foregroundColor: availableCalls.contains(CallOption.pass)
+                    ? null
+                    : Colors.grey[600],
               ),
               child: const Text("Passer"),
             ),

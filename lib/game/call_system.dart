@@ -50,9 +50,23 @@ class CallSystem {
     CallOption.toutAs,
   ];
 
-  CallSystem(this.players) {
-    currentPlayerIndex = Random().nextInt(players.length);
-    print("➡️ Premier joueur choisi aléatoirement : ${players[currentPlayerIndex]}");
+  // Optional initialIndex allows the caller to control who starts.
+  CallSystem(this.players, {int? initialIndex}) {
+    if (initialIndex != null) {
+      currentPlayerIndex = initialIndex % players.length;
+    } else {
+      currentPlayerIndex = Random().nextInt(players.length);
+    }
+    // First call: no "pass" option allowed
+    availableCalls = [
+      CallOption.treble,
+      CallOption.diamond,
+      CallOption.heart,
+      CallOption.spade,
+      CallOption.sansAs,
+      CallOption.toutAs,
+    ];
+    print("➡️ Premier joueur choisi : ${players[currentPlayerIndex]}");
     print("👉 C'est maintenant au tour de ${players[currentPlayerIndex]}");
   }
 

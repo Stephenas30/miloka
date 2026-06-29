@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'package:flutter/services.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Masquer barre de statut et barre de navigation
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   runApp(const MilokaApp());
 }
 

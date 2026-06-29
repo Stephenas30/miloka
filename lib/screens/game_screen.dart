@@ -12,6 +12,22 @@ class PlayedCard {
   PlayedCard(this.player, this.card);
 }
 
+class HandHistoryEntry {
+  final CallOption contractCall;
+  final String contractWinner;
+  final String winningTeam;
+  final Map<String, int> delta;
+  final bool dedans;
+
+  HandHistoryEntry({
+    required this.contractCall,
+    required this.contractWinner,
+    required this.winningTeam,
+    required this.delta,
+    required this.dedans,
+  });
+}
+
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
 
@@ -20,7 +36,7 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen>
-    with SingleTickerProviderStateMixin {
+  with SingleTickerProviderStateMixin {
   late Deck deck;
   late CallSystem callSystem;
 
@@ -38,6 +54,12 @@ class _GameScreenState extends State<GameScreen>
   int tricksPlayed = 0;
   List<PlayedCard> currentTrick = [];
   Map<String, int> teamPoints = {"NS": 0, "EO": 0};
+  Map<String, int> gameScore = {"NS": 0, "EO": 0}; // Score global du jeu
+  bool waitingForNextHand = false;
+  Map<String, int> lastHandDelta = {"NS": 0, "EO": 0};
+  List<HandHistoryEntry> handHistory = [];
+  String? overallWinner;
+  int starterIndex = 0;
 
   CardModel? animatingDealCard;
   String? animatingDealPlayer;
@@ -57,14 +79,10 @@ class _GameScreenState extends State<GameScreen>
     deck = Deck();
     deck.shuffle();
 
-    callSystem = CallSystem(players);
-
-    // Choisir aléatoirement le joueur qui commence
-    final startIndex = Random().nextInt(players.length);
-    order = [
-      for (int i = 0; i < players.length; i++)
-        players[(startIndex + i) % players.length],
-    ];
+    // Choisir aléatoirement le joueur qui commence AU DÉBUT de la partie
+    starterIndex = Random().nextInt(players.length);
+    order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
+    callSystem = CallSystem(players, initialIndex: starterIndex);
 
     // Lancer la distribution animée
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -318,20 +336,68 @@ class _GameScreenState extends State<GameScreen>
   }
 
   int _trickCardStrength(CardModel card, Suit? leadSuit) {
-    final isTrump = _isTrump(card);
-    if (isTrump) {
-      return 1000 + _rankValue(card.rank, CallOption.toutAs);
+    if (leadSuit == null) {
+      return _rankValue(card.rank, CallOption.toutAs);
     }
-    if (leadSuit != null && card.suit == leadSuit) {
-      return 200 + _rankValue(card.rank, CallOption.sansAs);
+    final contract = callSystem.contractCall;
+    final cardIsLead = card.suit == leadSuit;
+    final trumpSuit = _contractTrumpSuit();
+    final cardIsTrump = _isTrump(card);
+    final leadIsTrump = leadSuit == trumpSuit;
+
+    const int trumpBase = 2000; // any trump must beat any non-trump
+    const int leadBase = 1000; // base for following the lead
+
+    if (contract == CallOption.toutAs) {
+      if (!cardIsLead) return 0;
+      return leadBase + _rankValue(card.rank, CallOption.toutAs);
     }
+
+    if (contract == CallOption.sansAs) {
+      if (!cardIsLead) return 0;
+      return leadBase + _rankValue(card.rank, CallOption.sansAs);
+    }
+
+    // If the trick was led with the trump suit, only trumps can win
+    if (leadIsTrump) {
+      if (!cardIsTrump) return 0;
+      return trumpBase + _rankValue(card.rank, CallOption.toutAs);
+    }
+
+    // Any trump beats all non-trump cards
+    if (cardIsTrump) {
+      return trumpBase + _rankValue(card.rank, CallOption.toutAs);
+    }
+
+    if (cardIsLead) {
+      return leadBase + _rankValue(card.rank, CallOption.sansAs);
+    }
+
     return 0;
   }
 
   int _cardPointValue(CardModel card) {
-    final isTrump = _isTrump(card);
+    final contract = callSystem.contractCall;
     final rank = card.rank;
-    if (isTrump) {
+    if (contract == CallOption.sansAs) {
+      switch (rank) {
+        case Rank.as:
+          return 11;
+        case Rank.dix:
+          return 10;
+        case Rank.roi:
+          return 4;
+        case Rank.dame:
+          return 3;
+        case Rank.valet:
+          return 2;
+        case Rank.neuf:
+        case Rank.huit:
+        case Rank.sept:
+          return 0;
+      }
+    }
+    if (_isTrump(card)) {
       switch (rank) {
         case Rank.as:
           return 11;
@@ -372,6 +438,78 @@ class _GameScreenState extends State<GameScreen>
     return player == "Nord" || player == "Sud" ? "NS" : "EO";
   }
 
+  String _handWinningTeam() {
+    final preneur = callSystem.contractWinner;
+    if (preneur == null) return "NS";
+    final preneurTeam = _teamOf(preneur);
+    final defenseTeam = preneurTeam == "NS" ? "EO" : "NS";
+    final preneurPoints = teamPoints[preneurTeam] ?? 0;
+    final defensePoints = teamPoints[defenseTeam] ?? 0;
+
+    if (preneurPoints > defensePoints) {
+      return preneurTeam;
+    }
+    return defenseTeam;
+  }
+
+  void _registerLastHandHistory() {
+    final contract = callSystem.contractCall;
+    final preneur = callSystem.contractWinner;
+    if (contract == null || preneur == null) return;
+    final preneurTeam = _teamOf(preneur);
+    final winnerTeam = _handWinningTeam();
+    final dedans = winnerTeam != preneurTeam;
+
+    handHistory.add(HandHistoryEntry(
+      contractCall: contract,
+      contractWinner: preneur,
+      winningTeam: winnerTeam,
+      delta: Map<String, int>.from(lastHandDelta),
+      dedans: dedans,
+    ));
+  }
+
+  void _showStatistics() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Statistiques de la partie'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: handHistory.isEmpty
+              ? const Text('Aucune manche jouée pour cette partie.')
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: handHistory.length,
+                  separatorBuilder: (_, __) => const Divider(),
+                  itemBuilder: (context, index) {
+                    final entry = handHistory[index];
+                    final contractLabel = _callOptionLabel(entry.contractCall);
+                    final isDedans = entry.dedans ? 'Oui' : 'Non';
+                    final winnerLabel = entry.winningTeam == 'NS' ? 'Nord-Sud' : 'Est-Ouest';
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Manche ${index + 1}: $winnerLabel', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('Contrat: $contractLabel'),
+                        Text('Preneur: ${entry.contractWinner}'),
+                        Text('Dedans: $isDedans'),
+                        Text('Score: NS ${entry.delta['NS']} / EO ${entry.delta['EO']}'),
+                      ],
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<CardModel> _handFor(String player) {
     if (player == "Nord") return aiHands[0];
     if (player == "Est") return aiHands[1];
@@ -379,17 +517,155 @@ class _GameScreenState extends State<GameScreen>
     return playerHand;
   }
 
+  CallOption _playModeForSuit(Suit leadSuit) {
+    if (callSystem.contractCall == CallOption.toutAs) return CallOption.toutAs;
+    if (callSystem.contractCall == CallOption.sansAs) return CallOption.sansAs;
+    final trumpSuit = _contractTrumpSuit();
+    if (leadSuit == trumpSuit) return CallOption.toutAs;
+    return CallOption.sansAs;
+  }
+
   List<CardModel> _legalCards(String player) {
     final hand = _handFor(player);
     if (currentTrick.isEmpty) return hand;
     final leadSuit = currentTrick.first.card.suit;
-    final hasLead = hand.any((card) => card.suit == leadSuit);
-    if (hasLead) {
-      return hand.where((card) => card.suit == leadSuit).toList();
+    
+    // Check if player has cards of the lead suit
+    final leadCards = hand.where((card) => card.suit == leadSuit).toList();
+    if (leadCards.isNotEmpty) {
+      // Player must follow suit.
+      
+      // Check if we should apply the "must play stronger card" rule
+      // This only applies for: ToutAs contracts OR when playing trump cards in a color contract
+      final isToutAsContract = callSystem.contractCall == CallOption.toutAs;
+      final isTrumpSuit = _contractTrumpSuit() == leadSuit && 
+          callSystem.contractCall != CallOption.sansAs;
+      final shouldApplySurtrumpRule = isToutAsContract || isTrumpSuit;
+
+      if (shouldApplySurtrumpRule) {
+        // If a stronger card of the same suit is already on the table,
+        // player must play a stronger card if they have one.
+        final cardsOfLeadSuitOnTable = currentTrick
+            .where((played) => played.card.suit == leadSuit)
+            .map((played) => played.card)
+            .toList();
+
+        if (cardsOfLeadSuitOnTable.isNotEmpty) {
+          // Find the strongest card of the lead suit currently on the table
+          final strongestOnTable = cardsOfLeadSuitOnTable
+              .map((c) => _trickCardStrength(c, leadSuit))
+              .reduce(max);
+
+          // Find player's cards of the lead suit that are stronger than the strongest on table
+          final strongerCards = leadCards
+              .where((card) => _trickCardStrength(card, leadSuit) > strongestOnTable)
+              .toList();
+
+          // If player has stronger cards, they must play one
+          if (strongerCards.isNotEmpty) {
+            return strongerCards;
+          }
+        }
+      }
+
+      // Player can play any card of the lead suit
+      return leadCards;
     }
-    final trumps = hand.where(_isTrump).toList();
-    if (trumps.isNotEmpty) return trumps;
+    
+    // If no one followed the lead, player must cut with a trump if possible.
+    // This is the contract couleur rule: if a player has no card of the lead suit,
+    // they must play an atout. If multiple players cut, the strongest atout
+    // according to the "ToutAs" scale wins the trick.
+    final isTrumpContract = callSystem.contractCall == CallOption.treble ||
+        callSystem.contractCall == CallOption.diamond ||
+        callSystem.contractCall == CallOption.heart ||
+        callSystem.contractCall == CallOption.spade ||
+        callSystem.contractCall == CallOption.toutAs;
+
+    if (isTrumpContract) {
+      final trumps = hand.where(_isTrump).toList();
+      if (trumps.isEmpty) return hand;
+
+      // Find trumps already played in this trick
+      final trumpsOnTable = currentTrick
+          .where((played) => _isTrump(played.card))
+          .map((played) => played.card)
+          .toList();
+
+      if (trumpsOnTable.isNotEmpty) {
+        // Highest trump currently on table (by rank value under trump rules)
+        final highestOnTable = trumpsOnTable
+            .map((c) => _rankValue(c.rank, CallOption.toutAs))
+            .reduce(max);
+
+        // Player's trumps that are strictly higher than the highest on table
+        final higherTrumps = trumps
+            .where((c) => _rankValue(c.rank, CallOption.toutAs) > highestOnTable)
+            .toList();
+
+        if (higherTrumps.isNotEmpty) {
+          // Must overtrump if possible
+          return higherTrumps;
+        }
+
+        // Cannot overtrump but has trumps → may play any trump
+        return trumps;
+      }
+
+      // No trumps on table yet → must play a trump if possible
+      return trumps;
+    }
+
     return hand;
+  }
+
+  PlayedCard _currentWinningCard() {
+    final leadSuit = currentTrick.first.card.suit;
+    PlayedCard winner = currentTrick.first;
+    for (final played in currentTrick.skip(1)) {
+      if (_trickCardStrength(played.card, leadSuit) >
+          _trickCardStrength(winner.card, leadSuit)) {
+        winner = played;
+      }
+    }
+    return winner;
+  }
+
+  bool _isPartnerWinning(String player) {
+    final winner = _currentWinningCard();
+    return _teamOf(winner.player) == _teamOf(player) && winner.player != player;
+  }
+
+  CardModel _lowestPointCard(List<CardModel> candidates) {
+    candidates.sort((a, b) {
+      final aPoint = _cardPointValue(a);
+      final bPoint = _cardPointValue(b);
+      if (aPoint != bPoint) return aPoint.compareTo(bPoint);
+      return _trickCardStrength(a, currentTrick.first.card.suit)
+          .compareTo(_trickCardStrength(b, currentTrick.first.card.suit));
+    });
+    return candidates.first;
+  }
+
+  CardModel _minimalWinningCard(List<CardModel> candidates, Suit leadSuit) {
+    candidates.sort((a, b) {
+      final aStrength = _trickCardStrength(a, leadSuit);
+      final bStrength = _trickCardStrength(b, leadSuit);
+      if (aStrength != bStrength) return aStrength.compareTo(bStrength);
+      return _cardPointValue(a).compareTo(_cardPointValue(b));
+    });
+    return candidates.first;
+  }
+
+  CardModel _pickLeadCard(String player) {
+    final hand = _handFor(player);
+    hand.sort((a, b) {
+      final aStrength = _trickCardStrength(a, null);
+      final bStrength = _trickCardStrength(b, null);
+      if (aStrength != bStrength) return bStrength.compareTo(aStrength);
+      return _cardPointValue(b).compareTo(_cardPointValue(a));
+    });
+    return hand.first;
   }
 
   String _nextPlayer(String current) {
@@ -433,12 +709,157 @@ class _GameScreenState extends State<GameScreen>
       if (tricksPlayed >= 8) {
         gameOver = true;
         gameStarted = false;
+        // Calculer le score de la manche mais ne pas l'appliquer tant que l'utilisateur n'appuie pas sur "Suivant"
+        lastHandDelta = _computeHandScores();
+        _registerLastHandHistory();
+        waitingForNextHand = true;
       }
     });
     print("🏆 Gagnant du pli : $nextLeader (+$trickPoints pts pour $team)");
     if (!gameOver && nextLeader != "Sud") {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _playAITurn();
+      });
+    }
+  }
+
+  Map<String, int> _computeHandScores() {
+    final result = {"NS": 0, "EO": 0};
+    final contract = callSystem.contractCall;
+    final preneur = callSystem.contractWinner;
+    if (contract == null || preneur == null) return result;
+
+    final preneurTeam = _teamOf(preneur);
+    final defenseTeam = preneurTeam == "NS" ? "EO" : "NS";
+    final preneurPoints = teamPoints[preneurTeam] ?? 0;
+    final defensePoints = teamPoints[defenseTeam] ?? 0;
+    final isX2 = callSystem.highestCall == CallOption.x2;
+    final isX4 = callSystem.highestCall == CallOption.x4;
+    final multiplier = isX4 ? 4 : isX2 ? 2 : 1;
+
+    void award(String team, int pts) {
+      result[team] = (result[team] ?? 0) + pts;
+    }
+
+    if (contract == CallOption.sansAs) {
+      if (preneurPoints > defensePoints) {
+        if (defensePoints == 0) {
+          award(preneurTeam, 70 * multiplier);
+        } else {
+          award(preneurTeam, 52 * multiplier);
+        }
+      } else {
+        if (preneurPoints == 0) {
+          award(defenseTeam, 90 * multiplier);
+        } else {
+          award(defenseTeam, 52 * multiplier);
+        }
+      }
+      return result;
+    }
+
+    if (contract == CallOption.treble) {
+      if (preneurPoints > defensePoints) {
+        if (defensePoints == 0) {
+          award(preneurTeam, isX2 ? 90 : isX4 ? 180 : 45);
+        } else {
+          award(preneurTeam, isX2 ? 64 : isX4 ? 128 : 32);
+        }
+      } else {
+        if (preneurPoints == 0) {
+          award(defenseTeam, isX2 ? 128 : isX4 ? 256 : 90);
+        } else {
+          award(defenseTeam, isX2 ? 64 : isX4 ? 128 : 32);
+        }
+      }
+      return result;
+    }
+
+    if (contract == CallOption.diamond || contract == CallOption.heart || contract == CallOption.spade) {
+      if (preneurPoints > defensePoints) {
+        if (defensePoints == 0) {
+          award(preneurTeam, isX2 ? 75 : isX4 ? 150 : 45);
+        } else {
+          award(preneurTeam, isX2 ? 32 : isX4 ? 64 : 16);
+        }
+      } else {
+        if (preneurPoints == 0) {
+          award(defenseTeam, isX2 ? 75 : isX4 ? 150 : 45);
+        } else {
+          award(defenseTeam, isX2 ? 32 : isX4 ? 64 : 16);
+        }
+      }
+      return result;
+    }
+
+    if (contract == CallOption.toutAs) {
+      if (preneurPoints == 134 && defensePoints == 124) {
+        return result;
+      }
+      if (defensePoints > 124) {
+        award(defenseTeam, 26 * multiplier);
+        return result;
+      }
+      if (preneurPoints > 164) {
+        award(preneurTeam, 26 * multiplier);
+        return result;
+      }
+      if (defensePoints == 0) {
+        award(preneurTeam, isX2 ? 70 : isX4 ? 104 : 35);
+        return result;
+      }
+      if (preneurPoints == 0) {
+        award(defenseTeam, isX2 ? 90 : isX4 ? 104 : 45);
+        return result;
+      }
+      int p = (preneurPoints / 10).round();
+      if (p < 14) p = 14;
+      if (p > 16) p = 16;
+      award(preneurTeam, p * multiplier);
+      award(defenseTeam, (26 - p) * multiplier);
+      return result;
+    }
+
+    return result;
+  }
+
+  void _applyLastHandAndNext() {
+    bool shouldStartNextHand = true;
+
+    setState(() {
+      gameScore["NS"] = gameScore["NS"]! + (lastHandDelta["NS"] ?? 0);
+      gameScore["EO"] = gameScore["EO"]! + (lastHandDelta["EO"] ?? 0);
+
+      // Vérifier condition de victoire (150 points)
+      if (gameScore["NS"]! >= 150 || gameScore["EO"]! >= 150) {
+        overallWinner = gameScore["NS"]! >= 150 ? "NS" : "EO";
+        waitingForNextHand = false;
+        shouldStartNextHand = false;
+      }
+
+      if (overallWinner == null) {
+        // Reset pour la manche suivante
+        waitingForNextHand = false;
+        lastHandDelta = {"NS": 0, "EO": 0};
+        teamPoints = {"NS": 0, "EO": 0};
+        tricksPlayed = 0;
+        currentTrick = [];
+        playerHand.clear();
+        aiHands = [[], [], []];
+        deck = Deck();
+        deck.shuffle();
+        // Le premier joueur de la nouvelle manche suit l'ordre horaire
+        starterIndex = (starterIndex + 1) % players.length;
+        order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
+        callSystem = CallSystem(players, initialIndex: starterIndex);
+        biddingFinished = false;
+        gameOver = false;
+      }
+    });
+
+    if (shouldStartNextHand) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _dealCards();
       });
     }
   }
@@ -484,19 +905,35 @@ class _GameScreenState extends State<GameScreen>
     final legal = _legalCards(player);
     if (legal.isEmpty) return _handFor(player).first;
     if (currentTrick.isEmpty) {
-      legal.sort(
-        (a, b) =>
-            _trickCardStrength(b, null).compareTo(_trickCardStrength(a, null)),
-      );
-      return legal.first;
+      return _pickLeadCard(player);
     }
+
     final leadSuit = currentTrick.first.card.suit;
-    legal.sort((a, b) {
-      final aScore = _trickCardStrength(a, leadSuit);
-      final bScore = _trickCardStrength(b, leadSuit);
-      return bScore.compareTo(aScore);
-    });
-    return legal.first;
+    final winner = _currentWinningCard();
+    final partnerWinning = _isPartnerWinning(player);
+    final followCards = legal.where((card) => card.suit == leadSuit).toList();
+    if (followCards.isNotEmpty) {
+      if (partnerWinning) return _lowestPointCard(followCards);
+      final canBeat = followCards
+          .where((card) => _trickCardStrength(card, leadSuit) >
+              _trickCardStrength(winner.card, leadSuit))
+          .toList();
+      if (canBeat.isNotEmpty) return _minimalWinningCard(canBeat, leadSuit);
+      return _lowestPointCard(followCards);
+    }
+
+    final trumps = legal.where(_isTrump).toList();
+    if (trumps.isNotEmpty) {
+      if (partnerWinning) return _lowestPointCard(legal);
+      final canBeat = trumps
+          .where((card) => _trickCardStrength(card, leadSuit) >
+              _trickCardStrength(winner.card, leadSuit))
+          .toList();
+      if (canBeat.isNotEmpty) return _minimalWinningCard(canBeat, leadSuit);
+      return _lowestPointCard(trumps);
+    }
+
+    return _lowestPointCard(legal);
   }
 
   Future<void> _playAITurn() async {
@@ -549,17 +986,10 @@ class _GameScreenState extends State<GameScreen>
                     onTap: playerName == "Sud" && _canPlayCard(cards[i])
                         ? () => _playCard("Sud", cards[i])
                         : null,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: playerName == "Sud" && legal.contains(cards[i])
-                            ? Border.all(color: Colors.yellowAccent, width: 2)
-                            : null,
-                      ),
-                      child: SvgPicture.asset(
-                        cards[i].assetPath,
-                        width: cardWidth,
-                        height: cardHeight,
-                      ),
+                    child: SvgPicture.asset(
+                      cards[i].assetPath,
+                      width: cardWidth,
+                      height: cardHeight,
                     ),
                   ),
                 ),
@@ -583,100 +1013,41 @@ class _GameScreenState extends State<GameScreen>
         player: _playedCardFor(player),
     };
 
-    return Column(
-      children: [
-        Text(
-          gameOver
-              ? 'Manche terminée : NS ${teamPoints['NS']} / EO ${teamPoints['EO']}'
-              : 'Tour de : ${callSystem.currentPlayer}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+    return SizedBox(
+      height: 200,
+      child: Stack(
+        alignment: Alignment.center,
+        clipBehavior: Clip.none,
+        children: [
+          Align(
+            alignment: const Alignment(0, -0.58),
+            child: _buildTrickCard(playedMap['Nord']),
           ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 220,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Align(
-                alignment: Alignment.center,
-                child: Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'Pli',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                  ),
-                ),
-              ),
-              Align(
-                alignment: const Alignment(0, -0.9),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Nord', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    _buildTrickCard(playedMap['Nord']),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: const Alignment(0.9, 0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Est', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    _buildTrickCard(playedMap['Est']),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: const Alignment(-0.9, 0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Ouest', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    _buildTrickCard(playedMap['Ouest']),
-                  ],
-                ),
-              ),
-              Align(
-                alignment: const Alignment(0, 0.9),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Sud', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    const SizedBox(height: 6),
-                    _buildTrickCard(playedMap['Sud']),
-                  ],
-                ),
-              ),
-            ],
+          // Est et Ouest rapprochés du centre
+          Align(
+            alignment: const Alignment(0.38, -0.05),
+            child: _buildTrickCard(playedMap['Est']),
           ),
-        ),
-      ],
+          Align(
+            alignment: const Alignment(-0.38, -0.05),
+            child: _buildTrickCard(playedMap['Ouest']),
+          ),
+          Align(
+            alignment: const Alignment(0, 0.6),
+            child: _buildTrickCard(playedMap['Sud']),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildTrickCard(PlayedCard? playedCard) {
     if (playedCard == null) {
       return Container(
-        width: 42,
-        height: 54,
+        width: 50,
+        height: 64,
         decoration: BoxDecoration(
-          color: Colors.white24,
+          color: Colors.white12,
           borderRadius: BorderRadius.circular(8),
         ),
       );
@@ -753,6 +1124,7 @@ class _GameScreenState extends State<GameScreen>
         context: context,
         builder: (_) => CallPopup(
           playerName: current,
+          availableCalls: callSystem.availableCalls,
           onCall: (option) async {
             await callSystem.makeCall(option);
             await _showCallBubble(current, option);
@@ -854,6 +1226,39 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  Widget _playerAvatar(String player, {bool isActive = false}) {
+    final isCurrentPlayer = callSystem.currentPlayer == player;
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isCurrentPlayer ? Colors.yellow : Colors.transparent,
+          width: 3,
+        ),
+      ),
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.grey[300],
+        ),
+        child: Center(
+          child: Text(
+            player[0],
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.black,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _positionedMarker(String player, Color color) {
     final media = MediaQuery.of(context);
     final w = media.size.width;
@@ -861,28 +1266,28 @@ class _GameScreenState extends State<GameScreen>
     switch (player) {
       case "Nord":
         return Positioned(
-          top: 4,
-          left: w * 0.5 + 50,
-          child: _marker(color: color),
+          top: 80,
+          left: w * 0.5 - 28,
+          child: _playerAvatar(player),
         );
       case "Est":
         return Positioned(
-          right: 4,
-          top: h * 0.4 - 10,
-          child: _marker(color: color),
+          right: 12,
+          top: h * 0.35,
+          child: _playerAvatar(player),
         );
       case "Ouest":
         return Positioned(
-          left: 4,
-          top: h * 0.4 - 10,
-          child: _marker(color: color),
+          left: 12,
+          top: h * 0.35,
+          child: _playerAvatar(player),
         );
       case "Sud":
       default:
         return Positioned(
-          bottom: 140,
-          left: w * 0.5 + 50,
-          child: _marker(color: color),
+          bottom: 12,
+          left: w * 0.5 - 28,
+          child: _playerAvatar(player),
         );
     }
   }
@@ -915,6 +1320,110 @@ class _GameScreenState extends State<GameScreen>
       default:
         return Positioned(bottom: 160, left: w * 0.5 - 60, child: content);
     }
+  }
+
+  Widget _buildGameInfoBar() {
+    final contractLabel = callSystem.contractCall != null
+        ? _callOptionLabel(callSystem.contractCall!)
+        : "En attente";
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () {
+              // Ici tu peux mettre une alerte de confirmation
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text("Confirmation", textAlign: TextAlign.center),
+                  content: const Text("Voulez-vous abandonner ?", textAlign: TextAlign.center),
+                  actionsAlignment: MainAxisAlignment.center,
+                  actions: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text("Non", style: TextStyle(color: Colors.white)),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () {
+                        Navigator.of(context).pop(); // ferme le dialogue
+                        Navigator.pop(context); // quitte la page
+                      },
+                      child: const Text("Oui", style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          Column(
+            children: [
+              const Text(
+                "Score",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "${gameScore["NS"] ?? 0} - ${gameScore["EO"] ?? 0}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          Column(
+            children: [
+              const Text(
+                "Contrat",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                contractLabel,
+                style: const TextStyle(
+                  color: Colors.yellow,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (callSystem.contractWinner != null)
+                Text(
+                  callSystem.contractWinner!,
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+            ],
+          ),
+          Column(
+            children: [
+              const Text(
+                "Pli",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                tricksPlayed.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Alignment _alignmentForPlayer(String player) {
@@ -964,7 +1473,6 @@ class _GameScreenState extends State<GameScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Partie contre IA")),
       body: Stack(
         children: [
           Positioned.fill(
@@ -980,6 +1488,11 @@ class _GameScreenState extends State<GameScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Column(
                 children: [
+                  // Barre d'infos (Score, Contrat, Pli)
+                  _buildGameInfoBar(),
+                  
+                  const SizedBox(height: 12),
+
                   // Nord (IA 0)
                   SizedBox(
                     height: 120,
@@ -988,10 +1501,6 @@ class _GameScreenState extends State<GameScreen>
                       showBack: true,
                     ),
                   ),
-
-                  const SizedBox(height: 12),
-
-                  _showTrickArea(),
 
                   const SizedBox(height: 12),
 
@@ -1025,11 +1534,115 @@ class _GameScreenState extends State<GameScreen>
             ),
           ),
 
+          // Afficher la zone de pli en overlay pour ne pas impacter le layout des mains
+          Positioned(
+            top: MediaQuery.of(context).size.height * 0.33,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              ignoring: true,
+              child: _showTrickArea(),
+            ),
+          ),
+
           if (showCallBubble) _positionedCallBubble(),
-          if (starterPlayer != null)
-            _positionedMarker(starterPlayer!, Colors.black),
-          if (winningPlayer != null)
-            _positionedMarker(winningPlayer!, Colors.white),
+          
+          // Afficher les avatars des joueurs avec contour pour le joueur actif
+          _positionedMarker("Nord", Colors.black),
+          _positionedMarker("Est", Colors.white),
+          _positionedMarker("Ouest", Colors.white),
+          _positionedMarker("Sud", Colors.black),
+
+          // Overlay : résultat de la manche + bouton Suivant
+          if (waitingForNextHand)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black45,
+                child: Center(
+                  child: Card(
+                    color: Colors.blueGrey[900],
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Résultat de la manche', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 12),
+                          if (handHistory.isNotEmpty && handHistory.last.dedans)
+                            const Text('Dedans !', style: TextStyle(color: Colors.orangeAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('NS : +${lastHandDelta["NS"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                          Text('EO : +${lastHandDelta["EO"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: overallWinner == null ? _applyLastHandAndNext : null,
+                            child: const Text('Suivant'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Overlay : victoire de la partie
+          if (overallWinner != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: Center(
+                  child: Card(
+                    color: Colors.green[800],
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Victoire : ${overallWinner == 'NS' ? 'Nord-Sud' : 'Est-Ouest'}', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: () {
+                              // reset complet pour recommencer une nouvelle partie
+                              setState(() {
+                                gameScore = {"NS": 0, "EO": 0};
+                                overallWinner = null;
+                                waitingForNextHand = false;
+                                lastHandDelta = {"NS": 0, "EO": 0};
+                                handHistory.clear();
+                                teamPoints = {"NS": 0, "EO": 0};
+                                tricksPlayed = 0;
+                                currentTrick = [];
+                                playerHand.clear();
+                                aiHands = [[], [], []];
+                                deck = Deck();
+                                deck.shuffle();
+                                // Nouveau départ de partie : choisir aléatoirement le premier joueur
+                                starterIndex = Random().nextInt(players.length);
+                                order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
+                                callSystem = CallSystem(players, initialIndex: starterIndex);
+                                biddingFinished = false;
+                                gameOver = false;
+                              });
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _dealCards();
+                              });
+                            },
+                            child: const Text('Recommencer'),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: _showStatistics,
+                            child: const Text('Statistiques'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          
           if (!biddingFinished)
             Positioned(
               top: MediaQuery.of(context).size.height / 2 - 40,
