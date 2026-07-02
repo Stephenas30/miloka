@@ -19,7 +19,7 @@ class MilokaApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: "Miloka",
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const HomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }
