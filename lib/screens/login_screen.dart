@@ -1,214 +1,209 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
   State<StatefulWidget> createState() {
-    // TODO: implement createState
     return _LoginScreenState();
   }
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController userNameController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-
   bool showPassword = false;
-  bool loading = false;
-  bool disabled = true;
-
-  void handleInput(){
-    if((userNameController.text.isNotEmpty) && (passwordController.text.isNotEmpty)){
-      setState(() {
-        disabled = false;
-      });
-    }else{
-      setState(() {
-        disabled = true;
-      });
-    }
-  }
-
-/*   Future connexion() async {
-    setState(() {
-      loading = true;
-    });
-    try {
-      var response = await login(
-        userNameController.text,
-        passwordController.text,
-      );
-      print(response);
-
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => NavigationBarApp()));
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Connexion réussie",
-            style: TextStyle(color: Colors.white),
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      print(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString(), style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        loading = false;
-      });
-    }
-  } */
-
-  @override
-  void dispose() {
-    // TODO: implement dispose
-    userNameController.dispose();
-    passwordController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    // TODO: implement build
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () {
-            Navigator.pop(context);
-          },
-          icon: Icon(Icons.arrow_back, color: Colors.white),
-        ),
-        title: Text("Connexion", style: TextStyle(color: Colors.white),),
-        backgroundColor: const Color.fromARGB(255, 3, 10, 17),
-      ),
-      body: GestureDetector(
-        onTap: () {
-          FocusScope.of(context).unfocus();
-        },
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    spacing: 10,
-                    children: <Widget>[
-                      TextFormField(
-                        controller: userNameController,
-                        decoration: const InputDecoration(
-                          fillColor: const Color.fromARGB(255, 8, 25, 42),
-                          hintText: 'Entrer votre nom d\'utilisation',
-                          label: Text('Nom d\'utilisation'),
-                        ),
-                        style: TextStyle(color: Colors.white),
-                        onChanged: (e) => handleInput(),
-                        validator: (String? value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter some text';
-                          }
-                          return null;
-                        },
+      backgroundColor: Colors.white,
+      body: Consumer<AuthProvider>(
+        builder: (context, authProvider, _) {
+          if (authProvider.isLoading) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 60),
+                    // Logo/Titre
+                    const Text(
+                      'Miloka',
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
                       ),
-                      TextFormField(
-                        controller: passwordController,
-                        onChanged: (e) => handleInput(),
-                        style: TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          fillColor: const Color.fromARGB(255, 8, 25, 42),
-                          hintText: 'Entrer votre mot de passe',
-                          label: Text('Mot de passe'),
-                          suffixIcon: IconButton(
-                            onPressed: () {
-                              setState(() {
-                                showPassword = !showPassword;
-                              });
-                            },
-                            icon: Icon(
-                              showPassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Bienvenue dans le monde des jeux',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 60),
+
+                    // Message d'erreur
+                    if (authProvider.error != null)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade100,
+                          border: Border.all(color: Colors.red),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          authProvider.error!,
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+
+                    // Bouton Google Sign-In
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: authProvider.isLoading
+                            ? null
+                            : () async {
+                                try {
+                                  await authProvider.signInWithGoogle();
+                                  if (mounted && context.mounted) {
+                                    Navigator.of(context).pushReplacement(
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const HomeScreen(),
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Erreur de connexion: $e',
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        icon: const Icon(Icons.login),
+                        label: const Text(
+                          'Se connecter avec Google',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: const BorderSide(color: Colors.grey),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Divider
+                    const Row(
+                      children: [
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('OU'),
+                        ),
+                        Expanded(child: Divider()),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Bouton de connexion traditionnelle
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          // TODO: Implémenter connexion par email/password si nécessaire
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Connexion par email en développement',
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Se connecter avec Email',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Texte inscription
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          "Pas de compte? ",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            // TODO: Implémenter navigation vers register
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "Inscription en développement",
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text(
+                            "S'inscrire",
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
-                        obscureText: !showPassword,
-                        validator: (String? value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter some password';
-                          }
-                          return null;
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16.0),
-                        child: ElevatedButton(
-                          style: ButtonStyle(
-                            /* backgroundColor: MaterialStateProperty.all<Color>(
-                              loading ? Colors.grey : AppColors.primary
-                            ), */
-                          ),
-                          onPressed: (disabled | loading) ? null : () {
-                            // Validate will return true if the form is valid, or false if
-                            // the form is invalid.
-                            if (_formKey.currentState!.validate()) {
-                              // Process data.
-                              //connexion();
-                            }
-                          },
-                          child: loading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.0,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                )
-                              : const Text('Continuer'),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {},
-                        child: Text('Mot de passe oublié?'),
-                      ),
-                      SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('Vous n\'avez pas de compte?', /* style: AppTextStyles.subtitle */),
-                          TextButton(
-                            onPressed: () {
-                              /* Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => RegisterScreen(),
-                                ),
-                              ); */
-                            },
-                            child: Text('Inscription'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

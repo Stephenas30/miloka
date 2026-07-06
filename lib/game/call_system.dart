@@ -88,12 +88,15 @@ class CallSystem {
     await Future.delayed(const Duration(seconds: 1));
 
     if (!availableCalls.contains(option)) {
-      print("⛔ ${currentPlayer} ne peut pas appeler ${option.name}, ce n'est pas une option valide.");
-      if (!isHuman) option = CallOption.pass;
-      else return;
+      print("⛔ $currentPlayer ne peut pas appeler ${option.name}, ce n'est pas une option valide.");
+      if (!isHuman) {
+        option = CallOption.pass;
+      } else {
+        return;
+      }
     }
 
-    print("🎤 ${currentPlayer} a appelé : ${option.name}");
+    print("🎤 $currentPlayer a appelé : ${option.name}");
 
     if (option == CallOption.pass) {
       passesInRow++;

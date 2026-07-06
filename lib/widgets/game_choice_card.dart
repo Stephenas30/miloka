@@ -46,8 +46,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => const BeloteScreen(),
-            transitionsBuilder: (_, animation, __, child) {
+            pageBuilder: (_, _, _) => const BeloteScreen(),
+            transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,
                 child: child,
@@ -60,8 +60,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => const LudoScreen(),
-            transitionsBuilder: (_, animation, __, child) {
+            pageBuilder: (_, _, _) => const LudoScreen(),
+            transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,
                 child: child,

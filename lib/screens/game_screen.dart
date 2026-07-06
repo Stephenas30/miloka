@@ -5,6 +5,7 @@ import '../game/deck.dart';
 import '../models/card_model.dart';
 import '../game/call_system.dart';
 import '../widgets/call_popup.dart';
+import '../service/stats_service.dart';
 
 class PlayedCard {
   final String player;
@@ -481,7 +482,7 @@ class _GameScreenState extends State<GameScreen>
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: handHistory.length,
-                  separatorBuilder: (_, __) => const Divider(),
+                  separatorBuilder: (_, _) => const Divider(),
                   itemBuilder: (context, index) {
                     final entry = handHistory[index];
                     final contractLabel = _callOptionLabel(entry.contractCall);
@@ -1226,7 +1227,7 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  Widget _playerAvatar(String player, {bool isActive = false}) {
+  Widget _playerAvatar(String player) {
     final isCurrentPlayer = callSystem.currentPlayer == player;
     return Container(
       width: 56,
@@ -1602,7 +1603,12 @@ class _GameScreenState extends State<GameScreen>
                           Text('Victoire : ${overallWinner == 'NS' ? 'Nord-Sud' : 'Est-Ouest'}', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 12),
                           ElevatedButton(
-                            onPressed: () {
+                            onPressed: () async {
+                              await StatsService().recordGameResult(
+                                gameName: 'belote',
+                                won: overallWinner == 'NS',
+                                context: context,
+                              );
                               // reset complet pour recommencer une nouvelle partie
                               setState(() {
                                 gameScore = {"NS": 0, "EO": 0};
