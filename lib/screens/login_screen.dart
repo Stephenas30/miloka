@@ -24,7 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         child: Consumer<AuthProvider>(
-          builder: (context, authProvider, _) {
+          builder: (ctx, authProvider, _) {
             if (authProvider.isLoading) {
               return const Center(
                 child: CircularProgressIndicator(),
@@ -81,19 +81,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                 onPressed: authProvider.isLoading
                                     ? null
                                     : () async {
+                                        final navigator = Navigator.of(context);
+                                        final messenger = ScaffoldMessenger.of(context);
                                         try {
                                           await authProvider.signInWithGoogle();
-                                          if (mounted && context.mounted) {
-                                            Navigator.of(context).pushReplacement(
+                                          if (mounted) {
+                                            navigator.pushReplacement(
                                               MaterialPageRoute(
-                                                builder: (context) =>
+                                                builder: (_) =>
                                                     const HomeScreen(),
                                               ),
                                             );
                                           }
                                         } catch (e) {
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
+                                            messenger.showSnackBar(
                                               SnackBar(
                                                 content: Text(
                                                   'Erreur de connexion: $e',

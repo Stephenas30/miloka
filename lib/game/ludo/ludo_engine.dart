@@ -13,7 +13,6 @@ extension LudoColorExt on LudoColor {
 
   int get startIndex => index * 13;
 
-  bool get isHuman => this == LudoColor.red;
 }
 
 class LudoPawn {
@@ -73,14 +72,15 @@ class LudoEngine {
   LudoColor? winner;
   String message = 'Lance le dé pour commencer';
 
+  final LudoColor humanColor;
   final Random _random = Random();
 
-  LudoEngine()
+  LudoEngine({required this.humanColor})
       : players = [
-          LudoPlayer(color: LudoColor.red, isHuman: true),
-          LudoPlayer(color: LudoColor.green, isHuman: false),
-          LudoPlayer(color: LudoColor.yellow, isHuman: false),
-          LudoPlayer(color: LudoColor.blue, isHuman: false),
+          LudoPlayer(color: LudoColor.red, isHuman: humanColor == LudoColor.red),
+          LudoPlayer(color: LudoColor.green, isHuman: humanColor == LudoColor.green),
+          LudoPlayer(color: LudoColor.yellow, isHuman: humanColor == LudoColor.yellow),
+          LudoPlayer(color: LudoColor.blue, isHuman: humanColor == LudoColor.blue),
         ];
 
   LudoPlayer get currentPlayer => players[currentPlayerIndex];
@@ -160,14 +160,12 @@ class LudoEngine {
     final captured = _lastCapture;
     _lastCapture = false;
 
-    //diceRolled = false;
+    extraTurn = false;
     if (rolledSix || captured) {
       extraTurn = true;
       message = captured
           ? 'Capture ! ${currentPlayer.color.label} rejoue'
           : '6 obtenu ! ${currentPlayer.color.label} rejoue';
-    } else {
-      //_nextPlayer();
     }
     return true;
   }
@@ -201,10 +199,7 @@ class LudoEngine {
   }
 
   void skipTurnIfNoMoves() {
-    //if (diceRolled && getValidMoves().isEmpty) {
-      //diceRolled = false;
-    //_nextPlayer();
-    //}
+    extraTurn = false;
   }
 
   void _nextPlayer() {
@@ -232,12 +227,6 @@ class LudoEngine {
 
   void aiPlay() {
     if (winner != null || currentPlayer.isHuman) return;
-    //print('diceRolled = $diceRolled');
-
-    //if (!diceRolled) {
-      rollDice();
-      // return;
-    //} 
 
     final moves = getValidMoves();
     if (moves.isEmpty) {

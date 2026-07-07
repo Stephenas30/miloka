@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../game/ludo/ludo_board_layout.dart';
 import '../game/ludo/ludo_engine.dart';
+import '../providers/auth_provider.dart';
 import '../service/stats_service.dart';
+import 'profile_screen.dart';
+import 'purchase_screen.dart';
 
 class LudoScreen extends StatefulWidget {
   const LudoScreen({super.key});
@@ -15,13 +19,14 @@ class LudoScreen extends StatefulWidget {
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
 
-  final LudoEngine _engine = LudoEngine();
+  late final LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
   int _displayDice = 1;
   LudoPawn? _selectedPawn;
   bool _winnerDialogShown = false;
   bool _beginGame = false;
+  bool _aiPlaying = false;
 
   @override
   void initState() {
@@ -40,16 +45,30 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _scheduleAiTurn() {
-    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
-    if (isHumanTurn) return;
-    _aiTimer?.cancel();
     if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
+    if (_aiTimer != null && _aiTimer!.isActive) return;
+    if (_aiPlaying) return;
 
     _aiTimer = Timer(const Duration(milliseconds: 1900), () {
       if (!mounted) return;
-      setState(() {
-        _animateDiceRoll(_engine.rollDice());
-        _engine.aiPlay();
+      _aiPlaying = true;
+      _aiTimer = null;
+      final value = _engine.rollDice();
+      setState(() {});
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
+        setState(() {
+          _engine.aiPlay();
+          if (_engine.winner == null) {
+            if (_engine.extraTurn) {
+              _engine.scheduleTurnEnd(extraTurn: true);
+            } else {
+              _engine.scheduleTurnEnd(extraTurn: false);
+            }
+          }
+          _aiPlaying = false;
+          _scheduleAiTurn();
+        });
       });
     });
   }
@@ -68,10 +87,6 @@ class _LudoScreenState extends State<LudoScreen>
     await Future.delayed(const Duration(milliseconds: 420), () {
       if (mounted) setState(() => _displayDice = value);
     });
-
-    _engine.scheduleTurnEnd(extraTurn: value == 6); 
-
-    return Future.value();
   }
 
   void _onRollDice() {
@@ -79,29 +94,163 @@ class _LudoScreenState extends State<LudoScreen>
         !_engine.currentPlayer.isHuman) {
       return;
     }
-    setState(() {
-      _selectedPawn = null;
-      _animateDiceRoll(_engine.rollDice());
+    final value = _engine.rollDice();
+    setState(() => _selectedPawn = null);
+    _animateDiceRoll(value).then((_) {
+      if (!mounted) return;
+      setState(() {
+        if (_engine.getValidMoves().isEmpty) {
+          _engine.scheduleTurnEnd(extraTurn: false);
+          _scheduleAiTurn();
+        }
+      });
     });
-    if (_engine.getValidMoves().isEmpty /* && _engine.diceRolled == false */) {
-      _scheduleAiTurn();
-    }
   }
 
   void _onPawnTap(LudoPawn pawn) {
     if (_engine.winner != null ||
-        !_engine.currentPlayer.isHuman /* ||
-        !_engine.diceRolled */) {
+        !_engine.currentPlayer.isHuman) {
       return;
     }
     if (!_engine.canMovePawn(pawn)) return;
 
+    final moved = _engine.applyMove(pawn);
+    if (!moved) return;
+
     setState(() {
-      _selectedPawn = pawn;
-      _engine.applyMove(pawn);
       _selectedPawn = null;
     });
-  _scheduleAiTurn();
+
+    if (_engine.winner != null) return;
+
+    if (_engine.extraTurn) {
+      _engine.scheduleTurnEnd(extraTurn: true);
+    } else {
+      _engine.scheduleTurnEnd(extraTurn: false);
+      _scheduleAiTurn();
+    }
+  }
+
+  void _startGame(LudoColor color) {
+    setState(() {
+      _engine = LudoEngine(humanColor: color);
+      _beginGame = true;
+    });
+    if (!_engine.currentPlayer.isHuman) {
+      _scheduleAiTurn();
+    }
+  }
+
+  Future<void> _showColorPicker() async {
+    LudoColor? selectedColor;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1a1a2e),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Center(
+            child: Text(
+              'Choisis ta couleur',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          content: SizedBox(
+            width: 220,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Quelle couleur veux-tu jouer ?',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.center,
+                  children: LudoColor.values.map((color) {
+                    final isSelected = selectedColor == color;
+                    return GestureDetector(
+                      onTap: () => setDialogState(() => selectedColor = color),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: LudoBoardLayout.colorValues[color],
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? Colors.white : Colors.black26,
+                            width: isSelected ? 4 : 2,
+                          ),
+                          boxShadow: [
+                            if (isSelected)
+                              BoxShadow(
+                                color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.6),
+                                blurRadius: 12,
+                                spreadRadius: 2,
+                              ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            color.label,
+                            style: TextStyle(
+                              color: color == LudoColor.yellow ? Colors.black87 : Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            Center(
+              child: SizedBox(
+                width: 180,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: selectedColor != null
+                        ? LudoBoardLayout.colorValues[selectedColor]
+                        : Colors.grey.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  onPressed: selectedColor != null
+                      ? () {
+                          Navigator.pop(ctx);
+                          _startGame(selectedColor!);
+                        }
+                      : null,
+                  child: const Text(
+                    'Valider',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _restartGame() {
@@ -117,7 +266,7 @@ class _LudoScreenState extends State<LudoScreen>
   Future<void> _finishGameWithStats() async {
     await StatsService().recordGameResult(
       gameName: 'ludo',
-      won: _engine.winner?.isHuman ?? false,
+      won: _engine.winner == _engine.humanColor,
       context: context,
     );
   }
@@ -153,28 +302,26 @@ class _LudoScreenState extends State<LudoScreen>
 
   @override
   Widget build(BuildContext context) {
-    print('Humain => ${_engine.currentPlayer.isHuman}');
-
-
-    if (_engine.winner != null && !_winnerDialogShown) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _finishGameWithStats();
-          _showWinnerDialog();
-        }
-      });
-    } else if (_engine.winner == null && !_engine.currentPlayer.isHuman) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleAiTurn());
-       print('àààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààà');
+    if (_beginGame) {
+      if (_engine.winner != null && !_winnerDialogShown) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _finishGameWithStats();
+            _showWinnerDialog();
+          }
+        });
+      }
     }
 
     return Scaffold(
       floatingActionButtonLocation: FloatingActionButtonLocation.startTop,
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: const Color(0xFF006400),
-        onPressed: () => Navigator.pop(context),
-        child: const Icon(Icons.arrow_back, color: Colors.white),
-      ),
+      floatingActionButton: _beginGame
+          ? FloatingActionButton(
+              backgroundColor: const Color(0xFF006400),
+              onPressed: () => Navigator.pop(context),
+              child: const Icon(Icons.arrow_back, color: Colors.white),
+            )
+          : null,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -199,22 +346,152 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildMain() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _beginGame = true;
-              });
-            },
-            child: Text('Jouer Solo'),
+    final authProvider = context.read<AuthProvider?>();
+    final coins = int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ?? 0;
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final username = authProvider?.userProfile?['username']?.toString() ?? 'Profil';
+
+    return Stack(
+      children: [
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Ludo',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                ),
+              ),
+              const SizedBox(height: 40),
+              _buildPawnChoice('Solo', LudoColor.red, () {
+                _showColorPicker();
+              }),
+              const SizedBox(height: 20),
+              _buildPawnChoice('En ligne', LudoColor.green, () {}),
+              const SizedBox(height: 20),
+              _buildPawnChoice('Multi', LudoColor.blue, () {}),
+            ],
           ),
-          ElevatedButton(onPressed: () {}, child: Text('Jouer En ligne')),
-          ElevatedButton(onPressed: () {}, child: Text('Jouer Multiplayer')),
-          ElevatedButton(onPressed: () {}, child: Text('Sortir')),
-        ],
+        ),
+        Positioned(
+          top: 12,
+          left: 12,
+          right: 12,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: Colors.white24,
+                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                            ? NetworkImage(avatarUrl)
+                            : null,
+                        child: avatarUrl == null || avatarUrl.isEmpty
+                            ? const Icon(Icons.person, color: Colors.white, size: 16)
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(username,
+                          style: const TextStyle(color: Colors.white, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                      const SizedBox(width: 6),
+                      Text('$coins',
+                          style: const TextStyle(color: Colors.white, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          bottom: 20,
+          left: 16,
+          child: FloatingActionButton(
+            mini: true,
+            backgroundColor: const Color(0xFF006400),
+            onPressed: () => Navigator.pop(context),
+            child: const Icon(Icons.arrow_back, color: Colors.white),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPawnChoice(String label, LudoColor color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 180,
+        height: 68,
+        decoration: BoxDecoration(
+          color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 8,
+              offset: const Offset(2, 4),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Container(
+            width: 140,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.9),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: LudoBoardLayout.colorValues[color],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
