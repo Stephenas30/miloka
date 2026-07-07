@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:miloka/screens/home_screen.dart';
+import 'package:miloka/screens/register_screen.dart';
+import 'package:miloka/service/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -32,18 +35,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-/*   Future connexion() async {
+Future connexion() async {
     setState(() {
       loading = true;
     });
     try {
-      var response = await login(
-        userNameController.text,
-        passwordController.text,
-      );
-      print(response);
+      await AuthService.login(userNameController.text, passwordController.text);
 
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => NavigationBarApp()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -67,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
         loading = false;
       });
     }
-  } */
+  } 
 
   @override
   void dispose() {
@@ -111,10 +110,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: userNameController,
                         decoration: const InputDecoration(
                           fillColor: const Color.fromARGB(255, 8, 25, 42),
-                          hintText: 'Entrer votre nom d\'utilisation',
-                          label: Text('Nom d\'utilisation'),
+                          hintText: 'Entrer votre email',
+                          label: Text('Email'),
                         ),
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(color: Colors.black),
                         onChanged: (e) => handleInput(),
                         validator: (String? value) {
                           if (value == null || value.isEmpty) {
@@ -126,7 +125,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       TextFormField(
                         controller: passwordController,
                         onChanged: (e) => handleInput(),
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(color: Colors.black),
                         decoration: InputDecoration(
                           fillColor: const Color.fromARGB(255, 8, 25, 42),
                           hintText: 'Entrer votre mot de passe',
@@ -165,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             // the form is invalid.
                             if (_formKey.currentState!.validate()) {
                               // Process data.
-                              //connexion();
+                              connexion();
                             }
                           },
                           child: loading
@@ -191,12 +190,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           Text('Vous n\'avez pas de compte?', /* style: AppTextStyles.subtitle */),
                           TextButton(
                             onPressed: () {
-                              /* Navigator.push(
+                              Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => RegisterScreen(),
                                 ),
-                              ); */
+                              ); 
                             },
                             child: Text('Inscription'),
                           ),

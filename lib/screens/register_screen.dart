@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:miloka/screens/login_screen.dart';
+import 'package:miloka/service/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -37,23 +39,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-/*   void registerHandler() async {
+void registerHandler() async {
     if (_passwordController.text == _cpasswordController.text) {
       setState(() {
       loading = true;
     });
       try {
-        await register(
-          _usernameController.text,
-          _mailController.text,
-          _passwordController.text,
-        );
+        await AuthService.register(_mailController.text, _passwordController.text);
 
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => CreateProfilScreen()),
+          MaterialPageRoute(builder: (_) => LoginScreen()),
         );
-        //ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(""), backgroundColor: Colors.red,));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Inscription réussie"), backgroundColor: Colors.green,));
       } catch (e) {
         print(e);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -67,7 +65,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }else{
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Vueillez saisir le même mot de passe.', style: TextStyle(color: Colors.white),), backgroundColor: Colors.red,));
     }
-  } */
+  } 
 
   @override
   void dispose() {
@@ -125,7 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 label: Text('Nom d\'utilisation', /* style: AppTextStyles.subtitle */),
                                 fillColor: const Color.fromARGB(255, 8, 25, 42),
                               ),
-                              style: TextStyle(color: Colors.white),
+                              style: TextStyle(color: Colors.black),
                               validator: (String? value) {
                                 if (value == null || value.isEmpty) {
                                   return 'Please enter some text';
@@ -141,7 +139,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 label: Text('E-mail', /* style: AppTextStyles.subtitle */),
                                 fillColor: const Color.fromARGB(255, 8, 25, 42),
                               ),
-                              style: TextStyle(color: Colors.white),
+                              style: TextStyle(color: Colors.black),
                               validator: (String? value) {
                                 if (value == null || value.isEmpty) {
                                   return 'Please enter some text';
@@ -152,7 +150,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             TextFormField(
                               controller: _passwordController,
                               onChanged: (e) => handleInput(),
-                              style: TextStyle(color: Colors.white),
+                              style: TextStyle(color: Colors.black),
                               decoration: InputDecoration(
                                 hintText: 'Entrer votre mot de passe',
                                 label: Text('Mot de passe', /* style: AppTextStyles.subtitle */),
@@ -186,7 +184,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 label: Text('Confirmer votre mot de passe', /* style: AppTextStyles.subtitle */),
                                 fillColor: const Color.fromARGB(255, 8, 25, 42),
                               ),
-                              style: TextStyle(color: Colors.white),
+                              style: TextStyle(color: Colors.black),
                               obscureText: true,
                               validator: (String? value) {
                                 if (value == null || value.isEmpty) {
@@ -209,7 +207,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       // the form is invalid.
                                       if (_formKey.currentState!.validate()) {
                                         // Process data.
-                                        //registerHandler();
+                                        registerHandler();
                                       }
                                     },
                               child: loading
@@ -235,12 +233,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             Text('Vous avez déjà un compte?', /* style: AppTextStyles.subtitle */),
                             TextButton(
                               onPressed: () {
-                                /* Navigator.push(
+                                Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) => LoginScreen(),
                                   ),
-                                ); */
+                                );
                               },
                               child: Text('Connexion'),
                             ),
