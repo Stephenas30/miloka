@@ -1,26 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:miloka/screens/profil_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../widgets/game_choice.dart';
+import 'profile_screen.dart';
+import 'purchase_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider?>(context);
+    final coins = int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ?? 0;
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final username = authProvider?.userProfile?['username']?.toString() ?? 'Profil';
+
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        onPressed: () {
-          // Action when floating action button is pressed
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => ProfilScreen()),
-          );
-        },
-        child: Icon(Icons.settings),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+      backgroundColor: Colors.transparent,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -28,88 +24,99 @@ class HomeScreen extends StatelessWidget {
             fit: BoxFit.cover,
           ),
         ),
-        child: Stack(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Positioned.fill(
-              child: Column(
+            // Top controls: profil à gauche, boutique à droite
+            Padding(
+              padding: const EdgeInsets.only(top: 12, left: 12, right: 12),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Logo en haut
-                  Padding(
-                    padding: const EdgeInsets.only(top: 40),
-                    child: Center(
-                      child: Image.asset("assets/images/logo.png", height: 200),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundColor: Colors.white24,
+                            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                ? NetworkImage(avatarUrl)
+                                : null,
+                            child: avatarUrl == null || avatarUrl.isEmpty
+                                ? const Icon(Icons.person, color: Colors.white, size: 16)
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(username,
+                              style: const TextStyle(color: Colors.white, fontSize: 14)),
+                        ],
+                      ),
                     ),
                   ),
-
-                  // Les cartes au centre
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.all(8),
-                      child: GameChoices(),
-                    ),
-                  ),
-
-                  // Signature en bas
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 20),
-                    child: Text(
-                      "by SDS",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white.withOpacity(0.9),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                          const SizedBox(width: 6),
+                          Text('$coins',
+                              style: const TextStyle(color: Colors.white, fontSize: 14)),
+                        ],
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-            Positioned(
-              top: 20,
-              left: 10,
-              child: Builder(
-                builder: (buttonContext) {
-                  return IconButton.filled(
-                    onPressed: () {
-                      final RenderBox box =
-                          buttonContext.findRenderObject() as RenderBox;
-                      final Offset position = box.localToGlobal(Offset.zero);
-                      final Size size = box.size;
 
-                      showMenu(
-                        context: buttonContext,
-                        items: const [
-                          PopupMenuItem(
-                            value: 'add_friend',
-                            child: Text('Add Friend'),
-                            
-                          ),
-                          PopupMenuItem(
-                            value: 'view_friends',
-                            child: Text('View Friends'),
-                          ),
-                        ],
-                        position: RelativeRect.fromLTRB(
-                          position.dx,
-                          position.dy + size.height,
-                          position.dx + size.width,
-                          position.dy + size.height,
-                        ),
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.people_alt_outlined,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    style: ButtonStyle(
-                      backgroundColor: MaterialStatePropertyAll(
-                        Colors.black.withOpacity(0.5),
-                      ),
-                    ),
-                  );
-                },
+            // Logo en haut
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Center(
+                child: Image.asset("assets/images/logo.png", height: 200),
+              ),
+            ),
+
+            // Les cartes au centre
+            Expanded(
+              child: Padding(padding: const EdgeInsets.all(8), child: GameChoices()),
+            ),
+
+            // Signature en bas
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: Text(
+                "by SDS",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
               ),
             ),
           ],

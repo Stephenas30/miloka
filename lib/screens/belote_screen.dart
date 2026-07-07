@@ -38,7 +38,7 @@ class _BeloteScreenState extends State<BeloteScreen> {
           children: [
             ShaderMask(
               shaderCallback: (bounds) => const LinearGradient(
-                colors: [Color(0xFFFFD700), Color(0xFF8B0000)],
+                colors: [Color.fromARGB(255, 255, 255, 255), Color.fromARGB(255, 255, 255, 255)],
               ).createShader(bounds),
               child: const Text(
                 "Sélectionne ton défi",

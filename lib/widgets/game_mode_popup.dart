@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../screens/classic_team_lobby_screen.dart';
 import '../screens/game_screen.dart';
+import '../service/team_lobby_service.dart';
 
 class GameModePopup extends StatefulWidget {
   final String mode;
@@ -13,15 +17,112 @@ class GameModePopup extends StatefulWidget {
 
 class _GameModePopupState extends State<GameModePopup> {
   final _formKey = GlobalKey<FormState>();
-
-  // Contrôleurs pour les champs
   final TextEditingController adversaireController = TextEditingController();
   final TextEditingController montantController = TextEditingController();
-  final TextEditingController tableController = TextEditingController();
-  final TextEditingController partenaireController = TextEditingController();
+  final TextEditingController teamIdController = TextEditingController();
 
   String? difficulte;
   String? modeIA;
+  String? errorMessage;
+
+  final TeamLobbyService _teamLobbyService = TeamLobbyService();
+
+  Future<void> _createTeam() async {
+    final authProvider = Provider.of<AuthProvider?>(context, listen: false);
+    final currentUser = authProvider?.currentUser;
+    final profile = authProvider?.userProfile ?? {};
+
+    if (currentUser == null) {
+      setState(() {
+        errorMessage = 'Connecte-toi pour créer une équipe.';
+      });
+      return;
+    }
+
+    try {
+      final teamId = await _teamLobbyService.createTeam(currentUser.id, profile);
+      Navigator.pop(context);
+      widget.onClosePopup?.call();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ClassicTeamLobbyScreen(teamId: teamId, isHost: true),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Erreur : ${e.toString()}';
+      });
+    }
+  }
+
+  Future<void> _joinTeam() async {
+    final authProvider = Provider.of<AuthProvider?>(context, listen: false);
+    final currentUser = authProvider?.currentUser;
+    final profile = authProvider?.userProfile ?? {};
+    final teamId = teamIdController.text.trim();
+
+    if (currentUser == null) {
+      setState(() {
+        errorMessage = 'Connecte-toi pour rejoindre une équipe.';
+      });
+      return;
+    }
+
+    if (teamId.isEmpty) {
+      setState(() {
+        errorMessage = 'Entre l’ID de l’équipe.';
+      });
+      return;
+    }
+
+    final team = await _teamLobbyService.getTeam(teamId);
+    if (team == null) {
+      setState(() {
+        errorMessage = 'Aucune équipe trouvée avec cet ID.';
+      });
+      return;
+    }
+
+    if (team['host_id'] == currentUser.id) {
+      setState(() {
+        errorMessage = 'Tu es déjà l’hôte de cette équipe.';
+      });
+      return;
+    }
+
+    try {
+      final joined = await _teamLobbyService.joinTeam(teamId, currentUser.id, profile);
+      if (!joined) {
+        setState(() {
+          errorMessage = 'Impossible de rejoindre, l\'équipe est peut-être déjà complète.';
+        });
+        return;
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Erreur : ${e.toString()}';
+      });
+      return;
+    }
+
+    Navigator.pop(context);
+    widget.onClosePopup?.call();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ClassicTeamLobbyScreen(teamId: teamId, isHost: false),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    adversaireController.dispose();
+    montantController.dispose();
+    teamIdController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,29 +153,40 @@ class _GameModePopupState extends State<GameModePopup> {
         break;
 
       case "Classique":
-        content = Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: tableController,
-                decoration: const InputDecoration(labelText: "ID table"),
-                validator: (value) =>
-                    value == null || value.isEmpty ? "Champ requis" : null,
+        content = Column(
+          children: [
+            TextFormField(
+              controller: teamIdController,
+              decoration: const InputDecoration(labelText: "ID Équipe"),
+            ),
+            const SizedBox(height: 16),
+            if (errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
               ),
-              TextFormField(
-                controller: partenaireController,
-                decoration: const InputDecoration(labelText: "ID partenaire"),
-                validator: (value) =>
-                    value == null || value.isEmpty ? "Champ requis" : null,
-              ),
-              TextFormField(
-                controller: montantController,
-                decoration: const InputDecoration(labelText: "Montant misé"),
-                keyboardType: TextInputType.number,
-              ),
-            ],
-          ),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _joinTeam,
+                    child: const Text('Joindre'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _createTeam,
+                    child: const Text('Créer'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         );
         break;
 
@@ -112,8 +224,8 @@ class _GameModePopupState extends State<GameModePopup> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 260,
-        height: 380,
+        width: 280,
+        height: 260,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -127,48 +239,41 @@ class _GameModePopupState extends State<GameModePopup> {
             ),
             const SizedBox(height: 20),
             Expanded(child: SingleChildScrollView(child: content)),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    widget.onClosePopup?.call();
-                  },
-                  child: const Text("Fermer"),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (_formKey.currentState?.validate() ?? true) {
-                      if (widget.mode == "Contre IA") {
-                        Navigator.pop(context); // ferme le popup
-                        widget.onClosePopup?.call();
-
-                        // Redirection vers la page de jeu
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const GameScreen()),
-                        );
-                      } else {
-                        // Ici tu lances la logique du jeu
-                        // Exemple : Navigator.push vers la page de jeu
-                        print("Mode: ${widget.mode}");
-                        print("Adversaire: ${adversaireController.text}");
-                        print("Montant: ${montantController.text}");
-                        print("ID table: ${tableController.text}");
-                        print("ID partenaire: ${partenaireController.text}");
-                        print("Difficulté: $difficulte");
-                        print("Mode IA: $modeIA");
-                        Navigator.pop(context);
-                        widget.onClosePopup?.call();
+            const SizedBox(height: 12),
+            if (widget.mode != "Classique")
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onClosePopup?.call();
+                    },
+                    child: const Text("Fermer"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (_formKey.currentState?.validate() ?? true) {
+                        if (widget.mode == "Contre IA") {
+                          Navigator.pop(context);
+                          widget.onClosePopup?.call();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const GameScreen()),
+                          );
+                        } else {
+                          print("Mode: ${widget.mode}");
+                          print("Adversaire: ${adversaireController.text}");
+                          print("Montant: ${montantController.text}");
+                          Navigator.pop(context);
+                          widget.onClosePopup?.call();
+                        }
                       }
-                    }
-                  },
-                  child: Text(widget.mode == "En ligne" ? "Créer" : "Jouer"),
-                ),
-              ],
-            ),
+                    },
+                    child: Text(widget.mode == "En ligne" ? "Créer" : "Jouer"),
+                  ),
+                ],
+              ),
           ],
         ),
       ),

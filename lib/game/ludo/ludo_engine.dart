@@ -1,6 +1,5 @@
 import 'dart:math';
 
-import 'package:flutter/material.dart';
 
 enum LudoColor { red, green, yellow, blue }
 

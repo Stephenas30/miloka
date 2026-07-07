@@ -41,13 +41,15 @@ class GameChoiceCardState extends State<GameChoiceCard>
         widget.onTap!();
         return;
       }
+
+      Future? future;
       if (widget.title == 'Belote') {
-        Navigator.push(
+        future = Navigator.push(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => const BeloteScreen(),
-            transitionsBuilder: (_, animation, __, child) {
+            pageBuilder: (_, _, _) => const BeloteScreen(),
+            transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,
                 child: child,
@@ -56,12 +58,12 @@ class GameChoiceCardState extends State<GameChoiceCard>
           ),
         );
       } else if (widget.title == 'Ludo') {
-        Navigator.push(
+        future = Navigator.push(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => const LudoScreen(),
-            transitionsBuilder: (_, animation, __, child) {
+            pageBuilder: (_, _, _) => const LudoScreen(),
+            transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,
                 child: child,
@@ -70,7 +72,7 @@ class GameChoiceCardState extends State<GameChoiceCard>
           ),
         );
       } else {
-        showDialog(
+        future = showDialog(
           context: context,
           builder: (_) => AlertDialog(
             title: const Text("Rami"),
@@ -84,6 +86,10 @@ class GameChoiceCardState extends State<GameChoiceCard>
           ),
         );
       }
+
+      future.then((_) {
+        if (mounted) _controller.reverse();
+      });
     });
   }
 
@@ -115,8 +121,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
 
   Widget _buildFrontFace() {
     return Container(
-      width: 80,
-      height: 40,
+      width: 100,
+      height: 150,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         image: const DecorationImage(
@@ -132,19 +138,23 @@ class GameChoiceCardState extends State<GameChoiceCard>
         ],
       ),
       child: Center(
-        child: Text(
-          widget.title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Color.fromARGB(255, 230, 207, 0),
-            shadows: [
-              Shadow(
-                color: Colors.black,
-                blurRadius: 4,
-                offset: Offset(1, 1),
-              ),
-            ],
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(
+            widget.title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color.fromARGB(255, 230, 207, 0),
+              shadows: [
+                Shadow(
+                  color: Colors.black,
+                  blurRadius: 4,
+                  offset: Offset(1, 1),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -153,8 +163,8 @@ class GameChoiceCardState extends State<GameChoiceCard>
 
   Widget _buildBackFace() {
     return Container(
-      width: 80,
-      height: 40,
+      width: 100,
+      height: 150,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),

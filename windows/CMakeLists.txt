@@ -32,6 +32,36 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# Some Windows plugins (such as flutter_secure_storage_windows) rely on ATL headers
+# like atlstr.h, which are not always exported in the default include paths.
+# Add the common Visual Studio ATL include directories when present.
+if(MSVC)
+  set(ATL_INCLUDE_DIRS
+    "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.38.33130/atlmfc/include"
+    "E:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.38.33130/atlmfc/include"
+    "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/atlmfc/include"
+    "E:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/atlmfc/include"
+  )
+  set(ATL_LIBRARY_DIRS
+    "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.38.33130/atlmfc/lib/x64"
+    "E:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.38.33130/atlmfc/lib/x64"
+    "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/atlmfc/lib/x64"
+    "E:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/atlmfc/lib/x64"
+  )
+  foreach(ATL_INCLUDE_DIR IN LISTS ATL_INCLUDE_DIRS)
+    if(EXISTS "${ATL_INCLUDE_DIR}")
+      include_directories("${ATL_INCLUDE_DIR}")
+      break()
+    endif()
+  endforeach()
+  foreach(ATL_LIBRARY_DIR IN LISTS ATL_LIBRARY_DIRS)
+    if(EXISTS "${ATL_LIBRARY_DIR}")
+      link_directories("${ATL_LIBRARY_DIR}")
+      break()
+    endif()
+  endforeach()
+endif()
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by

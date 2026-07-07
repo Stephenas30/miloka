@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../game/ludo/ludo_board_layout.dart';
 import '../game/ludo/ludo_engine.dart';
+import '../service/stats_service.dart';
 
 class LudoScreen extends StatefulWidget {
   const LudoScreen({super.key});
@@ -59,8 +60,9 @@ class _LudoScreenState extends State<LudoScreen>
     });
     for (var i = 0; i < 6; i++) {
       Future.delayed(Duration(milliseconds: i * 70), () {
-        if (mounted)
+        if (mounted) {
           setState(() => _displayDice = math.Random().nextInt(6) + 1);
+        }
       });
     }
     await Future.delayed(const Duration(milliseconds: 420), () {
@@ -112,6 +114,14 @@ class _LudoScreenState extends State<LudoScreen>
     });
   }
 
+  Future<void> _finishGameWithStats() async {
+    await StatsService().recordGameResult(
+      gameName: 'ludo',
+      won: _engine.winner?.isHuman ?? false,
+      context: context,
+    );
+  }
+
   void _showWinnerDialog() {
     if (_winnerDialogShown) return;
     _winnerDialogShown = true;
@@ -148,7 +158,10 @@ class _LudoScreenState extends State<LudoScreen>
 
     if (_engine.winner != null && !_winnerDialogShown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _showWinnerDialog();
+        if (mounted) {
+          _finishGameWithStats();
+          _showWinnerDialog();
+        }
       });
     } else if (_engine.winner == null && !_engine.currentPlayer.isHuman) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleAiTurn());
