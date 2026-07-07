@@ -8,25 +8,17 @@ class GameChoices extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: games.length < 3 ? games.length : 3,
-      childAspectRatio: 2/3,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      children: [
-        ...List.generate(games.length, (item) => GameChoiceCard(title: games[item]),)
-      ],
+    return GridView.builder(
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150, // largeur max d'une carte
+        childAspectRatio: 2 / 3,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+      ),
+      itemCount: games.length,
+      itemBuilder: (context, index) => GameChoiceCard(title: games[index]),
     );
-
-    /* Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: const [
-        GameChoiceCard(title: "Belote", isBelote: true),
-        SizedBox(width: 20),
-        GameChoiceCard(title: "Ludo", isLudo: true),
-        SizedBox(width: 20),
-        GameChoiceCard(title: "Ludo"),
-      ],
-    ); */
   }
 }

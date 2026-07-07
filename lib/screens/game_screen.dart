@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'dart:math';
-import '../game/deck.dart';
-import '../models/card_model.dart';
+import '../game/belote_game_logic.dart';
+import '../game/belote_rules.dart';
 import '../game/call_system.dart';
+import '../game/deck.dart';
+import '../game/played_card.dart';
+import '../models/card_model.dart';
 import '../widgets/call_popup.dart';
 import '../service/stats_service.dart';
-
-class PlayedCard {
-  final String player;
-  final CardModel card;
-  PlayedCard(this.player, this.card);
-}
 
 class HandHistoryEntry {
   final CallOption contractCall;
@@ -38,29 +34,13 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen>
   with SingleTickerProviderStateMixin {
-  late Deck deck;
-  late CallSystem callSystem;
-
-  List<CardModel> playerHand = [];
-  List<List<CardModel>> aiHands = [[], [], []]; // Nord, Est, Ouest
+  late BeloteGameLogic gameLogic;
 
   bool showCallBubble = false;
   String callBubblePlayer = "";
   String callBubbleText = "";
-  bool biddingFinished = false;
-  bool gameStarted = false;
-  bool gameOver = false;
-  String? starterPlayer;
-  String? winningPlayer;
-  int tricksPlayed = 0;
-  List<PlayedCard> currentTrick = [];
-  Map<String, int> teamPoints = {"NS": 0, "EO": 0};
-  Map<String, int> gameScore = {"NS": 0, "EO": 0}; // Score global du jeu
-  bool waitingForNextHand = false;
-  Map<String, int> lastHandDelta = {"NS": 0, "EO": 0};
   List<HandHistoryEntry> handHistory = [];
   String? overallWinner;
-  int starterIndex = 0;
 
   CardModel? animatingDealCard;
   String? animatingDealPlayer;
@@ -71,21 +51,13 @@ class _GameScreenState extends State<GameScreen>
   final Duration dealAnimationDuration = const Duration(milliseconds: 500);
   final Duration playAnimationDuration = const Duration(milliseconds: 450);
 
-  late List<String> order; // ordre de distribution
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
   @override
   void initState() {
     super.initState();
-    deck = Deck();
-    deck.shuffle();
+    gameLogic = BeloteGameLogic(players: players);
 
-    // Choisir aléatoirement le joueur qui commence AU DÉBUT de la partie
-    starterIndex = Random().nextInt(players.length);
-    order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
-    callSystem = CallSystem(players, initialIndex: starterIndex);
-
-    // Lancer la distribution animée
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _dealCards();
     });
@@ -94,14 +66,14 @@ class _GameScreenState extends State<GameScreen>
   /// Distribution animée : 3 cartes chacun puis 2 cartes chacun
   Future<void> _dealCards() async {
     // Premier tour : 3 cartes chacun
-    for (var player in order) {
+    for (var player in gameLogic.order) {
       for (var i = 0; i < 3; i++) {
         await _dealCardToPlayer(player);
       }
     }
 
     // Deuxième tour : 2 cartes chacun
-    for (var player in order) {
+    for (var player in gameLogic.order) {
       for (var i = 0; i < 2; i++) {
         await _dealCardToPlayer(player);
       }
@@ -112,7 +84,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _dealCardToPlayer(String player) async {
-    final card = deck.deal(1).first;
+    final card = gameLogic.deck.deal(1).first;
     setState(() {
       animatingDealCard = card;
       animatingDealPlayer = player;
@@ -127,13 +99,13 @@ class _GameScreenState extends State<GameScreen>
 
     setState(() {
       if (player == "Nord") {
-        aiHands[0].add(card);
+        gameLogic.aiHands[0].add(card);
       } else if (player == "Est") {
-        aiHands[1].add(card);
+        gameLogic.aiHands[1].add(card);
       } else if (player == "Ouest") {
-        aiHands[2].add(card);
+        gameLogic.aiHands[2].add(card);
       } else {
-        playerHand.add(card);
+        gameLogic.playerHand.add(card);
       }
       animatingDealCard = null;
       animatingDealPlayer = null;
@@ -142,330 +114,26 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _giveCards(String player, int count) {
-    if (player == "Nord") {
-      aiHands[0].addAll(deck.deal(count));
-    } else if (player == "Est") {
-      aiHands[1].addAll(deck.deal(count));
-    } else if (player == "Ouest") {
-      aiHands[2].addAll(deck.deal(count));
-    } else if (player == "Sud") {
-      playerHand.addAll(deck.deal(count));
-    }
-  }
-
-  List<CardModel> _handForPlayer(String player) {
-    switch (player) {
-      case "Nord":
-        return aiHands[0];
-      case "Est":
-        return aiHands[1];
-      case "Ouest":
-        return aiHands[2];
-      default:
-        return playerHand;
-    }
-  }
-
-  CallOption _bestCallForPlayer(String player) {
-    final hand = _handForPlayer(player);
-    final counts = <Suit, int>{
-      Suit.trefle: 0,
-      Suit.carreau: 0,
-      Suit.coeur: 0,
-      Suit.pique: 0,
-    };
-
-    for (final card in hand) {
-      counts[card.suit] = counts[card.suit]! + 1;
-    }
-
-    final sortedSuits = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    for (final entry in sortedSuits) {
-      final option = _suitToCallOption(entry.key);
-      if (callSystem.availableCalls.contains(option)) {
-        return option;
-      }
-    }
-
-    return CallOption.pass;
-  }
-
-  CallOption _suitToCallOption(Suit suit) {
-    switch (suit) {
-      case Suit.trefle:
-        return CallOption.treble;
-      case Suit.carreau:
-        return CallOption.diamond;
-      case Suit.coeur:
-        return CallOption.heart;
-      case Suit.pique:
-        return CallOption.spade;
-    }
+    gameLogic.giveCards(player, count);
   }
 
   String _callOptionLabel(CallOption option) {
-    switch (option) {
-      case CallOption.treble:
-        return "Trèfle";
-      case CallOption.diamond:
-        return "Carreau";
-      case CallOption.heart:
-        return "Cœur";
-      case CallOption.spade:
-        return "Pique";
-      case CallOption.sansAs:
-        return "Sans As";
-      case CallOption.toutAs:
-        return "Tout As";
-      case CallOption.x2:
-        return "x2";
-      case CallOption.x4:
-        return "x4";
-      case CallOption.pass:
-        return "Passer";
-    }
-  }
-
-  int _rankValue(Rank rank, CallOption mode) {
-    switch (mode) {
-      case CallOption.sansAs:
-        switch (rank) {
-          case Rank.as:
-            return 800;
-          case Rank.dix:
-            return 700;
-          case Rank.roi:
-            return 600;
-          case Rank.dame:
-            return 500;
-          case Rank.valet:
-            return 400;
-          case Rank.neuf:
-            return 300;
-          case Rank.huit:
-            return 200;
-          case Rank.sept:
-            return 100;
-        }
-      case CallOption.toutAs:
-      default:
-        switch (rank) {
-          case Rank.valet:
-            return 800;
-          case Rank.neuf:
-            return 700;
-          case Rank.as:
-            return 600;
-          case Rank.dix:
-            return 500;
-          case Rank.roi:
-            return 400;
-          case Rank.dame:
-            return 300;
-          case Rank.huit:
-            return 200;
-          case Rank.sept:
-            return 100;
-        }
-    }
-  }
-
-  List<CardModel> _sortedSouthHand(CallOption? contractCall) {
-    final cards = List<CardModel>.from(playerHand);
-    Suit? calledSuit;
-    if (contractCall == CallOption.treble) calledSuit = Suit.trefle;
-    if (contractCall == CallOption.diamond) calledSuit = Suit.carreau;
-    if (contractCall == CallOption.heart) calledSuit = Suit.coeur;
-    if (contractCall == CallOption.spade) calledSuit = Suit.pique;
-
-    final defaultMode = contractCall == CallOption.sansAs
-        ? CallOption.sansAs
-        : contractCall == CallOption.toutAs
-        ? CallOption.toutAs
-        : CallOption.sansAs;
-
-    final suitOrder = <Suit>[];
-    if (calledSuit != null) {
-      suitOrder.add(calledSuit);
-      for (var suit in Suit.values) {
-        if (suit != calledSuit) suitOrder.add(suit);
-      }
-    } else {
-      suitOrder.addAll(Suit.values);
-    }
-
-    cards.sort((a, b) {
-      final aGroup = suitOrder.indexOf(a.suit);
-      final bGroup = suitOrder.indexOf(b.suit);
-      if (aGroup != bGroup) return aGroup.compareTo(bGroup);
-
-      final aMode = calledSuit != null && a.suit == calledSuit
-          ? CallOption.toutAs
-          : defaultMode;
-      final bMode = calledSuit != null && b.suit == calledSuit
-          ? CallOption.toutAs
-          : defaultMode;
-      return _rankValue(b.rank, bMode).compareTo(_rankValue(a.rank, aMode));
-    });
-
-    return cards;
-  }
-
-  Suit? _contractTrumpSuit() {
-    final contract = callSystem.contractCall;
-    switch (contract) {
-      case CallOption.treble:
-        return Suit.trefle;
-      case CallOption.diamond:
-        return Suit.carreau;
-      case CallOption.heart:
-        return Suit.coeur;
-      case CallOption.spade:
-        return Suit.pique;
-      default:
-        return null;
-    }
-  }
-
-  bool _isTrump(CardModel card) {
-    if (callSystem.contractCall == CallOption.toutAs) return true;
-    if (callSystem.contractCall == CallOption.sansAs) return false;
-    final trumpSuit = _contractTrumpSuit();
-    return card.suit == trumpSuit;
-  }
-
-  int _trickCardStrength(CardModel card, Suit? leadSuit) {
-    if (leadSuit == null) {
-      return _rankValue(card.rank, CallOption.toutAs);
-    }
-    final contract = callSystem.contractCall;
-    final cardIsLead = card.suit == leadSuit;
-    final trumpSuit = _contractTrumpSuit();
-    final cardIsTrump = _isTrump(card);
-    final leadIsTrump = leadSuit == trumpSuit;
-
-    const int trumpBase = 2000; // any trump must beat any non-trump
-    const int leadBase = 1000; // base for following the lead
-
-    if (contract == CallOption.toutAs) {
-      if (!cardIsLead) return 0;
-      return leadBase + _rankValue(card.rank, CallOption.toutAs);
-    }
-
-    if (contract == CallOption.sansAs) {
-      if (!cardIsLead) return 0;
-      return leadBase + _rankValue(card.rank, CallOption.sansAs);
-    }
-
-    // If the trick was led with the trump suit, only trumps can win
-    if (leadIsTrump) {
-      if (!cardIsTrump) return 0;
-      return trumpBase + _rankValue(card.rank, CallOption.toutAs);
-    }
-
-    // Any trump beats all non-trump cards
-    if (cardIsTrump) {
-      return trumpBase + _rankValue(card.rank, CallOption.toutAs);
-    }
-
-    if (cardIsLead) {
-      return leadBase + _rankValue(card.rank, CallOption.sansAs);
-    }
-
-    return 0;
-  }
-
-  int _cardPointValue(CardModel card) {
-    final contract = callSystem.contractCall;
-    final rank = card.rank;
-    if (contract == CallOption.sansAs) {
-      switch (rank) {
-        case Rank.as:
-          return 11;
-        case Rank.dix:
-          return 10;
-        case Rank.roi:
-          return 4;
-        case Rank.dame:
-          return 3;
-        case Rank.valet:
-          return 2;
-        case Rank.neuf:
-        case Rank.huit:
-        case Rank.sept:
-          return 0;
-      }
-    }
-    if (_isTrump(card)) {
-      switch (rank) {
-        case Rank.as:
-          return 11;
-        case Rank.dix:
-          return 10;
-        case Rank.roi:
-          return 4;
-        case Rank.dame:
-          return 3;
-        case Rank.valet:
-          return 20;
-        case Rank.neuf:
-          return 14;
-        case Rank.huit:
-        case Rank.sept:
-          return 0;
-      }
-    }
-    switch (rank) {
-      case Rank.as:
-        return 11;
-      case Rank.dix:
-        return 10;
-      case Rank.roi:
-        return 4;
-      case Rank.dame:
-        return 3;
-      case Rank.valet:
-        return 2;
-      case Rank.neuf:
-      case Rank.huit:
-      case Rank.sept:
-        return 0;
-    }
-  }
-
-  String _teamOf(String player) {
-    return player == "Nord" || player == "Sud" ? "NS" : "EO";
-  }
-
-  String _handWinningTeam() {
-    final preneur = callSystem.contractWinner;
-    if (preneur == null) return "NS";
-    final preneurTeam = _teamOf(preneur);
-    final defenseTeam = preneurTeam == "NS" ? "EO" : "NS";
-    final preneurPoints = teamPoints[preneurTeam] ?? 0;
-    final defensePoints = teamPoints[defenseTeam] ?? 0;
-
-    if (preneurPoints > defensePoints) {
-      return preneurTeam;
-    }
-    return defenseTeam;
+    return BeloteRules.callOptionLabel(option);
   }
 
   void _registerLastHandHistory() {
-    final contract = callSystem.contractCall;
-    final preneur = callSystem.contractWinner;
+    final contract = gameLogic.callSystem.contractCall;
+    final preneur = gameLogic.callSystem.contractWinner;
     if (contract == null || preneur == null) return;
-    final preneurTeam = _teamOf(preneur);
-    final winnerTeam = _handWinningTeam();
+    final preneurTeam = BeloteRules.teamOf(preneur);
+    final winnerTeam = gameLogic.handWinningTeam();
     final dedans = winnerTeam != preneurTeam;
 
     handHistory.add(HandHistoryEntry(
       contractCall: contract,
       contractWinner: preneur,
       winningTeam: winnerTeam,
-      delta: Map<String, int>.from(lastHandDelta),
+      delta: Map<String, int>.from(gameLogic.lastHandDelta),
       dedans: dedans,
     ));
   }
@@ -512,349 +180,96 @@ class _GameScreenState extends State<GameScreen>
   }
 
   List<CardModel> _handFor(String player) {
-    if (player == "Nord") return aiHands[0];
-    if (player == "Est") return aiHands[1];
-    if (player == "Ouest") return aiHands[2];
-    return playerHand;
-  }
-
-  CallOption _playModeForSuit(Suit leadSuit) {
-    if (callSystem.contractCall == CallOption.toutAs) return CallOption.toutAs;
-    if (callSystem.contractCall == CallOption.sansAs) return CallOption.sansAs;
-    final trumpSuit = _contractTrumpSuit();
-    if (leadSuit == trumpSuit) return CallOption.toutAs;
-    return CallOption.sansAs;
+    return gameLogic.handFor(player);
   }
 
   List<CardModel> _legalCards(String player) {
-    final hand = _handFor(player);
-    if (currentTrick.isEmpty) return hand;
-    final leadSuit = currentTrick.first.card.suit;
-    
-    // Check if player has cards of the lead suit
-    final leadCards = hand.where((card) => card.suit == leadSuit).toList();
-    if (leadCards.isNotEmpty) {
-      // Player must follow suit.
-      
-      // Check if we should apply the "must play stronger card" rule
-      // This only applies for: ToutAs contracts OR when playing trump cards in a color contract
-      final isToutAsContract = callSystem.contractCall == CallOption.toutAs;
-      final isTrumpSuit = _contractTrumpSuit() == leadSuit && 
-          callSystem.contractCall != CallOption.sansAs;
-      final shouldApplySurtrumpRule = isToutAsContract || isTrumpSuit;
-
-      if (shouldApplySurtrumpRule) {
-        // If a stronger card of the same suit is already on the table,
-        // player must play a stronger card if they have one.
-        final cardsOfLeadSuitOnTable = currentTrick
-            .where((played) => played.card.suit == leadSuit)
-            .map((played) => played.card)
-            .toList();
-
-        if (cardsOfLeadSuitOnTable.isNotEmpty) {
-          // Find the strongest card of the lead suit currently on the table
-          final strongestOnTable = cardsOfLeadSuitOnTable
-              .map((c) => _trickCardStrength(c, leadSuit))
-              .reduce(max);
-
-          // Find player's cards of the lead suit that are stronger than the strongest on table
-          final strongerCards = leadCards
-              .where((card) => _trickCardStrength(card, leadSuit) > strongestOnTable)
-              .toList();
-
-          // If player has stronger cards, they must play one
-          if (strongerCards.isNotEmpty) {
-            return strongerCards;
-          }
-        }
-      }
-
-      // Player can play any card of the lead suit
-      return leadCards;
-    }
-    
-    // If no one followed the lead, player must cut with a trump if possible.
-    // This is the contract couleur rule: if a player has no card of the lead suit,
-    // they must play an atout. If multiple players cut, the strongest atout
-    // according to the "ToutAs" scale wins the trick.
-    final isTrumpContract = callSystem.contractCall == CallOption.treble ||
-        callSystem.contractCall == CallOption.diamond ||
-        callSystem.contractCall == CallOption.heart ||
-        callSystem.contractCall == CallOption.spade ||
-        callSystem.contractCall == CallOption.toutAs;
-
-    if (isTrumpContract) {
-      final trumps = hand.where(_isTrump).toList();
-      if (trumps.isEmpty) return hand;
-
-      // Find trumps already played in this trick
-      final trumpsOnTable = currentTrick
-          .where((played) => _isTrump(played.card))
-          .map((played) => played.card)
-          .toList();
-
-      if (trumpsOnTable.isNotEmpty) {
-        // Highest trump currently on table (by rank value under trump rules)
-        final highestOnTable = trumpsOnTable
-            .map((c) => _rankValue(c.rank, CallOption.toutAs))
-            .reduce(max);
-
-        // Player's trumps that are strictly higher than the highest on table
-        final higherTrumps = trumps
-            .where((c) => _rankValue(c.rank, CallOption.toutAs) > highestOnTable)
-            .toList();
-
-        if (higherTrumps.isNotEmpty) {
-          // Must overtrump if possible
-          return higherTrumps;
-        }
-
-        // Cannot overtrump but has trumps → may play any trump
-        return trumps;
-      }
-
-      // No trumps on table yet → must play a trump if possible
-      return trumps;
-    }
-
-    return hand;
+    return gameLogic.legalCards(player);
   }
 
   PlayedCard _currentWinningCard() {
-    final leadSuit = currentTrick.first.card.suit;
-    PlayedCard winner = currentTrick.first;
-    for (final played in currentTrick.skip(1)) {
-      if (_trickCardStrength(played.card, leadSuit) >
-          _trickCardStrength(winner.card, leadSuit)) {
-        winner = played;
-      }
-    }
-    return winner;
+    return gameLogic.currentWinningCard();
   }
 
   bool _isPartnerWinning(String player) {
-    final winner = _currentWinningCard();
-    return _teamOf(winner.player) == _teamOf(player) && winner.player != player;
+    return gameLogic.isPartnerWinning(player);
   }
 
   CardModel _lowestPointCard(List<CardModel> candidates) {
-    candidates.sort((a, b) {
-      final aPoint = _cardPointValue(a);
-      final bPoint = _cardPointValue(b);
-      if (aPoint != bPoint) return aPoint.compareTo(bPoint);
-      return _trickCardStrength(a, currentTrick.first.card.suit)
-          .compareTo(_trickCardStrength(b, currentTrick.first.card.suit));
-    });
-    return candidates.first;
+    return gameLogic.lowestPointCard(candidates);
   }
 
   CardModel _minimalWinningCard(List<CardModel> candidates, Suit leadSuit) {
-    candidates.sort((a, b) {
-      final aStrength = _trickCardStrength(a, leadSuit);
-      final bStrength = _trickCardStrength(b, leadSuit);
-      if (aStrength != bStrength) return aStrength.compareTo(bStrength);
-      return _cardPointValue(a).compareTo(_cardPointValue(b));
-    });
-    return candidates.first;
+    return gameLogic.minimalWinningCard(candidates, leadSuit);
   }
 
   CardModel _pickLeadCard(String player) {
-    final hand = _handFor(player);
-    hand.sort((a, b) {
-      final aStrength = _trickCardStrength(a, null);
-      final bStrength = _trickCardStrength(b, null);
-      if (aStrength != bStrength) return bStrength.compareTo(aStrength);
-      return _cardPointValue(b).compareTo(_cardPointValue(a));
-    });
-    return hand.first;
+    return gameLogic.pickLeadCard(player);
   }
 
   String _nextPlayer(String current) {
-    final index = players.indexOf(current);
-    return players[(index + 1) % players.length];
+    return gameLogic.nextPlayer(current);
   }
 
   void _startGame() {
-    if (callSystem.contractWinner != null) {
-      print("🎬 Début de la manche. Preneur : ${callSystem.contractWinner}");
-      callSystem.setCurrentPlayer(callSystem.contractWinner!);
+    if (gameLogic.callSystem.contractWinner != null) {
+      print("🎬 Début de la manche. Preneur : ${gameLogic.callSystem.contractWinner}");
+      gameLogic.callSystem.setCurrentPlayer(gameLogic.callSystem.contractWinner!);
       setState(() {
-        gameStarted = true;
-        gameOver = false;
+        gameLogic.gameStarted = true;
+        gameLogic.gameOver = false;
       });
-      print("👉 Premier joueur de la manche : ${callSystem.currentPlayer}");
+      print("👉 Premier joueur de la manche : ${gameLogic.callSystem.currentPlayer}");
     }
   }
 
   void _resolveTrick() {
-    final leadSuit = currentTrick.first.card.suit;
-    PlayedCard winner = currentTrick.first;
-    for (final played in currentTrick) {
-      final currentStrength = _trickCardStrength(played.card, leadSuit);
-      final winnerStrength = _trickCardStrength(winner.card, leadSuit);
-      if (currentStrength > winnerStrength) {
-        winner = played;
-      }
-    }
-    final trickPoints = currentTrick.fold(
-      0,
-      (sum, played) => sum + _cardPointValue(played.card),
-    );
-    final team = _teamOf(winner.player);
-    teamPoints[team] = teamPoints[team]! + trickPoints;
-    tricksPlayed += 1;
-    final nextLeader = winner.player;
+    gameLogic.resolveTrick();
     setState(() {
-      currentTrick = [];
-      callSystem.setCurrentPlayer(nextLeader);
-      if (tricksPlayed >= 8) {
-        gameOver = true;
-        gameStarted = false;
-        // Calculer le score de la manche mais ne pas l'appliquer tant que l'utilisateur n'appuie pas sur "Suivant"
-        lastHandDelta = _computeHandScores();
+      gameLogic.currentTrick = [];
+      if (gameLogic.tricksPlayed >= 8) {
+        gameLogic.gameOver = true;
+        gameLogic.gameStarted = false;
+        gameLogic.lastHandDelta = gameLogic.computeHandScores();
         _registerLastHandHistory();
-        waitingForNextHand = true;
+        gameLogic.waitingForNextHand = true;
       }
     });
-    print("🏆 Gagnant du pli : $nextLeader (+$trickPoints pts pour $team)");
-    if (!gameOver && nextLeader != "Sud") {
+    if (!gameLogic.gameOver && gameLogic.callSystem.currentPlayer != 'Sud') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _playAITurn();
       });
     }
   }
 
-  Map<String, int> _computeHandScores() {
-    final result = {"NS": 0, "EO": 0};
-    final contract = callSystem.contractCall;
-    final preneur = callSystem.contractWinner;
-    if (contract == null || preneur == null) return result;
-
-    final preneurTeam = _teamOf(preneur);
-    final defenseTeam = preneurTeam == "NS" ? "EO" : "NS";
-    final preneurPoints = teamPoints[preneurTeam] ?? 0;
-    final defensePoints = teamPoints[defenseTeam] ?? 0;
-    final isX2 = callSystem.highestCall == CallOption.x2;
-    final isX4 = callSystem.highestCall == CallOption.x4;
-    final multiplier = isX4 ? 4 : isX2 ? 2 : 1;
-
-    void award(String team, int pts) {
-      result[team] = (result[team] ?? 0) + pts;
-    }
-
-    if (contract == CallOption.sansAs) {
-      if (preneurPoints > defensePoints) {
-        if (defensePoints == 0) {
-          award(preneurTeam, 70 * multiplier);
-        } else {
-          award(preneurTeam, 52 * multiplier);
-        }
-      } else {
-        if (preneurPoints == 0) {
-          award(defenseTeam, 90 * multiplier);
-        } else {
-          award(defenseTeam, 52 * multiplier);
-        }
-      }
-      return result;
-    }
-
-    if (contract == CallOption.treble) {
-      if (preneurPoints > defensePoints) {
-        if (defensePoints == 0) {
-          award(preneurTeam, isX2 ? 90 : isX4 ? 180 : 45);
-        } else {
-          award(preneurTeam, isX2 ? 64 : isX4 ? 128 : 32);
-        }
-      } else {
-        if (preneurPoints == 0) {
-          award(defenseTeam, isX2 ? 128 : isX4 ? 256 : 90);
-        } else {
-          award(defenseTeam, isX2 ? 64 : isX4 ? 128 : 32);
-        }
-      }
-      return result;
-    }
-
-    if (contract == CallOption.diamond || contract == CallOption.heart || contract == CallOption.spade) {
-      if (preneurPoints > defensePoints) {
-        if (defensePoints == 0) {
-          award(preneurTeam, isX2 ? 75 : isX4 ? 150 : 45);
-        } else {
-          award(preneurTeam, isX2 ? 32 : isX4 ? 64 : 16);
-        }
-      } else {
-        if (preneurPoints == 0) {
-          award(defenseTeam, isX2 ? 75 : isX4 ? 150 : 45);
-        } else {
-          award(defenseTeam, isX2 ? 32 : isX4 ? 64 : 16);
-        }
-      }
-      return result;
-    }
-
-    if (contract == CallOption.toutAs) {
-      if (preneurPoints == 134 && defensePoints == 124) {
-        return result;
-      }
-      if (defensePoints > 124) {
-        award(defenseTeam, 26 * multiplier);
-        return result;
-      }
-      if (preneurPoints > 164) {
-        award(preneurTeam, 26 * multiplier);
-        return result;
-      }
-      if (defensePoints == 0) {
-        award(preneurTeam, isX2 ? 70 : isX4 ? 104 : 35);
-        return result;
-      }
-      if (preneurPoints == 0) {
-        award(defenseTeam, isX2 ? 90 : isX4 ? 104 : 45);
-        return result;
-      }
-      int p = (preneurPoints / 10).round();
-      if (p < 14) p = 14;
-      if (p > 16) p = 16;
-      award(preneurTeam, p * multiplier);
-      award(defenseTeam, (26 - p) * multiplier);
-      return result;
-    }
-
-    return result;
-  }
-
   void _applyLastHandAndNext() {
     bool shouldStartNextHand = true;
 
     setState(() {
-      gameScore["NS"] = gameScore["NS"]! + (lastHandDelta["NS"] ?? 0);
-      gameScore["EO"] = gameScore["EO"]! + (lastHandDelta["EO"] ?? 0);
+      gameLogic.gameScore['NS'] = gameLogic.gameScore['NS']! + (gameLogic.lastHandDelta['NS'] ?? 0);
+      gameLogic.gameScore['EO'] = gameLogic.gameScore['EO']! + (gameLogic.lastHandDelta['EO'] ?? 0);
 
-      // Vérifier condition de victoire (150 points)
-      if (gameScore["NS"]! >= 150 || gameScore["EO"]! >= 150) {
-        overallWinner = gameScore["NS"]! >= 150 ? "NS" : "EO";
-        waitingForNextHand = false;
+      if (gameLogic.gameScore['NS']! >= 150 || gameLogic.gameScore['EO']! >= 150) {
+        overallWinner = gameLogic.gameScore['NS']! >= 150 ? 'NS' : 'EO';
+        gameLogic.waitingForNextHand = false;
         shouldStartNextHand = false;
       }
 
       if (overallWinner == null) {
-        // Reset pour la manche suivante
-        waitingForNextHand = false;
-        lastHandDelta = {"NS": 0, "EO": 0};
-        teamPoints = {"NS": 0, "EO": 0};
-        tricksPlayed = 0;
-        currentTrick = [];
-        playerHand.clear();
-        aiHands = [[], [], []];
-        deck = Deck();
-        deck.shuffle();
-        // Le premier joueur de la nouvelle manche suit l'ordre horaire
-        starterIndex = (starterIndex + 1) % players.length;
-        order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
-        callSystem = CallSystem(players, initialIndex: starterIndex);
-        biddingFinished = false;
-        gameOver = false;
+        gameLogic.waitingForNextHand = false;
+        gameLogic.lastHandDelta = {'NS': 0, 'EO': 0};
+        gameLogic.teamPoints = {'NS': 0, 'EO': 0};
+        gameLogic.tricksPlayed = 0;
+        gameLogic.currentTrick = [];
+        gameLogic.playerHand.clear();
+        gameLogic.aiHands = [[], [], []];
+        gameLogic.deck = Deck();
+        gameLogic.deck.shuffle();
+        gameLogic.starterIndex = (gameLogic.starterIndex + 1) % players.length;
+        gameLogic.order = [for (int i = 0; i < players.length; i++) players[(gameLogic.starterIndex + i) % players.length]];
+        gameLogic.callSystem = CallSystem(players, initialIndex: gameLogic.starterIndex);
+        gameLogic.biddingFinished = false;
+        gameLogic.gameOver = false;
       }
     });
 
@@ -866,7 +281,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _playCard(String player, CardModel card) async {
-    print("🃏 $player joue ${card.assetPath}");
+    print('🃏 $player joue ${card.assetPath}');
     final hand = _handFor(player);
     setState(() {
       hand.remove(card);
@@ -882,20 +297,20 @@ class _GameScreenState extends State<GameScreen>
     await Future.delayed(playAnimationDuration + const Duration(milliseconds: 50));
 
     setState(() {
-      currentTrick.add(PlayedCard(player, card));
+      gameLogic.currentTrick.add(PlayedCard(player, card));
       animatingPlayCard = null;
       animatingPlayPlayer = null;
       playCardAtCenter = false;
     });
 
-    if (currentTrick.length >= 4) {
+    if (gameLogic.currentTrick.length >= 4) {
       await Future.delayed(const Duration(milliseconds: 400));
       _resolveTrick();
     } else {
       final next = _nextPlayer(player);
-      print("➡️ Prochain joueur : $next");
-      callSystem.setCurrentPlayer(next);
-      if (next != "Sud") {
+      print('➡️ Prochain joueur : $next');
+      gameLogic.callSystem.setCurrentPlayer(next);
+      if (next != 'Sud') {
         await Future.delayed(const Duration(milliseconds: 700));
         await _playAITurn();
       }
@@ -905,30 +320,30 @@ class _GameScreenState extends State<GameScreen>
   CardModel _chooseAICard(String player) {
     final legal = _legalCards(player);
     if (legal.isEmpty) return _handFor(player).first;
-    if (currentTrick.isEmpty) {
+    if (gameLogic.currentTrick.isEmpty) {
       return _pickLeadCard(player);
     }
 
-    final leadSuit = currentTrick.first.card.suit;
+    final leadSuit = gameLogic.currentTrick.first.card.suit;
     final winner = _currentWinningCard();
     final partnerWinning = _isPartnerWinning(player);
     final followCards = legal.where((card) => card.suit == leadSuit).toList();
     if (followCards.isNotEmpty) {
       if (partnerWinning) return _lowestPointCard(followCards);
       final canBeat = followCards
-          .where((card) => _trickCardStrength(card, leadSuit) >
-              _trickCardStrength(winner.card, leadSuit))
+          .where((card) => BeloteRules.trickCardStrength(card, leadSuit, gameLogic.callSystem) >
+              BeloteRules.trickCardStrength(winner.card, leadSuit, gameLogic.callSystem))
           .toList();
       if (canBeat.isNotEmpty) return _minimalWinningCard(canBeat, leadSuit);
       return _lowestPointCard(followCards);
     }
 
-    final trumps = legal.where(_isTrump).toList();
+    final trumps = legal.where((card) => BeloteRules.isTrump(card, gameLogic.callSystem)).toList();
     if (trumps.isNotEmpty) {
       if (partnerWinning) return _lowestPointCard(legal);
       final canBeat = trumps
-          .where((card) => _trickCardStrength(card, leadSuit) >
-              _trickCardStrength(winner.card, leadSuit))
+          .where((card) => BeloteRules.trickCardStrength(card, leadSuit, gameLogic.callSystem) >
+              BeloteRules.trickCardStrength(winner.card, leadSuit, gameLogic.callSystem))
           .toList();
       if (canBeat.isNotEmpty) return _minimalWinningCard(canBeat, leadSuit);
       return _lowestPointCard(trumps);
@@ -938,18 +353,18 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _playAITurn() async {
-    if (!gameStarted || gameOver) {
-      print("⛔ IA ne joue pas : gameStarted=$gameStarted, gameOver=$gameOver");
+    if (!gameLogic.gameStarted || gameLogic.gameOver) {
+      print('⛔ IA ne joue pas : gameStarted=${gameLogic.gameStarted}, gameOver=${gameLogic.gameOver}');
       return;
     }
-    final current = callSystem.currentPlayer;
-    print("🤖 Tour IA : $current");
-    if (current == "Sud") {
+    final current = gameLogic.callSystem.currentPlayer;
+    print('🤖 Tour IA : $current');
+    if (current == 'Sud') {
       print("⛔ C'est le tour de Sud, l'IA s'arrête.");
       return;
     }
     if (_handFor(current).isEmpty) {
-      print("⛔ $current n'a plus de cartes.");
+      print('⛔ $current n\'a plus de cartes.');
       return;
     }
     final card = _chooseAICard(current);
@@ -957,9 +372,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   bool _canPlayCard(CardModel card) {
-    if (callSystem.currentPlayer != "Sud") return false;
-    if (!playerHand.contains(card)) return false;
-    return _legalCards("Sud").contains(card);
+    return gameLogic.canPlayCard(card);
   }
 
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
@@ -1002,7 +415,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   PlayedCard? _playedCardFor(String player) {
-    for (final played in currentTrick) {
+    for (final played in gameLogic.currentTrick) {
       if (played.player == player) return played;
     }
     return null;
@@ -1076,7 +489,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _dealRemainingCards() async {
-    for (var player in order) {
+    for (var player in gameLogic.order) {
       await Future.delayed(const Duration(milliseconds: 600), () {
         setState(() {
           _giveCards(player, 3);
@@ -1086,50 +499,48 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _finishBidding() async {
-    biddingFinished = true;
-    print("Appels terminés, on commence la partie !");
+    gameLogic.biddingFinished = true;
+    print('Appels terminés, on commence la partie !');
     await _dealRemainingCards();
-    final sorted = _sortedSouthHand(callSystem.contractCall);
+    final sorted = gameLogic.sortedSouthHand(gameLogic.callSystem.contractCall);
     setState(() {
-      playerHand = sorted;
-      winningPlayer = callSystem.contractWinner;
+      gameLogic.playerHand = sorted;
+      gameLogic.winningPlayer = gameLogic.callSystem.contractWinner;
     });
 
     _startGame();
-    if (callSystem.currentPlayer != "Sud") {
-      print("⏳ IA doit commencer la manche.");
+    if (gameLogic.callSystem.currentPlayer != 'Sud') {
+      print('⏳ IA doit commencer la manche.');
       Future.delayed(Duration.zero, () => _playAITurn());
     } else {
-      print("🎮 Sud commence la manche.");
+      print('🎮 Sud commence la manche.');
     }
   }
 
   Future<void> _showCallPopup() async {
-    final current = callSystem.currentPlayer;
-    starterPlayer ??= current;
+    final current = gameLogic.callSystem.currentPlayer;
+    gameLogic.starterPlayer ??= current;
 
-    if (current != "Sud") {
-      // IA joue automatiquement en choisissant la couleur la plus présente
-      final option = _bestCallForPlayer(current);
-      await callSystem.makeCall(option);
+    if (current != 'Sud') {
+      final option = gameLogic.bestCallForPlayer(current);
+      await gameLogic.callSystem.makeCall(option);
       await _showCallBubble(current, option);
 
-      if (!callSystem.isFinished()) {
+      if (!gameLogic.callSystem.isFinished()) {
         await _showCallPopup();
       } else {
         await _finishBidding();
       }
     } else {
-      // Joueur humain → popup
       showDialog(
         context: context,
         builder: (_) => CallPopup(
           playerName: current,
-          availableCalls: callSystem.availableCalls,
+          availableCalls: gameLogic.callSystem.availableCalls,
           onCall: (option) async {
-            await callSystem.makeCall(option);
+            await gameLogic.callSystem.makeCall(option);
             await _showCallBubble(current, option);
-            if (!callSystem.isFinished()) {
+            if (!gameLogic.callSystem.isFinished()) {
               await _showCallPopup();
             } else {
               await _finishBidding();
@@ -1215,20 +626,8 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  Widget _marker({required Color color}) {
-    return Container(
-      width: 14,
-      height: 14,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-      ),
-    );
-  }
-
   Widget _playerAvatar(String player) {
-    final isCurrentPlayer = callSystem.currentPlayer == player;
+    final isCurrentPlayer = gameLogic.callSystem.currentPlayer == player;
     return Container(
       width: 56,
       height: 56,
@@ -1324,8 +723,8 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _buildGameInfoBar() {
-    final contractLabel = callSystem.contractCall != null
-        ? _callOptionLabel(callSystem.contractCall!)
+    final contractLabel = gameLogic.callSystem.contractCall != null
+        ? _callOptionLabel(gameLogic.callSystem.contractCall!)
         : "En attente";
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1374,7 +773,7 @@ class _GameScreenState extends State<GameScreen>
               ),
               const SizedBox(height: 4),
               Text(
-                "${gameScore["NS"] ?? 0} - ${gameScore["EO"] ?? 0}",
+                "${gameLogic.gameScore["NS"] ?? 0} - ${gameLogic.gameScore["EO"] ?? 0}",
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1398,9 +797,9 @@ class _GameScreenState extends State<GameScreen>
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (callSystem.contractWinner != null)
+              if (gameLogic.callSystem.contractWinner != null)
                 Text(
-                  callSystem.contractWinner!,
+                  gameLogic.callSystem.contractWinner!,
                   style: const TextStyle(color: Colors.white60, fontSize: 11),
                 ),
             ],
@@ -1413,7 +812,7 @@ class _GameScreenState extends State<GameScreen>
               ),
               const SizedBox(height: 4),
               Text(
-                tricksPlayed.toString(),
+                gameLogic.tricksPlayed.toString(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1498,7 +897,7 @@ class _GameScreenState extends State<GameScreen>
                   SizedBox(
                     height: 120,
                     child: _buildOverlapCardsRightToLeft(
-                      aiHands[0],
+                      gameLogic.aiHands[0],
                       showBack: true,
                     ),
                   ),
@@ -1512,12 +911,12 @@ class _GameScreenState extends State<GameScreen>
                       children: [
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(aiHands[2]),
+                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[2]),
                         ),
                         const Expanded(child: SizedBox.shrink()),
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(aiHands[1]),
+                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[1]),
                         ),
                       ],
                     ),
@@ -1528,7 +927,7 @@ class _GameScreenState extends State<GameScreen>
                   // Sud (joueur humain)
                   SizedBox(
                     height: 140,
-                    child: _buildPlayerHand(playerHand, playerName: "Sud"),
+                    child: _buildPlayerHand(gameLogic.playerHand, playerName: "Sud"),
                   ),
                 ],
               ),
@@ -1555,7 +954,7 @@ class _GameScreenState extends State<GameScreen>
           _positionedMarker("Sud", Colors.black),
 
           // Overlay : résultat de la manche + bouton Suivant
-          if (waitingForNextHand)
+          if (gameLogic.waitingForNextHand)
             Positioned.fill(
               child: Container(
                 color: Colors.black45,
@@ -1572,8 +971,8 @@ class _GameScreenState extends State<GameScreen>
                           const SizedBox(height: 12),
                           if (handHistory.isNotEmpty && handHistory.last.dedans)
                             const Text('Dedans !', style: TextStyle(color: Colors.orangeAccent, fontSize: 16, fontWeight: FontWeight.bold)),
-                          Text('NS : +${lastHandDelta["NS"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
-                          Text('EO : +${lastHandDelta["EO"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                          Text('NS : +${gameLogic.lastHandDelta["NS"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                          Text('EO : +${gameLogic.lastHandDelta["EO"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
                           const SizedBox(height: 12),
                           ElevatedButton(
                             onPressed: overallWinner == null ? _applyLastHandAndNext : null,
@@ -1611,24 +1010,9 @@ class _GameScreenState extends State<GameScreen>
                               );
                               // reset complet pour recommencer une nouvelle partie
                               setState(() {
-                                gameScore = {"NS": 0, "EO": 0};
+                                gameLogic.resetGame();
                                 overallWinner = null;
-                                waitingForNextHand = false;
-                                lastHandDelta = {"NS": 0, "EO": 0};
                                 handHistory.clear();
-                                teamPoints = {"NS": 0, "EO": 0};
-                                tricksPlayed = 0;
-                                currentTrick = [];
-                                playerHand.clear();
-                                aiHands = [[], [], []];
-                                deck = Deck();
-                                deck.shuffle();
-                                // Nouveau départ de partie : choisir aléatoirement le premier joueur
-                                starterIndex = Random().nextInt(players.length);
-                                order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
-                                callSystem = CallSystem(players, initialIndex: starterIndex);
-                                biddingFinished = false;
-                                gameOver = false;
                               });
                               WidgetsBinding.instance.addPostFrameCallback((_) {
                                 _dealCards();
@@ -1649,7 +1033,7 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
           
-          if (!biddingFinished)
+          if (!gameLogic.biddingFinished)
             Positioned(
               top: MediaQuery.of(context).size.height / 2 - 40,
               left: MediaQuery.of(context).size.width / 2 - 30,
