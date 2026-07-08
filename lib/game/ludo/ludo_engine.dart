@@ -70,6 +70,7 @@ class LudoEngine {
   bool diceRolled = false;
   bool extraTurn = false;
   LudoColor? winner;
+  LudoMove? lastMove;
   String message = 'Lance le dé pour commencer';
 
   final LudoColor humanColor;
@@ -143,6 +144,7 @@ class LudoEngine {
     final move = getValidMoves().where((m) => m.pawn.id == pawn.id).firstOrNull;
     if (move == null) return false;
 
+    lastMove = move;
     pawn.stepsFromStart = move.toSteps;
 
     if (pawn.onTrack) {
@@ -230,6 +232,7 @@ class LudoEngine {
 
     final moves = getValidMoves();
     if (moves.isEmpty) {
+      lastMove = null;
       skipTurnIfNoMoves();
       return;
     }
@@ -247,6 +250,7 @@ class LudoEngine {
       return score(b).compareTo(score(a));
     });
 
+    lastMove = moves.first;
     applyMove(moves.first.pawn); 
   }
 }

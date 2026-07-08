@@ -11,6 +11,9 @@ CREATE TABLE users (
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
+  username TEXT UNIQUE,
+  coins INTEGER NOT NULL DEFAULT 0,
+  is_connected BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -216,11 +219,12 @@ id (UUID, PK)
 email (TEXT, UNIQUE)
 full_name (TEXT)
 avatar_url (TEXT)
+username (TEXT)
+coins (INTEGER, DEFAULT 0)
+is_connected (BOOLEAN, DEFAULT false)
 created_at (TIMESTAMP)
 updated_at (TIMESTAMP)
 ```
-
-Tu peux ajouter d'autres colonnes selon tes besoins (username, bio, etc.)
 
 ---
 

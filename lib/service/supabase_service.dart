@@ -79,12 +79,7 @@ class SupabaseService {
                 .toLowerCase(),
         'avatar_url': existingProfile?['avatar_url'] ?? googleUser?.photoUrl ?? user.userMetadata?['picture'] ?? '',
         'coins': existingProfile?['coins'] ?? 0,
-        'belote_played': existingProfile?['belote_played'] ?? 0,
-        'belote_wins': existingProfile?['belote_wins'] ?? 0,
-        'belote_losses': existingProfile?['belote_losses'] ?? 0,
-        'ludo_played': existingProfile?['ludo_played'] ?? 0,
-        'ludo_wins': existingProfile?['ludo_wins'] ?? 0,
-        'ludo_losses': existingProfile?['ludo_losses'] ?? 0,
+        'is_connected': existingProfile?['is_connected'] ?? true,
         'created_at': existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };

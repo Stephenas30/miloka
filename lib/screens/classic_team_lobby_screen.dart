@@ -78,7 +78,7 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
 
     final username = profile['username'] ?? profile['full_name'] ?? 'Joueur';
     final avatarUrl = profile['avatar_url']?.toString();
-    final level = profile['belote_level'] ?? profile['ludo_level'] ?? 1;
+    const level = 1;
 
     return Column(
       children: [

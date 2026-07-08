@@ -44,6 +44,7 @@ class TeamLobbyService {
       'guest_id': null,
       'guest_profile': null,
       'guest_ready': false,
+      'status': 'waiting',
       'created_at': DateTime.now().toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     };
@@ -57,7 +58,7 @@ class TeamLobbyService {
     try {
       final response = await _client
           .from('teams')
-          .select('team_id, host_id, host_profile, guest_id, guest_profile, guest_ready')
+          .select('team_id, host_id, host_profile, guest_id, guest_profile, guest_ready, status')
           .eq('team_id', teamId)
           .maybeSingle();
       if (response == null) {

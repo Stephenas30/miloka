@@ -150,26 +150,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final username = (profile['username'] ?? fullName).toString();
     final avatarUrl = _avatarUrl.isNotEmpty ? _avatarUrl : null;
 
-    final belotePlayed = int.tryParse((profile['belote_played'] ?? '0').toString()) ?? 0;
-    final beloteWins = int.tryParse((profile['belote_wins'] ?? '0').toString()) ?? 0;
-    final beloteLosses = int.tryParse((profile['belote_losses'] ?? '0').toString()) ?? 0;
-    final ludoPlayed = int.tryParse((profile['ludo_played'] ?? '0').toString()) ?? 0;
-    final ludoWins = int.tryParse((profile['ludo_wins'] ?? '0').toString()) ?? 0;
-    final ludoLosses = int.tryParse((profile['ludo_losses'] ?? '0').toString()) ?? 0;
-
-    final totalGames = belotePlayed + ludoPlayed;
-    final totalWins = beloteWins + ludoWins;
-    final beloteLevel = int.tryParse((profile['belote_level'] ?? '1').toString()) ?? 1;
-    final beloteXp = int.tryParse((profile['belote_xp'] ?? '0').toString()) ?? 0;
-    final beloteXpProgress = int.tryParse((profile['belote_xp_progress'] ?? '0').toString()) ?? 0;
-    final ludoLevel = int.tryParse((profile['ludo_level'] ?? '1').toString()) ?? 1;
-    final ludoXp = int.tryParse((profile['ludo_xp'] ?? '0').toString()) ?? 0;
-    final ludoXpProgress = int.tryParse((profile['ludo_xp_progress'] ?? '0').toString()) ?? 0;
-    final badges = ((profile['badges'] ?? '') as String)
-        .split(',')
-        .where((item) => item.isNotEmpty)
-        .toList();
-
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -323,98 +303,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.emoji_events, color: Colors.amber),
-                            const SizedBox(width: 8),
-                            const Text('Niveau & progression', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text('Belote', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text('Niv. $beloteLevel • $beloteXp XP', style: const TextStyle(color: Colors.blueGrey)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: LinearProgressIndicator(
-                            value: (beloteXp / 1000).clamp(0.0, 1.0),
-                            minHeight: 10,
-                            backgroundColor: Colors.grey.shade300,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text('Belote : $beloteXpProgress XP jusqu’au prochain palier', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            const Text('Ludo', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                            const Spacer(),
-                            Text('Niv. $ludoLevel • $ludoXp XP', style: const TextStyle(color: Colors.blueGrey)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: LinearProgressIndicator(
-                            value: (ludoXp / 1000).clamp(0.0, 1.0),
-                            minHeight: 10,
-                            backgroundColor: Colors.grey.shade300,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text('Ludo : $ludoXpProgress XP jusqu’au prochain palier', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            if (badges.contains('FirstWin')) _buildBadge('Première victoire', Icons.emoji_events),
-                            if (badges.contains('Starter')) _buildBadge('Débutant confirmé', Icons.sports_esports),
-                            if (badges.contains('RisingStar')) _buildBadge('Étoile montante', Icons.star),
-                            if (badges.contains('Legend')) _buildBadge('Légende', Icons.auto_awesome),
-                            if (badges.isEmpty) const Text('Aucun badge débloqué pour le moment'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text('Statistiques par jeu', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                _buildGameStats('Belote', belotePlayed, beloteWins, beloteLosses),
-                const SizedBox(height: 12),
-                _buildGameStats('Ludo', ludoPlayed, ludoWins, ludoLosses),
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Succès', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        _buildAchievement('Première victoire', totalWins >= 1, Icons.emoji_events),
-                        _buildAchievement('5 parties jouées', totalGames >= 5, Icons.sports_esports),
-                        _buildAchievement('Maître des jetons', _coins >= 100, Icons.monetization_on),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
                         const Text('Activité récente', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
                         _buildRecentActivity('Partie Belote terminée', 'Victoire • il y a 2h'),
@@ -441,87 +329,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildGameStats(String gameName, int played, int wins, int losses) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(gameName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _statChip('Jouées', played),
-                const SizedBox(width: 8),
-                _statChip('Victoires', wins),
-                const SizedBox(width: 8),
-                _statChip('Défaites', losses),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAchievement(String title, bool unlocked, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Icon(icon, color: unlocked ? Colors.amber : Colors.grey),
-          const SizedBox(width: 8),
-          Expanded(child: Text(title, style: TextStyle(color: unlocked ? Colors.black : Colors.grey))),
-          Icon(unlocked ? Icons.check_circle : Icons.lock, color: unlocked ? Colors.green : Colors.grey),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBadge(String label, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.deepPurple.shade50,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: Colors.deepPurple),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.deepPurple)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildRecentActivity(String title, String subtitle) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const CircleAvatar(child: Icon(Icons.history)),
       title: Text(title),
       subtitle: Text(subtitle),
-    );
-  }
-
-  Widget _statChip(String label, int value) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
-            const SizedBox(height: 4),
-            Text(value.toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
     );
   }
 }

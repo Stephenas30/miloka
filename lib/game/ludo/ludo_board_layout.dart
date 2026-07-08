@@ -57,21 +57,42 @@ class LudoBoardLayout {
   };
 
   static Offset pawnPosition(LudoPawn pawn, double cellSize) {
-    if (pawn.finished) {
+    return positionFromSteps(pawn.color, pawn.stepsFromStart, pawn.id, cellSize);
+  }
+
+  static Offset positionFromSteps(LudoColor color, int steps, int pawnId, double cellSize) {
+    if (steps >= 56) {
       return Offset(7.5 * cellSize, 7.5 * cellSize);
     }
-    if (pawn.inHome) {
-      final coords = homeStretchCoords[pawn.color]!;
-      final homeIndex = pawn.stepsFromStart - 51;
+    if (steps >= 51) {
+      final coords = homeStretchCoords[color]!;
+      final homeIndex = steps - 51;
       final c = coords[homeIndex.clamp(0, 5)];
       return Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize);
     }
-    if (pawn.onTrack) {
-      final c = pathCoords[pawn.trackIndex!];
+    if (steps >= 0) {
+      final c = pathCoords[(color.startIndex + steps) % 52];
       return Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize);
     }
-    final bases = baseCoords[pawn.color]!;
-    final c = bases[pawn.id];
+    final bases = baseCoords[color]!;
+    final c = bases[pawnId];
     return Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize);
+  }
+
+  static List<Offset> movePath(LudoColor color, int fromSteps, int toSteps, int pawnId, double cellSize) {
+    final positions = <Offset>[];
+    final start = fromSteps < 0 ? -1 : fromSteps;
+    final end = toSteps > 56 ? 56 : toSteps;
+
+    // If leaving base (from -1 to 0), include only the target
+    if (fromSteps < 0 && toSteps >= 0) {
+      positions.add(positionFromSteps(color, 0, pawnId, cellSize));
+      return positions;
+    }
+
+    for (var s = start + 1; s <= end; s++) {
+      positions.add(positionFromSteps(color, s, pawnId, cellSize));
+    }
+    return positions;
   }
 }

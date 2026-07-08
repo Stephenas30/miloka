@@ -27,6 +27,21 @@ class _LudoScreenState extends State<LudoScreen>
   bool _winnerDialogShown = false;
   bool _beginGame = false;
   bool _aiPlaying = false;
+  bool _diceRolledThisTurn = false;
+  bool _isDraggingDice = false;
+  bool _isSlidingDice = false;
+
+  Offset _diceDragOffset = Offset.zero;
+  Offset _slideVelocity = Offset.zero;
+  double _diceSlideAngle = 0;
+  Timer? _slideTimer;
+  final GlobalKey _stackKey = GlobalKey();
+  double _cellSize = 0;
+  Timer? _moveTimer;
+  int? _movingPawnId;
+  LudoColor? _movingPawnColor;
+  List<Offset> _movePath = [];
+  int _moveIndex = 0;
 
   @override
   void initState() {
@@ -40,6 +55,8 @@ class _LudoScreenState extends State<LudoScreen>
   @override
   void dispose() {
     _aiTimer?.cancel();
+    _moveTimer?.cancel();
+    _slideTimer?.cancel();
     _diceController.dispose();
     super.dispose();
   }
@@ -57,18 +74,37 @@ class _LudoScreenState extends State<LudoScreen>
       setState(() {});
       _animateDiceRoll(value).then((_) {
         if (!mounted) return;
-        setState(() {
-          _engine.aiPlay();
-          if (_engine.winner == null) {
-            if (_engine.extraTurn) {
-              _engine.scheduleTurnEnd(extraTurn: true);
-            } else {
-              _engine.scheduleTurnEnd(extraTurn: false);
+        _engine.aiPlay();
+        final move = _engine.lastMove;
+
+        if (move != null) {
+          _startPawnMove(move.pawn.color, move.pawn.id, move.fromSteps, move.toSteps, () {
+            if (!mounted) return;
+            setState(() {
+              if (_engine.winner == null) {
+                if (_engine.extraTurn) {
+                  _engine.scheduleTurnEnd(extraTurn: true);
+                } else {
+                  _engine.scheduleTurnEnd(extraTurn: false);
+                }
+              }
+              _aiPlaying = false;
+              _scheduleAiTurn();
+            });
+          });
+        } else {
+          setState(() {
+            if (_engine.winner == null) {
+              if (_engine.extraTurn) {
+                _engine.scheduleTurnEnd(extraTurn: true);
+              } else {
+                _engine.scheduleTurnEnd(extraTurn: false);
+              }
             }
-          }
-          _aiPlaying = false;
-          _scheduleAiTurn();
-        });
+            _aiPlaying = false;
+            _scheduleAiTurn();
+          });
+        }
       });
     });
   }
@@ -91,15 +127,18 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _onRollDice() {
     if (_engine.winner != null ||
-        !_engine.currentPlayer.isHuman) {
+        !_engine.currentPlayer.isHuman ||
+        _diceRolledThisTurn) {
       return;
     }
+    _diceRolledThisTurn = true;
     final value = _engine.rollDice();
     setState(() => _selectedPawn = null);
     _animateDiceRoll(value).then((_) {
       if (!mounted) return;
       setState(() {
         if (_engine.getValidMoves().isEmpty) {
+          _diceRolledThisTurn = false;
           _engine.scheduleTurnEnd(extraTurn: false);
           _scheduleAiTurn();
         }
@@ -114,21 +153,121 @@ class _LudoScreenState extends State<LudoScreen>
     }
     if (!_engine.canMovePawn(pawn)) return;
 
+    final fromSteps = pawn.stepsFromStart;
+    final move = _engine.getValidMoves().firstWhere((m) => m.pawn.id == pawn.id);
+    final toSteps = move.toSteps;
+
     final moved = _engine.applyMove(pawn);
     if (!moved) return;
 
-    setState(() {
-      _selectedPawn = null;
+    _startPawnMove(pawn.color, pawn.id, fromSteps, toSteps, () {
+      if (!mounted) return;
+      setState(() { _selectedPawn = null; _diceRolledThisTurn = false; });
+      if (_engine.winner != null) return;
+      if (_engine.extraTurn) {
+        _engine.scheduleTurnEnd(extraTurn: true);
+      } else {
+        _engine.scheduleTurnEnd(extraTurn: false);
+        _scheduleAiTurn();
+      }
     });
+  }
 
-    if (_engine.winner != null) return;
-
-    if (_engine.extraTurn) {
-      _engine.scheduleTurnEnd(extraTurn: true);
-    } else {
-      _engine.scheduleTurnEnd(extraTurn: false);
-      _scheduleAiTurn();
+  void _startPawnMove(LudoColor color, int pawnId, int fromSteps, int toSteps, VoidCallback onComplete) {
+    _movePath = LudoBoardLayout.movePath(color, fromSteps, toSteps, pawnId, _cellSize);
+    if (_movePath.isEmpty) {
+      onComplete();
+      return;
     }
+    _movingPawnId = pawnId;
+    _movingPawnColor = color;
+    _moveIndex = 0;
+
+    _moveTimer?.cancel();
+    _moveTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted) { timer.cancel(); return; }
+      setState(() {
+        _moveIndex++;
+      });
+      if (_moveIndex >= _movePath.length) {
+        timer.cancel();
+        _movingPawnId = null;
+        _movingPawnColor = null;
+        _movePath = [];
+        onComplete();
+      }
+    });
+  }
+
+  void _startDiceSlide() {
+    _slideTimer?.cancel();
+    const friction = 0.96;
+    const minVelocity = 20.0;
+
+    final renderBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final stackSize = renderBox.size;
+    final diceSize = 60.0;
+    const bottomPadding = 24.0;
+    final topBound = -stackSize.height + bottomPadding + diceSize;
+    final leftBound = -stackSize.width / 2 + diceSize / 2;
+    final rightBound = stackSize.width / 2 - diceSize / 2;
+
+    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      _slideVelocity *= friction;
+
+      if (_slideVelocity.distance < minVelocity) {
+        timer.cancel();
+        _animateDiceBack();
+        return;
+      }
+
+      setState(() {
+        _diceDragOffset += _slideVelocity * 0.016;
+        _diceSlideAngle += _slideVelocity.distance * 0.0003;
+
+        if (_diceDragOffset.dx < leftBound) {
+          _diceDragOffset = Offset(leftBound, _diceDragOffset.dy);
+          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+        } else if (_diceDragOffset.dx > rightBound) {
+          _diceDragOffset = Offset(rightBound, _diceDragOffset.dy);
+          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+        }
+        if (_diceDragOffset.dy < topBound) {
+          _diceDragOffset = Offset(_diceDragOffset.dx, topBound);
+          _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
+        }
+      });
+    });
+  }
+
+  void _animateDiceBack() {
+    const duration = Duration(milliseconds: 300);
+    final startOffset = _diceDragOffset;
+    final startAngle = _diceSlideAngle;
+    final startTime = DateTime.now();
+
+    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      final elapsed = DateTime.now().difference(startTime).inMilliseconds / duration.inMilliseconds;
+      final t = elapsed.clamp(0.0, 1.0);
+      final easeOut = 1 - (1 - t) * (1 - t);
+
+      setState(() {
+        _diceDragOffset = Offset.lerp(startOffset, Offset.zero, easeOut)!;
+        _diceSlideAngle = startAngle * (1 - easeOut);
+      });
+
+      if (t >= 1) {
+        timer.cancel();
+        setState(() {
+          _isSlidingDice = false;
+          _diceDragOffset = Offset.zero;
+          _diceSlideAngle = 0;
+          _slideVelocity = Offset.zero;
+        });
+        _onRollDice();
+      }
+    });
   }
 
   void _startGame(LudoColor color) {
@@ -255,11 +394,22 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _restartGame() {
     _aiTimer?.cancel();
+    _moveTimer?.cancel();
+    _slideTimer?.cancel();
     setState(() {
       _winnerDialogShown = false;
       _engine.reset();
       _displayDice = 1;
       _selectedPawn = null;
+      _movingPawnId = null;
+      _movingPawnColor = null;
+      _movePath = [];
+      _aiPlaying = false;
+      _diceRolledThisTurn = false;
+      _isSlidingDice = false;
+      _diceDragOffset = Offset.zero;
+      _slideVelocity = Offset.zero;
+      _diceSlideAngle = 0;
     });
   }
 
@@ -331,12 +481,75 @@ class _LudoScreenState extends State<LudoScreen>
         ),
         child: SafeArea(
           child: _beginGame
-              ? Column(
+              ? Stack(
+                  key: _stackKey,
                   children: [
-                    _buildHeader(),
-                    Expanded(child: Center(child: _buildBoard())),
-                    _buildControls(),
-                    const SizedBox(height: 16),
+                    Column(
+                      children: [
+                        _buildHeader(),
+                        Expanded(child: Center(child: _buildBoard())),
+                      ],
+                    ),
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 24),
+        child: GestureDetector(
+          onTap: !_isDraggingDice && !_isSlidingDice &&
+                  _engine.currentPlayer.isHuman &&
+                  _engine.winner == null &&
+                  !_diceRolledThisTurn
+              ? _onRollDice
+              : null,
+          onPanStart: (_) {
+            _slideTimer?.cancel();
+            setState(() {
+              _isDraggingDice = true;
+              _isSlidingDice = false;
+              _slideVelocity = Offset.zero;
+            });
+          },
+          onPanUpdate: (details) {
+            setState(() {
+              _diceDragOffset += details.delta;
+            });
+          },
+          onPanEnd: (details) {
+            final canRoll = _isDraggingDice &&
+                _engine.currentPlayer.isHuman &&
+                _engine.winner == null &&
+                !_diceRolledThisTurn;
+
+            _slideVelocity = details.velocity.pixelsPerSecond;
+
+            if (_slideVelocity.distance > 50 && canRoll) {
+              _isSlidingDice = true;
+              _isDraggingDice = false;
+              _startDiceSlide();
+            } else {
+              setState(() {
+                _isDraggingDice = false;
+                _diceDragOffset = Offset.zero;
+              });
+              if (canRoll) {
+                _onRollDice();
+              }
+            }
+          },
+          child: Transform.translate(
+            offset: _diceDragOffset,
+            child: Transform.rotate(
+              angle: _diceSlideAngle,
+              child: _buildDice(
+              _engine.currentPlayer.isHuman &&
+              _engine.winner == null &&
+              !_diceRolledThisTurn,
+            ),
+          ),
+        ),
+                      ),
+                      ),
+                    ),
                   ],
                 )
               : _buildMain(),
@@ -550,7 +763,7 @@ class _LudoScreenState extends State<LudoScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = math.min(constraints.maxWidth, constraints.maxHeight) - 24;
-        final cellSize = size / LudoBoardLayout.gridSize;
+        _cellSize = size / LudoBoardLayout.gridSize;
 
         return SizedBox(
           width: size,
@@ -559,9 +772,10 @@ class _LudoScreenState extends State<LudoScreen>
             children: [
               CustomPaint(
                 size: Size(size, size),
-                painter: _LudoBoardPainter(cellSize: cellSize),
+                painter: _LudoBoardPainter(cellSize: _cellSize),
               ),
-              ..._buildPawns(cellSize),
+              ..._buildPlayerInfo(),
+              ..._buildPawns(_cellSize),
             ],
           ),
         );
@@ -573,12 +787,18 @@ class _LudoScreenState extends State<LudoScreen>
     final widgets = <Widget>[];
     for (final player in _engine.players) {
       for (final pawn in player.pawns) {
-        final pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+        final isAnimating = _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
+        Offset pos;
+        if (isAnimating && _moveIndex < _movePath.length) {
+          pos = _movePath[_moveIndex];
+        } else {
+          pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+        }
 
         final isSelectable =
             _engine.currentPlayer.isHuman &&
-            /* _engine.diceRolled && */
-            _engine.canMovePawn(pawn);
+            _engine.canMovePawn(pawn) &&
+            !isAnimating;
 
         final isSelected =
             _selectedPawn?.id == pawn.id && _selectedPawn?.color == pawn.color;
@@ -624,62 +844,67 @@ class _LudoScreenState extends State<LudoScreen>
     return widgets;
   }
 
-  Widget _buildControls() {
-    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
+  List<Widget> _buildPlayerInfo() {
+    final authProvider = context.read<AuthProvider?>();
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final username = authProvider?.userProfile?['username']?.toString() ?? 'Profil';
 
-    //t('==> ${_engine.currentPlayerIndex}');
-    //print(isHumanTurn);
-    //print(!_engine.diceRolled);
-    //print('/n/n');
+    return LudoColor.values.map((color) {
+      final isHuman = color == _engine.humanColor;
+      final displayName = isHuman ? username : 'IA ${color.label}';
+      final icon = isHuman
+          ? (avatarUrl != null && avatarUrl.isNotEmpty
+              ? null as Widget?
+              : const Icon(Icons.person, color: Colors.white, size: 14))
+          : const Icon(Icons.smart_toy, color: Colors.white, size: 14);
 
-    final canRoll = isHumanTurn /* && !_engine.diceRolled */;
+      Widget avatar;
+      if (isHuman && avatarUrl != null && avatarUrl.isNotEmpty) {
+        avatar = CircleAvatar(
+          radius: 8,
+          backgroundImage: NetworkImage(avatarUrl),
+        );
+      } else {
+        avatar = icon!;
+      }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _playerIndicator(LudoColor.red, true),
-          _playerIndicator(LudoColor.green, false),
-          _buildDice(canRoll),
-          _playerIndicator(LudoColor.yellow, false),
-          _playerIndicator(LudoColor.blue, false),
-        ],
-      ),
-    );
-  }
-
-  Widget _playerIndicator(LudoColor color, bool isHuman) {
-    final active = _engine.currentPlayer.color == color;
-    return Column(
-      children: [
-        Container(
-          width: 28,
-          height: 28,
+      return Positioned(
+        left: color == LudoColor.green || color == LudoColor.red ? 4 : null,
+        right: color == LudoColor.yellow || color == LudoColor.blue ? 4 : null,
+        top: color == LudoColor.green || color == LudoColor.yellow ? 4 : null,
+        bottom: color == LudoColor.red || color == LudoColor.blue ? 4 : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
           decoration: BoxDecoration(
-            color: LudoBoardLayout.colorValues[color],
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: active ? Colors.white : Colors.transparent,
-              width: 3,
-            ),
+            color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white, width: 1.5),
           ),
-          child: isHuman
-              ? const Icon(Icons.person, size: 16, color: Colors.white)
-              : null,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              avatar,
+              if (displayName.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Text(
+                  displayName,
+                  style: TextStyle(
+                    color: color == LudoColor.yellow ? Colors.black87 : Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-        if (active)
-          const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
-      ],
-    );
+      );
+    }).toList();
   }
 
   Widget _buildDice(bool canRoll) {
-    //print('canRoll = $canRoll');
-    return GestureDetector(
-      onTap: canRoll ? _onRollDice : null,
-      child: AnimatedBuilder(
-        animation: _diceController,
+    return AnimatedBuilder(
+      animation: _diceController,
         builder: (context, child) {
           return Transform.rotate(
             angle: _diceController.value * math.pi * 2,
@@ -709,8 +934,7 @@ class _LudoScreenState extends State<LudoScreen>
             ),
           );
         },
-      ),
-    );
+      );
   }
 }
 
