@@ -11,8 +11,8 @@ class GameChoices extends StatelessWidget {
     return GridView.builder(
       shrinkWrap: true,
       padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 150, // largeur max d'une carte
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: games.length < 3 ? 250 : 150, // largeur max d'une carte
         childAspectRatio: 2 / 3,
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,

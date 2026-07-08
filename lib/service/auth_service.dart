@@ -4,12 +4,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AuthService {
   static final supabase = Supabase.instance.client;
 
-  static Future<void> register(String email, String password) async {
+  static Future<void> register(String email, String password, String? fullName, String username) async {
     final AuthResponse response = await supabase.auth.signUp(
       email: email,
       password: password,
     );
 
+    final user = response.user;
+
+    final profileData = {
+        'id': user?.id,
+        'email': user?.email,
+        'full_name': fullName,
+        'username': username,
+        'avatar_url': '',
+        'coins': 0,
+        'is_connected': true,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+    await supabase.from('users').upsert(profileData);
     print('Utilisateur créé: ${response.user?.id}');
   }
 
