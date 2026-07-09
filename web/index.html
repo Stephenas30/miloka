@@ -1,46 +1,498 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Miloka - Tous vos jeux préférés dans une seule application. Belote, Ludo, Fanorona, Rami et bien plus !">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="miloka">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="Miloka">
+  <link rel="apple-touch-icon" href="icons/logo.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>miloka</title>
+  <link rel="icon" type="image/png" href="icon.png"/>
+  <title>Miloka - Jeux de société</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;600;700&display=swap');
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #080816;
+      color: #ffffff;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    .landing {
+      position: relative;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #080816 0%, #0d1a0d 40%, #080816 100%);
+    }
+
+    .bg-orbs {
+      position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0;
+    }
+    .bg-orbs .orb {
+      position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15;
+    }
+    .bg-orbs .orb:nth-child(1) {
+      width: 500px; height: 500px; background: #006400; top: -10%; left: -5%;
+      animation: float1 20s ease-in-out infinite;
+    }
+    .bg-orbs .orb:nth-child(2) {
+      width: 400px; height: 400px; background: #FFD700; bottom: -5%; right: -5%;
+      animation: float2 25s ease-in-out infinite;
+    }
+    .bg-orbs .orb:nth-child(3) {
+      width: 300px; height: 300px; background: #1a3a1a; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); animation: float3 30s ease-in-out infinite;
+    }
+
+    @keyframes float1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(80px,60px); } }
+    @keyframes float2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-60px,-80px); } }
+    @keyframes float3 { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.2); } }
+
+    .content { position: relative; z-index: 1; }
+
+    nav {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 20px 40px; max-width: 1200px; margin: 0 auto;
+    }
+    nav .logo {
+      display: flex; align-items: center; gap: 12px;
+      font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 900;
+      color: #fff; text-decoration: none;
+    }
+    nav .logo img { width: 40px; height: 40px; border-radius: 10px; }
+    nav .logo span {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    nav .legal-links a {
+      color: rgba(255,255,255,0.6); text-decoration: none; font-size: 14px;
+      font-weight: 400; transition: color 0.3s; margin-left: 24px;
+    }
+    nav .legal-links a:hover { color: #FFD700; }
+
+    .hero {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 60px 20px 40px; min-height: 80vh;
+    }
+    .hero .logo-big {
+      width: 160px; height: 160px; border-radius: 32px; margin-bottom: 32px;
+      box-shadow: 0 20px 60px rgba(0,100,0,0.3); animation: fadeUp 1s ease-out;
+    }
+    .hero h1 {
+      font-family: 'Playfair Display', serif; font-size: 72px; font-weight: 900;
+      background: linear-gradient(135deg, #ffffff 0%, #a0d0a0 50%, #FFD700 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      margin-bottom: 16px; animation: fadeUp 1s ease-out 0.1s both;
+    }
+    .hero p {
+      font-size: 18px; color: rgba(255,255,255,0.7); max-width: 520px;
+      line-height: 1.6; margin-bottom: 32px; animation: fadeUp 1s ease-out 0.2s both;
+    }
+    .hero .badge-android {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 20px; background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 50px;
+      font-size: 13px; color: rgba(255,255,255,0.5); margin-bottom: 32px;
+      animation: fadeUp 1s ease-out 0.25s both;
+    }
+    .hero .btn-play {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 16px 48px; font-size: 18px; font-weight: 700;
+      color: #080816;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none; border-radius: 50px; cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.3s, box-shadow 0.3s;
+      animation: fadeUp 1s ease-out 0.3s both;
+    }
+    .hero .btn-play:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 40px rgba(255,215,0,0.3);
+    }
+    .hero .btn-play .sub {
+      font-size: 12px; font-weight: 400; opacity: 0.7;
+    }
+
+    .games-section {
+      max-width: 1200px; margin: 0 auto; padding: 80px 40px;
+    }
+    .games-section h2 {
+      text-align: center; font-family: 'Playfair Display', serif;
+      font-size: 40px; margin-bottom: 48px; color: #fff;
+    }
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+    .game-card {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 24px; padding: 32px; text-align: center;
+      transition: transform 0.3s, border-color 0.3s;
+      cursor: pointer;
+    }
+    .game-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255,215,0,0.2);
+    }
+    .game-card .icon-wrap {
+      width: 80px; height: 80px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 36px;
+    }
+    .game-card .icon-wrap.belote {
+      background: rgba(0,100,0,0.2); border: 1px solid rgba(0,100,0,0.3);
+    }
+    .game-card .icon-wrap.ludo {
+      background: rgba(255,215,0,0.2); border: 1px solid rgba(255,215,0,0.3);
+    }
+    .game-card .icon-wrap.fanorona {
+      background: rgba(100,50,150,0.2); border: 1px solid rgba(100,50,150,0.3);
+    }
+    .game-card .icon-wrap.rami {
+      background: rgba(0,150,200,0.2); border: 1px solid rgba(0,150,200,0.3);
+    }
+    .game-card h3 {
+      font-size: 20px; font-weight: 700; margin-bottom: 8px;
+    }
+    .game-card p {
+      color: rgba(255,255,255,0.6); font-size: 14px; line-height: 1.6;
+    }
+    .game-card .soon-tag {
+      display: inline-block; margin-top: 10px;
+      padding: 4px 16px; font-size: 12px; font-weight: 600;
+      background: rgba(255,215,0,0.15); color: #FFD700;
+      border-radius: 50px; border: 1px solid rgba(255,215,0,0.2);
+    }
+
+    .features {
+      max-width: 1200px; margin: 0 auto;
+      padding: 60px 40px 100px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 32px;
+    }
+    .feature { text-align: center; padding: 24px; }
+    .feature .icon { font-size: 32px; margin-bottom: 16px; }
+    .feature h4 { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #FFD700; }
+    .feature p { font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.5; }
+
+    footer {
+      position: relative; z-index: 1;
+      text-align: center; padding: 40px 20px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    footer .links {
+      display: flex; justify-content: center; flex-wrap: wrap;
+      gap: 8px 24px; margin-bottom: 20px;
+    }
+    footer .links a {
+      color: rgba(255,255,255,0.5); text-decoration: none; font-size: 13px;
+      transition: color 0.3s; cursor: pointer;
+    }
+    footer .links a:hover { color: #FFD700; }
+    footer p { color: rgba(255,255,255,0.3); font-size: 12px; }
+
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: none; align-items: center; justify-content: center;
+      padding: 20px; animation: fadeIn 0.3s ease-out;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #0d0d1f;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px; max-width: 520px; width: 100%;
+      padding: 40px; position: relative; text-align: center;
+      animation: slideUp 0.3s ease-out;
+    }
+    .modal .close {
+      position: absolute; top: 16px; right: 20px;
+      background: none; border: none;
+      color: rgba(255,255,255,0.4); font-size: 28px;
+      cursor: pointer; transition: color 0.3s; line-height: 1;
+    }
+    .modal .close:hover { color: #FFD700; }
+    .modal .icon-big { font-size: 56px; margin-bottom: 16px; }
+    .modal h2 {
+      font-family: 'Playfair Display', serif; font-size: 28px; margin-bottom: 8px;
+    }
+    .modal p { color: rgba(255,255,255,0.7); font-size: 14px; line-height: 1.7; margin-bottom: 12px; }
+    .modal .features-list {
+      text-align: left; margin: 16px 0;
+    }
+    .modal .features-list li {
+      list-style: none; padding: 8px 0;
+      color: rgba(255,255,255,0.7); font-size: 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .modal .features-list li::before {
+      content: "âœ“"; color: #FFD700; font-weight: 700;
+    }
+    .modal .btn-download {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 16px; padding: 14px 36px; font-size: 16px; font-weight: 700;
+      color: #080816;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none; border-radius: 50px; cursor: pointer;
+      text-decoration: none; transition: transform 0.3s, box-shadow 0.3s;
+    }
+    .modal .btn-download:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(255,215,0,0.3);
+    }
+    .modal .btn-close {
+      display: inline-block; margin-top: 16px;
+      padding: 12px 32px; font-size: 14px; font-weight: 600;
+      color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 50px;
+      cursor: pointer; transition: all 0.3s;
+    }
+    .modal .btn-close:hover {
+      background: rgba(255,255,255,0.1); color: #fff;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 768px) {
+      nav { padding: 16px 20px; flex-direction: column; gap: 12px; }
+      nav .legal-links a { margin: 0 10px; }
+      .hero h1 { font-size: 40px; }
+      .hero .logo-big { width: 120px; height: 120px; }
+      .hero .btn-play { padding: 14px 36px; font-size: 16px; }
+      .games-section { padding: 40px 20px; }
+      .games-section h2 { font-size: 28px; }
+      .features { padding: 40px 20px; gap: 16px; }
+      .modal { padding: 24px; }
+      .modal h2 { font-size: 22px; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <div class="landing" id="landing">
+    <div class="bg-orbs">
+      <div class="orb"></div>
+      <div class="orb"></div>
+      <div class="orb"></div>
+    </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
-  <script src="flutter_bootstrap.js" async></script>
+    <div class="content">
+      <nav>
+        <a href="#" class="logo">
+          <img src="icons/logo.png" alt="Miloka">
+          <span>Miloka</span>
+        </a>
+        <div class="legal-links">
+          <a href="confidentialite.html">Confidentialité</a>
+          <a href="cgu.html">CGU</a>
+          <a href="mentions-legales.html">Mentions légales</a>
+        </div>
+      </nav>
+
+      <section class="hero">
+        <img src="icons/logo.png" alt="Miloka" class="logo-big">
+        <h1>Miloka</h1>
+        <p>Tous vos jeux de société préférés réunis dans une seule application. Belote, Ludo, Fanorona, Rami et bien plus encore.</p>
+        <div class="badge-android">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2l-3 9h6l-6 11"/><path d="M3 13h6l-3 9 3-9"/></svg>
+          Disponible sur Android
+        </div>
+        <button class="btn-play" onclick="downloadApk()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Télécharger l'APK</span>
+        </button>
+      </section>
+
+      <section class="games-section">
+        <h2>Nos jeux</h2>
+        <div class="games-grid">
+          <div class="game-card" onclick="openGameModal('belote')">
+            <div class="icon-wrap belote">🃏</div>
+            <h3>Belote</h3>
+            <p>Le célèbre jeu de cartes français. Affrontez vos amis en ligne ou jouez contre l'IA.</p>
+          </div>
+          <div class="game-card" onclick="openGameModal('ludo')">
+            <div class="icon-wrap ludo">🎲</div>
+            <h3>Ludo</h3>
+            <p>Le jeu de plateau classique revisité. Course, stratégie et fun pour toute la famille.</p>
+          </div>
+          <div class="game-card" onclick="openSoonModal('Fanorona')">
+            <div class="icon-wrap fanorona">🏰</div>
+            <h3>Fanorona</h3>
+            <p>Jeu de stratégie traditionnel malgache. Un véritable défi tactique.</p>
+            <div class="soon-tag">Prochainement</div>
+          </div>
+          <div class="game-card" onclick="openSoonModal('Rami')">
+            <div class="icon-wrap rami">🀄</div>
+            <h3>Rami</h3>
+            <p>Le jeu de cartes aux multiples variantes. Formez des combinaisons et soyez le plus rapide.</p>
+            <div class="soon-tag">Prochainement</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="features">
+        <div class="feature">
+          <div class="icon">🎮</div>
+          <h4>Multiplateforme</h4>
+          <p>Jouez sur mobile, tablette ou navigateur. Votre progression est synchronisée.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🌐</div>
+          <h4>En ligne</h4>
+          <p>Affrontez vos amis ou des adversaires du monde entier en temps réel.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🤖</div>
+          <h4>Mode solo</h4>
+          <p>Entraînez-vous contre l'IA et perfectionnez votre stratégie.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🏆</div>
+          <h4>Classements</h4>
+          <p>Grimpez dans les classements et devenez le meilleur joueur.</p>
+        </div>
+      </section>
+
+      <footer>
+        <div class="links">
+          <a href="confidentialite.html">Politique de confidentialité</a>
+          <a href="cgu.html">Conditions d'utilisation</a>
+          <a href="mentions-legales.html">Mentions légales</a>
+        </div>
+        <p>&copy; 2026 Miloka. Tous droits réservés.</p>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Belote Modal -->
+  <div class="modal-overlay" id="modal-belote">
+    <div class="modal">
+      <button class="close" onclick="closeGameModal('belote')">&times;</button>
+      <div class="icon-big">🃏</div>
+      <h2>Belote</h2>
+      <p>Le célèbre jeu de cartes français joué avec un jeu de 32 cartes. Affrontez vos amis en ligne ou défiez l'IA dans des parties palpitantes.</p>
+      <ul class="features-list">
+        <li>Belote classique et coinchée</li>
+        <li>Multijoueur en ligne temps réel</li>
+        <li>Classements et statistiques</li>
+        <li>IA intelligente pour l'entraînement</li>
+      </ul>
+      <button class="btn-download" onclick="closeGameModal('belote'); downloadApk()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Télécharger l'APK
+      </button>
+    </div>
+  </div>
+
+  <!-- Ludo Modal -->
+  <div class="modal-overlay" id="modal-ludo">
+    <div class="modal">
+      <button class="close" onclick="closeGameModal('ludo')">&times;</button>
+      <div class="icon-big">🎲</div>
+      <h2>Ludo</h2>
+      <p>Le jeu de plateau classique revisité pour mobile. Course effrénée, stratégie et fun pour toute la famille.</p>
+      <ul class="features-list">
+        <li>Jusqu'à 4 joueurs en ligne</li>
+        <li>Parties rapides et dynamiques</li>
+        <li>Plateau coloré et animations fluides</li>
+        <li>Mode solo contre l'IA</li>
+      </ul>
+      <button class="btn-download" onclick="closeGameModal('ludo'); downloadApk()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Télécharger l'APK
+      </button>
+    </div>
+  </div>
+
+  <!-- Soon Modal -->
+  <div class="modal-overlay" id="modal-soon">
+    <div class="modal">
+      <button class="close" onclick="closeSoonModal()">&times;</button>
+      <div class="icon-big">🚧</div>
+      <h2 id="soon-title">Prochainement</h2>
+      <p id="soon-desc">Ce jeu est actuellement en développement et sera bientôt disponible dans Miloka. Restez à l'écoute !</p>
+      <button class="btn-close" onclick="closeSoonModal()">Compris</button>
+    </div>
+  </div>
+
+  <script>
+    function openGameModal(game) {
+      document.getElementById('modal-' + game).classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeGameModal(game) {
+      document.getElementById('modal-' + game).classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    function openSoonModal(name) {
+      document.getElementById('soon-title').textContent = name + ' — Prochainement';
+      document.getElementById('soon-desc').textContent = name + ' est en cours de développement. Cette fonctionnalité sera bientôt disponible dans Miloka. Merci de votre patience !';
+      document.getElementById('modal-soon').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeSoonModal() {
+      document.getElementById('modal-soon').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    function downloadApk() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('HEAD', 'apk/miloka.apk', true);
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          var a = document.createElement('a');
+          a.href = 'apk/miloka.apk';
+          a.download = 'miloka.apk';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          alert("L'APK n'est pas encore disponible. Revenez plus tard !");
+        }
+      };
+      xhr.onerror = function() {
+        alert("L'APK n'est pas encore disponible. Revenez plus tard !");
+      };
+      xhr.send();
+    }
+    document.querySelectorAll('.modal-overlay').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        if (e.target === this) {
+          this.classList.remove('active');
+          document.body.style.overflow = '';
+        }
+      });
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(function(m) {
+          m.classList.remove('active');
+        });
+        document.body.style.overflow = '';
+      }
+    });
+  </script>
 </body>
 </html>
