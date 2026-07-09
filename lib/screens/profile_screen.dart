@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import 'login_screen.dart';
@@ -121,6 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final authProvider = Provider.of<AuthProvider?>(context, listen: false);
+      await SupabaseService().updateIsOffline();
       await authProvider?.signOut();
 
       if (!mounted) return;

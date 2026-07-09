@@ -17,9 +17,10 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   void loadApp() async {
-    bool token = await AuthService.listenSessionChange();
+    final token = await AuthService.listenSessionChange();
 
-    Future.delayed(Duration(seconds: 5), () {
+    Future.delayed(const Duration(seconds: 5), () {
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => token ? HomeScreen() : OnbordingScreen()),

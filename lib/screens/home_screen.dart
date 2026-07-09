@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:miloka/service/friends_service.dart';
+import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/game_choice.dart';
 import 'profile_screen.dart';
@@ -13,7 +17,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  Timer? _heartbeatTimer;
+
   bool loadingfriends = false;
   bool loadingSfriends = false;
   List<bool> loadingAfriends = [];
@@ -22,6 +28,92 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     // TODO: implement initState
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startHeartbeat();
+    _subscribeToGameRequests();
+  }
+
+  void _subscribeToGameRequests() {
+
+    final channel = SupabaseService().client.channel('game_amis_channel');
+    final currentUser = SupabaseService().getCurrentUser();
+    print(currentUser?.id);
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_ami',
+        value: currentUser?.id,
+      ),
+      callback: (payload) {
+        final data = payload.newRecord;
+        if(data['send_partie'] == 'pending') showGameRequestPopup(data);
+        //print(data);
+      },
+    );
+    channel.subscribe();
+  }
+
+  void showGameRequestPopup(Map<String, dynamic> request) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Invitation de jeu"),
+          content: Text("Ton ami veut jouer avec toi !"),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Supabase.instance.client
+                    .from('amis')
+                    .update({'send_partie': 'accepted'})
+                    .eq('id_ami', request['id_ami'])
+                    .eq('id_user', request['id_user']);
+                Navigator.pop(context);
+              },
+              child: Text("Accepter"),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Supabase.instance.client
+                    .from('amis')
+                    .update({'send_partie': 'declined'})
+                    .eq('id_ami', request['id_ami'])
+                    .eq('id_user', request['id_user']);
+                Navigator.pop(context);
+              },
+              child: Text("Refuser"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+      await SupabaseService().updateIsOnline();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      // Mettre is_online à false quand l’app est quittée
+      print('Cancel');
+      await SupabaseService().updateIsOffline();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _heartbeatTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -101,6 +193,24 @@ class _HomeScreenState extends State<HomeScreen> {
                                               size: 12,
                                             ),
                                     ),
+                                    onTap: () async {
+                                      if (friend['is_connected']) {
+                                        await FriendsService().sendGameRequest(
+                                          friend['id'],
+                                        );
+                                      } else {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Votre ami n\'est pas en ligne!',
+                                            ),
+                                            backgroundColor: Colors.amberAccent,
+                                          ),
+                                        );
+                                      }
+                                    },
                                   );
                                 }).toList()
                               : [
@@ -155,15 +265,16 @@ class _HomeScreenState extends State<HomeScreen> {
                               .getSuggestedFriends();
                           setState(() {
                             loadingSfriends = false;
-                            loadingAfriends =
-                                List<bool>.filled(suggestedFriends.length, false);
+                            loadingAfriends = List<bool>.filled(
+                              suggestedFriends.length,
+                              false,
+                            );
                           });
 
                           final menuItems = suggestedFriends.isNotEmpty
-                              ? suggestedFriends
-                                  .asMap()
-                                  .entries
-                                  .map<PopupMenuEntry<dynamic>>((entry) {
+                              ? suggestedFriends.asMap().entries.map<
+                                  PopupMenuEntry<dynamic>
+                                >((entry) {
                                   final i = entry.key;
                                   final friend = entry.value;
                                   return PopupMenuItem(
@@ -171,14 +282,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       leading: CircleAvatar(
                                         backgroundImage:
                                             friend['avatar_url'] != null &&
-                                                    friend['avatar_url']
-                                                        .isNotEmpty
+                                                friend['avatar_url'].isNotEmpty
                                             ? NetworkImage(friend['avatar_url'])
                                             : null,
                                         child:
                                             friend['avatar_url'] == null ||
-                                                    friend['avatar_url']
-                                                        .isEmpty
+                                                friend['avatar_url'].isEmpty
                                             ? const Icon(
                                                 Icons.person,
                                                 color: Colors.white,

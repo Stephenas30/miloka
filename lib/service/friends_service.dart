@@ -2,18 +2,20 @@ import 'package:miloka/service/supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FriendsService {
-
   final SupabaseClient client = SupabaseService().client;
 
   Future<List<dynamic>> getSuggestedFriends() async {
     List<dynamic> suggestedFriends = [];
-    try{
+    try {
       final userId = SupabaseService().client.auth.currentUser?.id;
       if (userId == null) {
         throw Exception('User not authenticated');
       }
       // Exclude users who are already friends
-      final friendsResponse = await client.from('amis').select('id_ami').eq('id_user', userId);
+      final friendsResponse = await client
+          .from('amis')
+          .select('id_ami')
+          .eq('id_user', userId);
       List<String> friendIds = [];
       for (var f in friendsResponse) {
         if (f['id_ami'] != null) friendIds.add(f['id_ami']);
@@ -21,13 +23,22 @@ class FriendsService {
 
       late final dynamic response;
       if (friendIds.isEmpty) {
-        response = await client.from('users').select().neq('id', userId).limit(10);
+        response = await client
+            .from('users')
+            .select()
+            .neq('id', userId)
+            .limit(10);
       } else {
         // use 'not in' filter to exclude friend ids
         final inList = friendIds.map((id) => '"$id"').join(',');
-        response = await client.from('users').select().not('id', 'in', '($inList)').neq('id', userId).limit(10);
+        response = await client
+            .from('users')
+            .select()
+            .not('id', 'in', '($inList)')
+            .neq('id', userId)
+            .limit(10);
       }
-      for(var friend in response) {
+      for (var friend in response) {
         suggestedFriends.add({
           'id': friend['id'],
           'username': friend['username'],
@@ -36,7 +47,7 @@ class FriendsService {
         });
       }
       return suggestedFriends;
-    }catch (e) {
+    } catch (e) {
       throw Exception('Erreur lors de la récupération des amis suggérés: $e');
     }
   }
@@ -59,14 +70,21 @@ class FriendsService {
 
   Future<List<dynamic>> getFriendsList() async {
     List<dynamic> friendsList = [];
-    try{
+    try {
       final userId = SupabaseService().client.auth.currentUser?.id;
       if (userId == null) {
         throw Exception('User not authenticated');
       }
-      final response = await client.from('amis').select('id_ami').eq('id_user', userId);
-      for(var friend in response) {
-        final friendDetails = await client.from('users').select().eq('id', friend['id_ami']).single();
+      final response = await client
+          .from('amis')
+          .select('id_ami')
+          .eq('id_user', userId);
+      for (var friend in response) {
+        final friendDetails = await client
+            .from('users')
+            .select()
+            .eq('id', friend['id_ami'])
+            .single();
         friendsList.add({
           'id': friendDetails['id'],
           'username': friendDetails['username'],
@@ -75,7 +93,7 @@ class FriendsService {
         });
       }
       return friendsList;
-    }catch (e) {
+    } catch (e) {
       throw Exception('Erreur lors de la récupération de la liste d\'amis: $e');
     }
   }
@@ -86,10 +104,30 @@ class FriendsService {
       if (userId == null) {
         throw Exception('User not authenticated');
       }
-      await client.from('amis').delete().eq('id_user', userId).eq('id_ami', friendId);
+      await client
+          .from('amis')
+          .delete()
+          .eq('id_user', userId)
+          .eq('id_ami', friendId);
     } catch (e) {
       throw Exception('Erreur lors de la suppression d\'un ami: $e');
     }
   }
 
+  Future<void> sendGameRequest(String receiverId) async {
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      await client
+          .from('amis')
+          .update({'send_partie': 'pending'})
+          .eq('id_ami', receiverId)
+          .eq('id_user', userId);
+    } catch (e) {
+      throw Exception('Erreur lors de l\'envoie de requête vers l\' ami: $e');
+    }
+  }
 }

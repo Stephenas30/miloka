@@ -4,7 +4,7 @@ class TokenStorage {
 
  static final storage = FlutterSecureStorage();
 
-static void writeTokenStorage(String token) async{
+static Future<void> writeTokenStorage(String token) async{
   await storage.write(key: 'token', value: token);
 }
 
@@ -33,7 +33,7 @@ class UserStorage {
 
  static final storage = FlutterSecureStorage();
 
-static void writeUserStorage(String email) async{
+static Future<void> writeUserStorage(String email) async{
   await storage.write(key: 'email', value: email);
 }
 

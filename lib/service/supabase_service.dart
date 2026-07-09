@@ -79,7 +79,7 @@ class SupabaseService {
                 .toLowerCase(),
         'avatar_url': existingProfile?['avatar_url'] ?? googleUser?.photoUrl ?? user.userMetadata?['picture'] ?? '',
         'coins': existingProfile?['coins'] ?? 0,
-        'is_connected': existingProfile?['is_connected'] ?? true,
+        /* 'is_connected': existingProfile?['is_connected'] ?? false, */
         'created_at': existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
@@ -156,5 +156,27 @@ class SupabaseService {
   // Stream des changements d'authentification
   Stream<AuthState> authStateChanges() {
     return _client.auth.onAuthStateChange;
+  }
+
+  Future<void> updateIsOnline() async{
+    final user = getCurrentUser();
+    final nowUtc = DateTime.now().toUtc();
+    if ( user != null) {
+        await _client.from('users').update({
+          'is_connected': true,
+          'last_seen': nowUtc.toIso8601String(),
+        }).eq('id', user.id);
+      }
+  }
+
+  Future<void> updateIsOffline() async{
+    final user = getCurrentUser();
+    final nowUtc = DateTime.now().toUtc();
+    if ( user != null) {
+        await _client.from('users').update({
+        'is_connected': false,
+        'last_seen': nowUtc.toIso8601String(),
+      }).eq('id', user.id);
+      }
   }
 }
