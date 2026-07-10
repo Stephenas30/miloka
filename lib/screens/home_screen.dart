@@ -22,6 +22,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   bool loadingfriends = false;
   bool loadingSfriends = false;
+
+  List<dynamic> fSubscribeToGame = [];
+
   List<bool> loadingAfriends = [];
 
   @override
@@ -31,11 +34,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _startHeartbeat();
     _subscribeToGameRequests();
+    _responseToGameRequests();
   }
 
   void _subscribeToGameRequests() {
-
-    final channel = SupabaseService().client.channel('game_amis_channel');
+    final channel = SupabaseService().client.channel('game_pending_channel');
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
@@ -48,13 +51,76 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         column: 'id_ami',
         value: currentUser?.id,
       ),
-      callback: (payload) {
+      callback: (payload) async {
         final data = payload.newRecord;
-        if(data['send_partie'] == 'pending') showGameRequestPopup(data);
+        if (data['send_partie'] == 'pending') showGameRequestPopup(data);
+        if (data['send_partie'] == 'none') {
+          showGameDeclinedPopup(data);
+          setState(() {
+            fSubscribeToGame = [];
+          });
+        }
+        if (data['send_partie'] == 'accepted') {
+          final fsg = await FriendsService().getHoteSubscribeToGam();
+          setState(() {
+            fSubscribeToGame = fsg;
+          });
+        }
+        
         //print(data);
       },
     );
     channel.subscribe();
+  }
+
+  void _responseToGameRequests() {
+    final channel = SupabaseService().client.channel('game_response_channel');
+    final currentUser = SupabaseService().getCurrentUser();
+    print(currentUser?.id);
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['send_partie'] == 'declined') showGameDeclinedPopup(data);
+        if (data['send_partie'] == 'accepted' || data['send_partie'] == 'none') {
+          final fsg = await FriendsService().getFriendsSubscribeToGam();
+          print(fsg);
+          setState(() {
+            fSubscribeToGame = fsg;
+          });
+        }
+        //print(data);
+      },
+    );
+    channel.subscribe();
+  }
+
+  void showGameDeclinedPopup(Map<String, dynamic> request) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Invitation de jeu"),
+          content: Text(request['send_partie'] == "declined" ? "Ton ami a réfusé votre demande !" : "Votre ami vous avait fait sorti"),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+              },
+              child: Text("Fermer"),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void showGameRequestPopup(Map<String, dynamic> request) {
@@ -63,13 +129,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) {
         return AlertDialog(
           title: Text("Invitation de jeu"),
-          content: Text("Ton ami veut jouer avec toi !"),
+          content: Text(request['send_partie'] == "pending" ? "Ton ami veut jouer avec toi !" : "Veux-tu faire sortie ton ami?"),
           actions: [
             TextButton(
               onPressed: () async {
                 await Supabase.instance.client
                     .from('amis')
-                    .update({'send_partie': 'accepted'})
+                    .update({'send_partie': request['send_partie'] == "pending" ? 'accepted' : 'none'})
                     .eq('id_ami', request['id_ami'])
                     .eq('id_user', request['id_user']);
                 Navigator.pop(context);
@@ -78,11 +144,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             TextButton(
               onPressed: () async {
-                await Supabase.instance.client
+                if(request['send_partie'] == "pending"){
+await Supabase.instance.client
                     .from('amis')
                     .update({'send_partie': 'declined'})
                     .eq('id_ami', request['id_ami'])
                     .eq('id_user', request['id_user']);
+                }
+
                 Navigator.pop(context);
               },
               child: Text("Refuser"),
@@ -122,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final coins =
         int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ??
         0;
-    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final avatarUrl = authProvider?.userProfile?['avatarUrl']?.toString();
     final username =
         authProvider?.userProfile?['username']?.toString() ?? 'Profil';
 
@@ -195,8 +264,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     ),
                                     onTap: () async {
                                       if (friend['is_connected']) {
-                                        await FriendsService().sendGameRequest(
-                                          friend['id'],
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) {
+                                            return AlertDialog(
+                                              title: Text("Invitation de jeu"),
+                                              content: Text(
+                                                "Tu veux vraiment envoyer un invitation à ${friend['username']} !",
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () async {
+                                                    await FriendsService()
+                                                        .sendGameRequest(
+                                                          friend['id'],
+                                                        );
+                                                    Navigator.pop(context);
+                                                  },
+                                                  child: Text("Accepter"),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () async {
+                                                    Navigator.pop(context);
+                                                  },
+                                                  child: Text("Refuser"),
+                                                ),
+                                              ],
+                                            );
+                                          },
                                         );
                                       } else {
                                         ScaffoldMessenger.of(
@@ -389,6 +484,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   Row(
                     spacing: 8,
                     children: [
+                      Stack(
+                        children: [
+                          ...fSubscribeToGame.map((friend) {
+                            final avatarUrl = friend['avatar_url'];
+                            return GestureDetector(
+                              onTap: () {
+                                showDialog(
+                                          context: context,
+                                          builder: (context) {
+                                            return AlertDialog(
+                                              title: Text("Invitation de jeu"),
+                                              content: Text(
+                                                "Tu veux vraiment faire sortir ${friend['username']} !",
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () async {
+                                                    await FriendsService()
+                                                        .removeFriendSubscribeToGam(
+                                                          friend['id'],
+                                                        );
+                                                    Navigator.pop(context);
+                                                  },
+                                                  child: Text("Accepter"),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () async {
+                                                    Navigator.pop(context);
+                                                  },
+                                                  child: Text("Refuser"),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+                              },
+                              child: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: Colors.white24,
+                                backgroundImage:
+                                    avatarUrl != null && avatarUrl.isNotEmpty
+                                    ? NetworkImage(avatarUrl)
+                                    : null,
+                                child: avatarUrl == null || avatarUrl.isEmpty
+                                    ? const Icon(
+                                        Icons.person,
+                                        color: Colors.white,
+                                        size: 16,
+                                      )
+                                    : null,
+                              )
+                            );
+                          },)
+                          
+                        ],
+                      ),
                       GestureDetector(
                         onTap: () {
                           Navigator.push(

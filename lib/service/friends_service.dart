@@ -98,6 +98,84 @@ class FriendsService {
     }
   }
 
+  Future<List<dynamic>> getFriendsSubscribeToGam() async {
+    List<dynamic> friendsList = [];
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+      final response = await client
+          .from('amis')
+          .select('id_ami')
+          .eq('send_partie', 'accepted')
+          .eq('id_user', userId);
+      for (var friend in response) {
+        final friendDetails = await client
+            .from('users')
+            .select()
+            .eq('id', friend['id_ami'])
+            .single();
+        friendsList.add({
+          'id': friendDetails['id'],
+          'username': friendDetails['username'],
+          'avatar_url': friendDetails['avatar_url'],
+          //'is_connected': friendDetails['is_connected'],
+        });
+      }
+      return friendsList;
+    } catch (e) {
+      throw Exception('Erreur lors de la récupération de la liste d\'amis: $e');
+    }
+  }
+
+  Future<List<dynamic>> getHoteSubscribeToGam() async {
+    List<dynamic> friendsList = [];
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+      final response = await client
+          .from('amis')
+          .select('id_user')
+          .eq('send_partie', 'accepted')
+          .eq('id_ami', userId);
+      for (var friend in response) {
+        final friendDetails = await client
+            .from('users')
+            .select()
+            .eq('id', friend['id_user'])
+            .single();
+        friendsList.add({
+          'id': friendDetails['id'],
+          'username': friendDetails['username'],
+          'avatar_url': friendDetails['avatar_url'],
+          //'is_connected': friendDetails['is_connected'],
+        });
+      }
+      return friendsList;
+    } catch (e) {
+      throw Exception('Erreur lors de la récupération de la liste d\'amis: $e');
+    }
+  }
+
+  Future<void> removeFriendSubscribeToGam(String friendId) async {
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+      await client
+          .from('amis')
+          .update({'send_partie': 'none'})
+          .eq('id_user', userId)
+          .eq('id_ami', friendId);
+    } catch (e) {
+      throw Exception('Erreur lors de la suppression d\'un ami: $e');
+    }
+  }
+
   Future<void> removeFriend(String friendId) async {
     try {
       final userId = SupabaseService().client.auth.currentUser?.id;
