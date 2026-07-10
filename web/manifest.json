@@ -1,11 +1,11 @@
 {
-    "name": "miloka",
-    "short_name": "miloka",
+    "name": "Miloka - Jeux de société",
+    "short_name": "Miloka",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#080816",
+    "theme_color": "#006400",
+    "description": "Miloka - Jeux de société en ligne : Belote, Ludo, Fanorona, Rami, Solitaire, Dominos et bien plus encore.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
@@ -26,7 +26,7 @@
             "purpose": "maskable"
         },
         {
-            "src": "icons/Icon-maskable-512.png",
+            "src": "icons/logo.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
