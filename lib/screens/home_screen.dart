@@ -55,12 +55,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final data = payload.newRecord;
         if (data['send_partie'] == 'pending') showGameRequestPopup(data);
         if (data['send_partie'] == 'none') {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
           showGameDeclinedPopup(data);
           setState(() {
             fSubscribeToGame = [];
           });
         }
         if (data['send_partie'] == 'accepted') {
+          showWaitingGame();
           final fsg = await FriendsService().getHoteSubscribeToGam();
           setState(() {
             fSubscribeToGame = fsg;
@@ -101,6 +103,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       },
     );
     channel.subscribe();
+  }
+
+  void showWaitingGame(){
+    showDialog(context: context, barrierDismissible: false, builder: (context) {
+      return AlertDialog(
+        content: Text('En attente du lancement de jeu ...')
+      );
+    });
   }
 
   void showGameDeclinedPopup(Map<String, dynamic> request) {

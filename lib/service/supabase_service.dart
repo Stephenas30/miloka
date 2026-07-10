@@ -23,7 +23,8 @@ class SupabaseService {
     _client = Supabase.instance.client;
 
     _googleSignIn = GoogleSignIn(
-      serverClientId: '523098863689-htmlr2jk0obqgcvp6tvekklnlv70fo4f.apps.googleusercontent.com',
+      serverClientId:
+          '523098863689-htmlr2jk0obqgcvp6tvekklnlv70fo4f.apps.googleusercontent.com',
       forceCodeForRefreshToken: true,
     );
   }
@@ -71,16 +72,26 @@ class SupabaseService {
       final profileData = {
         'id': user.id,
         'email': user.email,
-        'full_name': googleUser?.displayName ?? user.userMetadata?['name'] ?? existingProfile?['full_name'] ?? '',
-        'username': existingProfile?['username'] ??
+        'full_name':
+            googleUser?.displayName ??
+            user.userMetadata?['name'] ??
+            existingProfile?['full_name'] ??
+            '',
+        'username':
+            existingProfile?['username'] ??
             (googleUser?.displayName ?? user.userMetadata?['name'] ?? '')
                 .toString()
                 .replaceAll(' ', '')
                 .toLowerCase(),
-        'avatar_url': existingProfile?['avatar_url'] ?? googleUser?.photoUrl ?? user.userMetadata?['picture'] ?? '',
+        'avatar_url':
+            existingProfile?['avatar_url'] ??
+            googleUser?.photoUrl ??
+            user.userMetadata?['picture'] ??
+            '',
         'coins': existingProfile?['coins'] ?? 0,
         /* 'is_connected': existingProfile?['is_connected'] ?? false, */
-        'created_at': existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
+        'created_at':
+            existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
 
@@ -101,16 +112,18 @@ class SupabaseService {
       final contentType = extension == 'png'
           ? 'image/png'
           : extension == 'jpg' || extension == 'jpeg'
-              ? 'image/jpeg'
-              : 'application/octet-stream';
+          ? 'image/jpeg'
+          : 'application/octet-stream';
       final fileName = '$userId/avatar.$extension';
       final bytes = await file.readAsBytes();
 
-      await _client.storage.from('avatars').uploadBinary(
-        fileName,
-        bytes,
-        fileOptions: FileOptions(contentType: contentType, upsert: true),
-      );
+      await _client.storage
+          .from('avatars')
+          .uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(contentType: contentType, upsert: true),
+          );
 
       return _client.storage.from('avatars').getPublicUrl(fileName);
     } catch (e) {
@@ -158,25 +171,33 @@ class SupabaseService {
     return _client.auth.onAuthStateChange;
   }
 
-  Future<void> updateIsOnline() async{
+  Future<void> updateIsOnline() async {
     final user = getCurrentUser();
     final nowUtc = DateTime.now().toUtc();
-    if ( user != null) {
-        await _client.from('users').update({
-          'is_connected': true,
-          'last_seen': nowUtc.toIso8601String(),
-        }).eq('id', user.id);
-      }
+    if (user != null) {
+      await _client
+          .from('users')
+          .update({'is_connected': true, 'last_seen': nowUtc.toIso8601String()})
+          .eq('id', user.id);
+    }
   }
 
-  Future<void> updateIsOffline() async{
+  Future<void> updateIsOffline() async {
     final user = getCurrentUser();
     final nowUtc = DateTime.now().toUtc();
-    if ( user != null) {
-        await _client.from('users').update({
-        'is_connected': false,
-        'last_seen': nowUtc.toIso8601String(),
-      }).eq('id', user.id);
-      }
+    if (user != null) {
+      await _client
+          .from('users')
+          .update({
+            'is_connected': false,
+            'last_seen': nowUtc.toIso8601String(),
+          })
+          .eq('id', user.id);
+
+      await _client
+          .from("amis")
+          .update({'send_partie': 'none'})
+          .or('id_ami.eq.${user.id},id_user.eq.${user.id}');
+    }
   }
 }
