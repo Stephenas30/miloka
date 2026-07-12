@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:miloka/screens/login_screen.dart';
 import 'package:miloka/service/auth_service.dart';
 
@@ -54,6 +53,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _usernameController.text,
         );
 
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => LoginScreen()),
@@ -65,7 +65,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
       } catch (e) {
-        print(e);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
@@ -89,7 +89,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    // TODO: implement dispose
     super.dispose();
     _fnameController.dispose();
     _lnameController.dispose();
@@ -101,225 +100,365 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // TODO: implement build
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () {
-            Navigator.pop(context);
-          },
-          icon: Icon(Icons.arrow_back, color: Colors.white),
-        ),
-        title: Text("Inscription", style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color.fromARGB(255, 3, 10, 17),
-      ),
       body: GestureDetector(
         onTap: () {
           FocusScope.of(context).unfocus();
         },
-        child: SingleChildScrollView(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Form(
-                    key: _formKey,
-                    child: /*  ConstrainedBox(
-                      constraints: BoxConstraints(
-                        //maxHeight: MediaQuery.of(context).size.height - 150,
-                      ),
-                      child:  */ Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        TextFormField(
-                              controller: _lnameController,
-                              onChanged: (e) => handleInput(),
-                              decoration: const InputDecoration(
-                                hintText: 'Entrer votre nom',
-                                label: Text(
-                                  'Nom' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                              ),
-                              style: TextStyle(color: Colors.black),
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some text';
-                                }
-                                return null;
-                              },
-                            ),
-                        Column(
-                          spacing: 10,
-                          children: [
-                            TextFormField(
-                              controller: _fnameController,
-                              onChanged: (e) => handleInput(),
-                              decoration: const InputDecoration(
-                                hintText: 'Entrer votre prénom',
-                                label: Text(
-                                  'Prénom' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                              ),
-                              style: TextStyle(color: Colors.black),
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some text';
-                                }
-                                return null;
-                              },
-                            ),
-                            TextFormField(
-                              controller: _usernameController,
-                              onChanged: (e) => handleInput(),
-                              decoration: const InputDecoration(
-                                hintText: 'Entrer votre nom d\'utilisation',
-                                label: Text(
-                                  'Nom d\'utilisation' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                              ),
-                              style: TextStyle(color: Colors.black),
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some text';
-                                }
-                                return null;
-                              },
-                            ),
-                            TextFormField(
-                              controller: _mailController,
-                              onChanged: (e) => handleInput(),
-                              decoration: const InputDecoration(
-                                hintText: 'Entrer votre email',
-                                label: Text(
-                                  'E-mail' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                              ),
-                              style: TextStyle(color: Colors.black),
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some text';
-                                }
-                                return null;
-                              },
-                            ),
-                            TextFormField(
-                              controller: _passwordController,
-                              onChanged: (e) => handleInput(),
-                              style: TextStyle(color: Colors.black),
-                              decoration: InputDecoration(
-                                hintText: 'Entrer votre mot de passe',
-                                label: Text(
-                                  'Mot de passe' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                                suffixIcon: IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      showPassword = !showPassword;
-                                    });
-                                  },
-                                  icon: Icon(
-                                    showPassword
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                ),
-                              ),
-                              obscureText: !showPassword,
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some password';
-                                }
-                                return null;
-                              },
-                            ),
-                            TextFormField(
-                              controller: _cpasswordController,
-                              onChanged: (e) => handleInput(),
-                              decoration: InputDecoration(
-                                hintText: 'Entrer votre mot de passe',
-                                label: Text(
-                                  'Confirmer votre mot de passe' /* style: AppTextStyles.subtitle */,
-                                ),
-                                fillColor: const Color.fromARGB(255, 8, 25, 42),
-                              ),
-                              style: TextStyle(color: Colors.black),
-                              obscureText: true,
-                              validator: (String? value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter some password';
-                                }
-                                return null;
-                              },
-                            ),
-                            SizedBox(height: 20),
-                            ElevatedButton(
-                              style: ButtonStyle(
-                                /* backgroundColor: MaterialStateProperty.all<Color>(
-                              loading ? Colors.grey : AppColors.primary
-                            ), */
-                              ),
-                              onPressed: disabled | loading
-                                  ? null
-                                  : () {
-                                      // Validate will return true if the form is valid, or false if
-                                      // the form is invalid.
-                                      if (_formKey.currentState!.validate()) {
-                                        // Process data.
-                                        registerHandler();
-                                      }
-                                    },
-                              child: loading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.0,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : const Text('Continuer'),
-                            ),
-                          ],
-                        ),
-
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Vous avez déjà un compte?' /* style: AppTextStyles.subtitle */,
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => LoginScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text('Connexion'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: AssetImage("assets/images/bkg-con.png"),
+                    fit: BoxFit.cover,
                   ),
-                  // ),
-                ],
+                ),
               ),
             ),
-          ),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.7),
+                                  Colors.black.withValues(alpha: 0.7),
+                                ],
+                                stops: [0.0, 0.2, 1.0],
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                left: 30,
+                                right: 30,
+                                top: 120,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.arrow_back,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: () => Navigator.pop(context),
+                                      ),
+                                      Text(
+                                        "Inscription",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: <Widget>[
+                                        TextFormField(
+                                          controller: _lnameController,
+                                          onChanged: (e) => handleInput(),
+                                          decoration: const InputDecoration(
+                                            hintText: 'Entrer votre nom',
+                                            hintStyle: TextStyle(
+                                              color: Colors.white60,
+                                            ),
+                                            label: Text(
+                                              'Nom',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            fillColor: Colors.white24,
+                                            filled: true,
+                                            border: OutlineInputBorder(),
+                                          ),
+                                          style: TextStyle(color: Colors.white),
+                                          validator: (String? value) {
+                                            if (value == null ||
+                                                value.isEmpty) {
+                                              return 'Please enter some text';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Column(
+                                          spacing: 10,
+                                          children: [
+                                            TextFormField(
+                                              controller: _fnameController,
+                                              onChanged: (e) => handleInput(),
+                                              decoration: const InputDecoration(
+                                                hintText: 'Entrer votre prénom',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.white60,
+                                                ),
+                                                label: Text(
+                                                  'Prénom',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                fillColor: Colors.white24,
+                                                filled: true,
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                              validator: (String? value) {
+                                                if (value == null ||
+                                                    value.isEmpty) {
+                                                  return 'Please enter some text';
+                                                }
+                                                return null;
+                                              },
+                                            ),
+                                            TextFormField(
+                                              controller: _usernameController,
+                                              onChanged: (e) => handleInput(),
+                                              decoration: const InputDecoration(
+                                                hintText:
+                                                    'Entrer votre nom d\'utilisation',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.white60,
+                                                ),
+                                                label: Text(
+                                                  'Nom d\'utilisation',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                fillColor: Colors.white24,
+                                                filled: true,
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                              validator: (String? value) {
+                                                if (value == null ||
+                                                    value.isEmpty) {
+                                                  return 'Please enter some text';
+                                                }
+                                                return null;
+                                              },
+                                            ),
+                                            TextFormField(
+                                              controller: _mailController,
+                                              onChanged: (e) => handleInput(),
+                                              decoration: const InputDecoration(
+                                                hintText: 'Entrer votre email',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.white60,
+                                                ),
+                                                label: Text(
+                                                  'E-mail',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                fillColor: Colors.white24,
+                                                filled: true,
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                              validator: (String? value) {
+                                                if (value == null ||
+                                                    value.isEmpty) {
+                                                  return 'Please enter some text';
+                                                }
+                                                return null;
+                                              },
+                                            ),
+                                            TextFormField(
+                                              controller: _passwordController,
+                                              onChanged: (e) => handleInput(),
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                              decoration: InputDecoration(
+                                                hintText:
+                                                    'Entrer votre mot de passe',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.white60,
+                                                ),
+                                                label: Text(
+                                                  'Mot de passe',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                fillColor: Colors.white24,
+                                                filled: true,
+                                                border: OutlineInputBorder(),
+                                                suffixIcon: IconButton(
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      showPassword =
+                                                          !showPassword;
+                                                    });
+                                                  },
+                                                  icon: Icon(
+                                                    showPassword
+                                                        ? Icons.visibility
+                                                        : Icons.visibility_off,
+                                                    color: Colors.white70,
+                                                  ),
+                                                ),
+                                              ),
+                                              obscureText: !showPassword,
+                                              validator: (String? value) {
+                                                if (value == null ||
+                                                    value.isEmpty) {
+                                                  return 'Please enter some password';
+                                                }
+                                                return null;
+                                              },
+                                            ),
+                                            TextFormField(
+                                              controller: _cpasswordController,
+                                              onChanged: (e) => handleInput(),
+                                              decoration: const InputDecoration(
+                                                hintText:
+                                                    'Entrer votre mot de passe',
+                                                hintStyle: TextStyle(
+                                                  color: Colors.white60,
+                                                ),
+                                                label: Text(
+                                                  'Confirmer votre mot de passe',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                fillColor: Colors.white24,
+                                                filled: true,
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                              obscureText: true,
+                                              validator: (String? value) {
+                                                if (value == null ||
+                                                    value.isEmpty) {
+                                                  return 'Please enter some password';
+                                                }
+                                                return null;
+                                              },
+                                            ),
+                                            const SizedBox(height: 20),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.black,
+                                                foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 40,
+                                                      vertical: 14,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                              ),
+                                              onPressed: disabled | loading
+                                                  ? null
+                                                  : () {
+                                                      if (_formKey.currentState!
+                                                          .validate()) {
+                                                        registerHandler();
+                                                      }
+                                                    },
+                                              child: loading
+                                                  ? const SizedBox(
+                                                      width: 20,
+                                                      height: 20,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2.0,
+                                                        valueColor:
+                                                            AlwaysStoppedAnimation<
+                                                              Color
+                                                            >(Colors.white),
+                                                      ),
+                                                    )
+                                                  : const Text('Continuer'),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 20),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              'Vous avez déjà un compte?',
+                                              style: TextStyle(
+                                                color: Colors.white70,
+                                              ),
+                                            ),
+                                            TextButton(
+                                              onPressed: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        LoginScreen(),
+                                                  ),
+                                                );
+                                              },
+                                              child: Text(
+                                                'Connexion',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

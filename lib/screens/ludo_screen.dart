@@ -6,6 +6,7 @@ import '../game/ludo/ludo_board_layout.dart';
 import '../game/ludo/ludo_engine.dart';
 import '../providers/auth_provider.dart';
 import '../service/stats_service.dart';
+import '../widgets/friends_dialog.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
 
@@ -424,29 +425,94 @@ class _LudoScreenState extends State<LudoScreen>
   void _showWinnerDialog() {
     if (_winnerDialogShown) return;
     _winnerDialogShown = true;
+    final isHumanWin = _engine.winner == _engine.humanColor;
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text('Partie terminée'),
-        content: Text('${_engine.winner!.label} remporte la victoire !'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _restartGame();
-            },
-            child: const Text('Rejouer'),
+      builder: (_) {
+        final dialog = Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
+              decoration: BoxDecoration(
+                color: Colors.grey[900],
+                borderRadius: BorderRadius.circular(20),
+              ),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isHumanWin ? Icons.emoji_events : Icons.smart_toy,
+                    color: isHumanWin ? Colors.amber : Colors.white54,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isHumanWin ? 'Victoire !' : 'Partie terminée',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_engine.winner!.label} remporte la victoire !',
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _restartGame();
+                      },
+                      child: const Text('Rejouer', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pop(context);
+                      },
+                      child: const Text(
+                        'Quitter',
+                        style: TextStyle(color: Colors.white54, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('Quitter'),
-          ),
-        ],
-      ),
+        );
+
+        if (isHumanWin) {
+          return Stack(
+            children: [
+              const _ConfettiWidget(),
+              dialog,
+            ],
+          );
+        }
+        return dialog;
+      },
     );
   }
 
@@ -464,7 +530,7 @@ class _LudoScreenState extends State<LudoScreen>
     }
 
     return Scaffold(
-      floatingActionButtonLocation: FloatingActionButtonLocation.startTop,
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       floatingActionButton: _beginGame
           ? FloatingActionButton(
               backgroundColor: const Color(0xFF006400),
@@ -550,6 +616,12 @@ class _LudoScreenState extends State<LudoScreen>
                       ),
                       ),
                     ),
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      right: 12,
+                      child: _buildTopBar(),
+                    ),
                   ],
                 )
               : _buildMain(),
@@ -558,12 +630,86 @@ class _LudoScreenState extends State<LudoScreen>
     );
   }
 
-  Widget _buildMain() {
+  Widget _buildTopBar() {
     final authProvider = context.read<AuthProvider?>();
     final coins = int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ?? 0;
     final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
     final username = authProvider?.userProfile?['username']?.toString() ?? 'Profil';
 
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => showFriendsDialog(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const CircleAvatar(
+              radius: 14,
+              backgroundColor: Colors.black54,
+              child: Icon(Icons.people_alt, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        Row(
+          spacing: 8,
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null || avatarUrl.isEmpty
+                          ? const Icon(Icons.person, color: Colors.white, size: 16)
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(username, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseScreen())),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                    const SizedBox(width: 6),
+                    Text('$coins', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMain() {
     return Stack(
       children: [
         Center(
@@ -594,64 +740,7 @@ class _LudoScreenState extends State<LudoScreen>
           top: 12,
           left: 12,
           right: 12,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: Colors.white24,
-                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                            ? NetworkImage(avatarUrl)
-                            : null,
-                        child: avatarUrl == null || avatarUrl.isEmpty
-                            ? const Icon(Icons.person, color: Colors.white, size: 16)
-                            : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(username,
-                          style: const TextStyle(color: Colors.white, fontSize: 14)),
-                    ],
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PurchaseScreen()),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
-                      const SizedBox(width: 6),
-                      Text('$coins',
-                          style: const TextStyle(color: Colors.white, fontSize: 14)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+          child: _buildTopBar(),
         ),
         Positioned(
           bottom: 20,
@@ -714,34 +803,15 @@ class _LudoScreenState extends State<LudoScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(width: 100),
-              ShaderMask(
-                shaderCallback: (bounds) => const LinearGradient(
-                  colors: [Color(0xFFFFD700), Color(0xFF8B0000)],
-                ).createShader(bounds),
-                child: const Text(
-                  'Ludo',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              SizedBox(width: 50),
-              IconButton(
-                onPressed: () {
-                  _restartGame();
-                },
-                icon: Icon(Icons.refresh, color: Colors.amber),
-              ),
-            ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: () => _restartGame(),
+              icon: const Icon(Icons.refresh, color: Colors.amber),
+            ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -936,6 +1006,89 @@ class _LudoScreenState extends State<LudoScreen>
         },
       );
   }
+}
+
+class _ConfettiWidget extends StatefulWidget {
+  const _ConfettiWidget();
+
+  @override
+  State<_ConfettiWidget> createState() => _ConfettiWidgetState();
+}
+
+class _ConfettiWidgetState extends State<_ConfettiWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  final _particles = List<_ConfettiParticle>.generate(
+    60,
+    (_) => _ConfettiParticle(),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          size: Size.infinite,
+          painter: _ConfettiPainter(_particles, _controller.value),
+        );
+      },
+    );
+  }
+}
+
+class _ConfettiParticle {
+  final double x = math.Random().nextDouble();
+  double y = math.Random().nextDouble() * -0.2 - 0.1;
+  final double speed = 0.15 + math.Random().nextDouble() * 0.25;
+  final double size = 4 + math.Random().nextDouble() * 6;
+  final Color color = Colors.primaries[math.Random().nextInt(Colors.primaries.length)];
+  final double rotation = math.Random().nextDouble() * 6.28;
+  final double rotationSpeed = (math.Random().nextDouble() - 0.5) * 6;
+}
+
+class _ConfettiPainter extends CustomPainter {
+  final List<_ConfettiParticle> particles;
+  final double progress;
+
+  _ConfettiPainter(this.particles, this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final p in particles) {
+      final y = (p.y + progress * p.speed) % 1.1 - 0.1;
+      final x = p.x + math.sin(progress * 4 + p.x * 10) * 0.02;
+
+      canvas.save();
+      canvas.translate(x * size.width, y * size.height);
+      canvas.rotate(p.rotation + progress * p.rotationSpeed);
+
+      final paint = Paint()..color = p.color.withValues(alpha: (1 - (y.clamp(0, 1))) * 0.9);
+      canvas.drawRect(
+        Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.6),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) => true;
 }
 
 class _DiceFace extends StatelessWidget {

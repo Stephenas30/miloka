@@ -226,6 +226,43 @@ created_at (TIMESTAMP)
 updated_at (TIMESTAMP)
 ```
 
+**Table `amis`** (amis / demandes d'ami) :
+```sql
+CREATE TABLE amis (
+  id_user UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id_ami UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' ou 'accepted'
+  send_partie TEXT DEFAULT NULL,           -- état des invitations de jeu
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (id_user, id_ami)
+);
+```
+
+---
+
+### 11. **Migration : Ajout de la colonne `status` (juillet 2026)**
+
+Si la table `amis` existe déjà sans la colonne `status`, exécute cette commande SQL dans l'éditeur SQL de Supabase :
+
+```sql
+-- 1. Ajouter la colonne (sans default pour que les lignes existantes soient NULL)
+ALTER TABLE amis ADD COLUMN status TEXT;
+
+-- 2. Les amitiés mutuelles (deux lignes réciproques) → 'accepted'
+UPDATE amis SET status = 'accepted'
+WHERE (id_user, id_ami) IN (
+    SELECT a.id_user, a.id_ami FROM amis a
+    INNER JOIN amis b ON a.id_user = b.id_ami AND a.id_ami = b.id_user
+);
+
+-- 3. Les demandes unidirectionnelles (pas encore acceptées) → 'pending'
+UPDATE amis SET status = 'pending' WHERE status IS NULL;
+
+-- 4. Rendre la colonne obligatoire avec une valeur par défaut
+ALTER TABLE amis ALTER COLUMN status SET NOT NULL;
+ALTER TABLE amis ALTER COLUMN status SET DEFAULT 'pending';
+```
+
 ---
 
 **C'est prêt ! 🎉**

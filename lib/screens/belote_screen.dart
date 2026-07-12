@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../widgets/friends_dialog.dart';
 import '../widgets/game_choice_card.dart';
 import '../widgets/game_mode_popup.dart';
+import 'profile_screen.dart';
+import 'purchase_screen.dart';
 
 class BeloteScreen extends StatefulWidget {
   const BeloteScreen({super.key});
@@ -33,9 +38,12 @@ class _BeloteScreenState extends State<BeloteScreen> {
             fit: BoxFit.cover,
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
           children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
             ShaderMask(
               shaderCallback: (bounds) => const LinearGradient(
                 colors: [Color.fromARGB(255, 255, 255, 255), Color.fromARGB(255, 255, 255, 255)],
@@ -143,9 +151,97 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 ),
               ],
             ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: _buildTopBar(),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    final authProvider = context.read<AuthProvider?>();
+    final coins = int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ?? 0;
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final username = authProvider?.userProfile?['username']?.toString() ?? 'Profil';
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => showFriendsDialog(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const CircleAvatar(
+              radius: 14,
+              backgroundColor: Colors.black54,
+              child: Icon(Icons.people_alt, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        Row(
+          spacing: 8,
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null || avatarUrl.isEmpty
+                          ? const Icon(Icons.person, color: Colors.white, size: 16)
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(username, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseScreen())),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.monetization_on, color: Colors.amber, size: 20),
+                    const SizedBox(width: 6),
+                    Text('$coins', style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
