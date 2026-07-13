@@ -160,14 +160,17 @@ class LudoEngine {
 
     final rolledSix = lastDice == 6;
     final captured = _lastCapture;
+    final finishedPawn = move.toSteps >= 56;
     _lastCapture = false;
 
     extraTurn = false;
-    if (rolledSix || captured) {
+    if (rolledSix || captured || finishedPawn) {
       extraTurn = true;
-      message = captured
-          ? 'Capture ! ${currentPlayer.color.label} rejoue'
-          : '6 obtenu ! ${currentPlayer.color.label} rejoue';
+      message = finishedPawn
+          ? 'Pion arrivé au centre ! ${currentPlayer.color.label} rejoue'
+          : captured
+              ? 'Capture ! ${currentPlayer.color.label} rejoue'
+              : '6 obtenu ! ${currentPlayer.color.label} rejoue';
     }
     return true;
   }

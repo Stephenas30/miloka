@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import 'login_screen.dart';
+import 'connexion_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, this.profile});
@@ -127,7 +127,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(builder: (_) => const ConnexionScreen()),
         (route) => false,
       );
     } catch (e) {

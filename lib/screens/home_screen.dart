@@ -6,6 +6,7 @@ import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/friends_dialog.dart';
 import '../widgets/game_choice.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
@@ -27,8 +28,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<dynamic> fSubscribeToGame = [];
 
-  List<bool> loadingAfriends = [];
-
   @override
   void initState() {
     // TODO: implement initState
@@ -37,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _startHeartbeat();
     _subscribeToGameRequests();
     _responseToGameRequests();
+    _subscribeToFriendNotifications();
   }
 
   void _subscribeToGameRequests() {
@@ -208,13 +208,15 @@ await Supabase.instance.client
     super.dispose();
   }
 
+  void _showFriendsDialog(BuildContext context) => showFriendsDialog(context);
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider?>(context);
     final coins =
         int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ??
         0;
-    final avatarUrl = authProvider?.userProfile?['avatarUrl']?.toString();
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
     final username =
         authProvider?.userProfile?['username']?.toString() ?? 'Profil';
 
@@ -237,271 +239,27 @@ await Supabase.instance.client
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    children: [
-                      GestureDetector(
-                        onTap: () async {
-                          setState(() {
-                            loadingfriends = true;
-                          });
-                          var friends = await FriendsService().getFriendsList();
-                          setState(() {
-                            loadingfriends = false;
-                          });
-                          final menuItems = friends.isNotEmpty
-                              ? friends.map<PopupMenuEntry<dynamic>>((friend) {
-                                  return PopupMenuItem(
-                                    child: ListTile(
-                                      leading: CircleAvatar(
-                                        backgroundImage:
-                                            friend['avatar_url'] != null &&
-                                                friend['avatar_url'].isNotEmpty
-                                            ? NetworkImage(friend['avatar_url'])
-                                            : null,
-                                        child:
-                                            friend['avatar_url'] == null ||
-                                                friend['avatar_url'].isEmpty
-                                            ? const Icon(
-                                                Icons.person,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                      title: Text(
-                                        friend['username'],
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      trailing: friend['is_connected']
-                                          ? const Icon(
-                                              Icons.circle,
-                                              color: Colors.green,
-                                              size: 12,
-                                            )
-                                          : const Icon(
-                                              Icons.circle,
-                                              color: Colors.red,
-                                              size: 12,
-                                            ),
-                                    ),
-                                    onTap: () async {
-                                      if (friend['is_connected']) {
-                                        showDialog(
-                                          context: context,
-                                          builder: (context) {
-                                            return AlertDialog(
-                                              title: Text("Invitation de jeu"),
-                                              content: Text(
-                                                "Tu veux vraiment envoyer un invitation à ${friend['username']} !",
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () async {
-                                                    await FriendsService()
-                                                        .sendGameRequest(
-                                                          friend['id'],
-                                                        );
-                                                    Navigator.pop(context);
-                                                  },
-                                                  child: Text("Accepter"),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () async {
-                                                    Navigator.pop(context);
-                                                  },
-                                                  child: Text("Refuser"),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        );
-                                      } else {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Votre ami n\'est pas en ligne!',
-                                            ),
-                                            backgroundColor: Colors.amberAccent,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                  );
-                                }).toList()
-                              : [
-                                  const PopupMenuItem(
-                                    child: Text(
-                                      'Vous n\'avez pas d\'amis',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                ];
-                          showMenu(
-                            context: context,
-                            items: menuItems,
-                            position: RelativeRect.fromRect(
-                              Rect.fromLTWH(0, 0, 100, 100),
-                              Offset.zero & Size.zero,
-                            ),
-                            color: Colors.black54,
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: CircleAvatar(
-                            radius: 14,
-                            backgroundColor: Colors.black54,
-                            child: loadingfriends
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
-                                  )
-                                : const Icon(
-                                    Icons.people_alt,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                          ),
+                  GestureDetector(
+                    onTap: () => _showFriendsDialog(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const CircleAvatar(
+                        radius: 14,
+                        backgroundColor: Colors.black54,
+                        child: Icon(
+                          Icons.people_alt,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () async {
-                          setState(() {
-                            loadingSfriends = true;
-                            loadingAfriends = [];
-                          });
-                          var suggestedFriends = await FriendsService()
-                              .getSuggestedFriends();
-                          setState(() {
-                            loadingSfriends = false;
-                            loadingAfriends = List<bool>.filled(
-                              suggestedFriends.length,
-                              false,
-                            );
-                          });
-
-                          final menuItems = suggestedFriends.isNotEmpty
-                              ? suggestedFriends.asMap().entries.map<
-                                  PopupMenuEntry<dynamic>
-                                >((entry) {
-                                  final i = entry.key;
-                                  final friend = entry.value;
-                                  return PopupMenuItem(
-                                    child: ListTile(
-                                      leading: CircleAvatar(
-                                        backgroundImage:
-                                            friend['avatar_url'] != null &&
-                                                friend['avatar_url'].isNotEmpty
-                                            ? NetworkImage(friend['avatar_url'])
-                                            : null,
-                                        child:
-                                            friend['avatar_url'] == null ||
-                                                friend['avatar_url'].isEmpty
-                                            ? const Icon(
-                                                Icons.person,
-                                                color: Colors.white,
-                                              )
-                                            : null,
-                                      ),
-                                      title: Text(
-                                        friend['username'],
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      trailing: IconButton(
-                                        onPressed: () async {
-                                          setState(() {
-                                            loadingAfriends[i] = true;
-                                          });
-                                          try {
-                                            await FriendsService().addFriend(
-                                              friend['id'],
-                                            );
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '${friend['username']} a été ajouté à vos amis.',
-                                                ),
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  'Erreur lors de l\'ajout de ${friend['username']} à vos amis: $e',
-                                                ),
-                                              ),
-                                            );
-                                          } finally {
-                                            print(loadingAfriends);
-                                            setState(() {
-                                              loadingAfriends[i] = false;
-                                            });
-                                          }
-                                        },
-                                        icon: loadingAfriends[i]
-                                            ? const CircularProgressIndicator(
-                                                color: Colors.white,
-                                              )
-                                            : const Icon(
-                                                Icons.person_add,
-                                                color: Colors.white,
-                                              ),
-                                      ),
-                                    ),
-                                  );
-                                }).toList()
-                              : [
-                                  const PopupMenuItem(
-                                    child: Text('Aucun ami suggéré'),
-                                  ),
-                                ];
-                          showMenu(
-                            context: context,
-                            items: menuItems,
-                            position: RelativeRect.fromRect(
-                              Rect.fromLTWH(0, 0, 100, 100),
-                              Offset.zero & Size.zero,
-                            ),
-                            color: Colors.black54,
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: CircleAvatar(
-                            radius: 14,
-                            backgroundColor: Colors.black54,
-                            child: loadingSfriends
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
-                                  )
-                                : const Icon(
-                                    Icons.person_add,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
 
                   Row(
@@ -655,13 +413,15 @@ await Supabase.instance.client
               ),
             ),
 
-            // Logo en haut
+            // Logo
             Padding(
-              padding: const EdgeInsets.only(top: 0),
+              padding: const EdgeInsets.only(top: 40),
               child: Center(
                 child: Image.asset("assets/images/logo.png", height: 200),
               ),
             ),
+
+            const SizedBox(height: 20),
 
             // Les cartes au centre
             Expanded(
