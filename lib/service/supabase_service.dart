@@ -22,10 +22,10 @@ class SupabaseService {
 
     _client = Supabase.instance.client;
 
-    _googleSignIn = GoogleSignIn(
+    _googleSignIn = GoogleSignIn.instance;
+    await _googleSignIn.initialize(
       serverClientId:
           '523098863689-htmlr2jk0obqgcvp6tvekklnlv70fo4f.apps.googleusercontent.com',
-      forceCodeForRefreshToken: true,
     );
   }
 
@@ -35,23 +35,21 @@ class SupabaseService {
   // Authentification Google
   Future<AuthResponse> signInWithGoogle() async {
     try {
-      final googleUser = await _googleSignIn.signIn();
+      final googleUser = await _googleSignIn.authenticate();
       if (googleUser == null) {
         throw Exception('Google Sign-In annulé');
       }
 
-      final googleAuth = await googleUser.authentication;
-      final accessToken = googleAuth.accessToken;
+      final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
 
-      if (accessToken == null || idToken == null) {
-        throw Exception('Tokens Google introuvables');
+      if (idToken == null) {
+        throw Exception('ID token Google introuvable');
       }
 
       final response = await _client.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
-        accessToken: accessToken,
       );
 
       // Créer ou mettre à jour le profil utilisateur
@@ -66,7 +64,8 @@ class SupabaseService {
   // Créer ou mettre à jour le profil utilisateur
   Future<void> _createOrUpdateUserProfile(User user) async {
     try {
-      final googleUser = await _googleSignIn.signInSilently();
+      final googleUserFuture = _googleSignIn.attemptLightweightAuthentication();
+      final googleUser = googleUserFuture == null ? null : await googleUserFuture;
       final existingProfile = await getUserProfile(user.id);
 
       final profileData = {

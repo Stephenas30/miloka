@@ -19,6 +19,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
+  RealtimeChannel? _gameRequestChannel;
+  RealtimeChannel? _gameResponseChannel;
 
   bool loadingfriends = false;
   bool loadingSfriends = false;
@@ -38,11 +40,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _subscribeToGameRequests() {
-    final channel = SupabaseService().client.channel('game_pending_channel');
+    _gameRequestChannel = SupabaseService().client.channel('game_pending_channel');
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
-    channel.onPostgresChanges(
+    _gameRequestChannel!.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'amis',
@@ -52,35 +54,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         value: currentUser?.id,
       ),
       callback: (payload) async {
+        if (!mounted) return;
         final data = payload.newRecord;
-        if (data['send_partie'] == 'pending') showGameRequestPopup(data);
+        if (data['send_partie'] == 'pending') {
+          showGameRequestPopup(data);
+        }
         if (data['send_partie'] == 'none') {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
+          if (!mounted) return;
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
           showGameDeclinedPopup(data);
+          if (!mounted) return;
           setState(() {
             fSubscribeToGame = [];
           });
         }
         if (data['send_partie'] == 'accepted') {
+          if (!mounted) return;
           showWaitingGame();
           final fsg = await FriendsService().getHoteSubscribeToGam();
+          if (!mounted) return;
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
-        
-        //print(data);
       },
     );
-    channel.subscribe();
+    _gameRequestChannel!.subscribe();
   }
 
   void _responseToGameRequests() {
-    final channel = SupabaseService().client.channel('game_response_channel');
+    _gameResponseChannel = SupabaseService().client.channel('game_response_channel');
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
-    channel.onPostgresChanges(
+    _gameResponseChannel!.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'amis',
@@ -90,19 +97,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         value: currentUser?.id,
       ),
       callback: (payload) async {
+        if (!mounted) return;
         final data = payload.newRecord;
-        if (data['send_partie'] == 'declined') showGameDeclinedPopup(data);
+        if (data['send_partie'] == 'declined') {
+          if (!mounted) return;
+          showGameDeclinedPopup(data);
+        }
         if (data['send_partie'] == 'accepted' || data['send_partie'] == 'none') {
           final fsg = await FriendsService().getFriendsSubscribeToGam();
+          if (!mounted) return;
           print(fsg);
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
-        //print(data);
       },
     );
-    channel.subscribe();
+    _gameResponseChannel!.subscribe();
   }
 
   void showWaitingGame(){
@@ -192,6 +203,8 @@ await Supabase.instance.client
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
+    _gameRequestChannel?.unsubscribe();
+    _gameResponseChannel?.unsubscribe();
     super.dispose();
   }
 
