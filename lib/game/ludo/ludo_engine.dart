@@ -108,8 +108,9 @@ class LudoPlayer {
   final List<LudoPawn> pawns;
   final bool isHuman;
   final String? namePlayer;
+  final String? id;
 
-  LudoPlayer({required this.color, required this.isHuman, this.namePlayer})
+  LudoPlayer({required this.color, required this.isHuman, this.namePlayer, this.id})
     : pawns = List.generate(4, (i) => LudoPawn(id: i, color: color));
 
   bool get hasWon => pawns.every((p) => p.finished);
@@ -130,12 +131,16 @@ class LudoMove {
 }
 
 class LudoHuman {
+  final String? id;
   final String name;
   final LudoColor color;
+  final String? avatar;
 
   const LudoHuman({
     required this.name,
     required this.color,
+    this.id,
+    this.avatar
   });
 }
 
@@ -176,21 +181,25 @@ class LudoEngine {
            color: LudoColor.red,
            isHuman: human.any((elt) => elt.color == LudoColor.red),
            namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.red)?.name,
+           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.red)?.id
          ),
          LudoPlayer(
            color: LudoColor.green,
            isHuman: human.any((elt) => elt.color == LudoColor.green),
            namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.green)?.name,
+           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.green)?.id
          ),
          LudoPlayer(
            color: LudoColor.yellow,
            isHuman: human.any((elt) => elt.color == LudoColor.yellow),
            namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.yellow)?.name,
+           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.yellow)?.id
          ),
          LudoPlayer(
            color: LudoColor.blue,
            isHuman: human.any((elt) => elt.color == LudoColor.blue),
            namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.blue)?.name,
+           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.blue)?.id
          ),
        ];
 

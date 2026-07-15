@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
 
   List<dynamic> fSubscribeToGame = [];
+  dynamic _dataOnChannel;
 
   @override
   void initState() {
@@ -33,6 +34,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _subscribeToGameRequests();
     _responseToGameRequests();
     _subscribeToFriendNotifications();
+  }
+
+  dynamic _listenChanelMultiplayerGame(){
+    final channel = SupabaseService().client.channel('ludo_global');
+
+   channel.onBroadcast(
+      event: 'ludo_participants',
+      callback: (payload, [ref]) {
+        setState(() {
+          _dataOnChannel = payload;
+        });
+      },
+    );
+
+    channel.subscribe();
   }
 
   void _subscribeToGameRequests() {
@@ -59,13 +75,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         if (data['send_partie'] == 'accepted') {
           showWaitingGame();
+          _listenChanelMultiplayerGame();
+          
+          
           final fsg = await FriendsService().getHoteSubscribeToGam();
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
         if (data['send_partie'] == 'playing') {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LudoScreen(beginGame: true,)));
+          print('data => ${_dataOnChannel['participants']}');
+          final participantList = _dataOnChannel['participants'] as List<dynamic>?;
+          if (participantList != null && _dataOnChannel['event'] == 'ludo_participants') {
+            final parsedParticipants = participantList.map<Map<String, dynamic>>((item) {
+              return Map<String, dynamic>.from(item as Map<dynamic, dynamic>);
+            }).toList();
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LudoScreen(beginGame: true, playerSubscribe: parsedParticipants),
+              ),
+            );
+          }
         }
         //print(data);
       },

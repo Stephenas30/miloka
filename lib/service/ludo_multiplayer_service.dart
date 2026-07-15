@@ -247,6 +247,7 @@ class LudoMultiplayerService {
   Future<void> sendState(String roomCode, Map<String, dynamic> payload) async {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
+
     if (channel == null) return;
     await channel.send(
       event: 'ludo_state',
@@ -291,6 +292,8 @@ class LudoMultiplayerService {
       ..addAll(participants.map((entry) => {
             'name': entry['name']?.toString() ?? '',
             'color': entry['color']?.toString() ?? '',
+            'id': entry['id']?.toString() ?? '',
+            'avatar': entry['avatar']?.toString() ?? '',
           }));
     await channel.send(
       event: 'ludo_participants',

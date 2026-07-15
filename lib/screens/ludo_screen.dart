@@ -14,7 +14,12 @@ import 'purchase_screen.dart';
 
 class LudoScreen extends StatefulWidget {
   final bool beginGame;
-  const LudoScreen({super.key, this.beginGame = false});
+  final List<Map<String, dynamic>> playerSubscribe;
+  const LudoScreen({
+    super.key,
+    this.beginGame = false,
+    this.playerSubscribe = const [],
+  });
 
   @override
   State<LudoScreen> createState() => _LudoScreenState();
@@ -22,7 +27,8 @@ class LudoScreen extends StatefulWidget {
 
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
-  late final LudoEngine _engine;
+  late LudoEngine _engine;
+  bool _isHost = false;
   Timer? _aiTimer;
   late AnimationController _diceController;
   int _displayDice = 1;
@@ -34,7 +40,7 @@ class _LudoScreenState extends State<LudoScreen>
   bool _isDraggingDice = false;
   bool _isSlidingDice = false;
   bool _isMultiplayer = false;
-  List<Map<String, dynamic>> _playerSubscribe = [];
+  List<LudoHuman> _playerSubscribe = [];
   String _roomCode = '';
   String _playerName = '';
   bool _isRoomReady = false;
@@ -54,6 +60,7 @@ class _LudoScreenState extends State<LudoScreen>
   LudoColor? _movingPawnColor;
   List<Offset> _movePath = [];
   int _moveIndex = 0;
+  dynamic _userProfile;
 
   @override
   void initState() {
@@ -62,10 +69,17 @@ class _LudoScreenState extends State<LudoScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _beginGame = widget.beginGame;
-    if(_beginGame){
-      _startGame(LudoColor.yellow);
+    //_beginGame = widget.beginGame;
+    if (widget.beginGame) {
+      //_startGame(LudoColor.yellow);
+      _playerSubscribe = widget.playerSubscribe
+          .map((player) => _parseLudoHumanFromMap(
+                Map<String, dynamic>.from(player as Map),
+              ))
+          .toList();
+      _startMultParticipantGame();
     }
+    _userProfile = context.read<AuthProvider?>()?.userProfile;
   }
 
   @override
@@ -83,6 +97,7 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _scheduleAiTurn() {
+    if (!_isHost) return;
     if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
     if (_aiTimer != null && _aiTimer!.isActive) return;
     if (_aiPlaying) return;
@@ -165,7 +180,7 @@ class _LudoScreenState extends State<LudoScreen>
     _animateDiceRoll(value).then((_) {
       if (!mounted) return;
       setState(() {
-          if (_engine.getValidMoves().isEmpty) {
+        if (_engine.getValidMoves().isEmpty) {
           _diceRolledThisTurn = false;
           _engine.scheduleTurnEnd(extraTurn: false);
           _scheduleAiTurn();
@@ -176,6 +191,10 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _onPawnTap(LudoPawn pawn) {
     if (_engine.winner != null || !_engine.currentPlayer.isHuman) {
+      return;
+    }
+    if (_isMultiplayer &&
+        _engine.currentPlayer.id != _userProfile['id']?.toString()) {
       return;
     }
     if (!_engine.canMovePawn(pawn)) return;
@@ -325,7 +344,9 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _startGame(LudoColor color) {
     setState(() {
-      _engine = LudoEngine(human: [LudoHuman(name: 'Joueur', color: color)]);
+      _engine = LudoEngine(
+        human: [LudoHuman(name: 'Joueur', color: color)],
+      );
       _beginGame = true;
     });
     if (!_engine.currentPlayer.isHuman) {
@@ -333,35 +354,177 @@ class _LudoScreenState extends State<LudoScreen>
     }
   }
 
-  void _rebuildEngineFromSubscribers() {
-    final humanPlayers = _playerSubscribe
-        .map((player) => LudoHuman(
-              name: player['name']?.toString() ?? 'Joueur inconnu',
-              color: player['color'] as LudoColor,
-            ))
-        .toList();
+  LudoColor _parseColor(dynamic colorValue) {
+    if (colorValue is LudoColor) return colorValue;
+    if (colorValue is String) {
+      return LudoColor.values.firstWhere(
+        (c) => c.name == colorValue,
+        orElse: () => LudoColor.yellow,
+      );
+    }
+    return LudoColor.yellow;
+  }
 
-    _engine = LudoEngine(
-      human: humanPlayers,
-      isMultiplayer: true,
-      roomCode: _roomCode,
-      onStateChange: (snapshot) {
-        if (_roomCode.isNotEmpty) {
-          _multiplayerService.sendState(_roomCode, snapshot.toJson());
-        }
-      },
+  LudoHuman _parseLudoHumanFromMap(Map<String, dynamic> map) {
+    return LudoHuman(
+      name: map['name']?.toString() ?? 'Joueur inconnu',
+      color: _parseColor(map['color']),
+      id: map['id']?.toString(),
+      avatar: map['avatar']?.toString(),
     );
   }
 
+  void _broadcastState(LudoGameSnapshot snapshot) {
+    if (_roomCode.isEmpty) return;
+    final payload = snapshot.toJson()
+      ..['authorId'] = _userProfile['id']?.toString();
+    _multiplayerService.sendState(_roomCode, payload);
+  }
+
+  void _onEngineStateChange(LudoGameSnapshot snapshot) {
+    if (_roomCode.isEmpty) return;
+    if (_isHost) {
+      _broadcastState(snapshot);
+      return;
+    }
+    if (_engine.currentPlayer.isHuman &&
+        _engine.currentPlayer.id == _userProfile['id']?.toString()) {
+      _broadcastState(snapshot);
+    }
+  }
+
+  void _applyRemoteSnapshot(LudoGameSnapshot snapshot) {
+    _engine.applySnapshot(snapshot);
+    _diceRolledThisTurn = snapshot.diceRolled;
+    _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
+    _selectedPawn = null;
+  }
+
+  void _handleRemoteGameState(Map<String, dynamic> payload, String roomCode) {
+    final authorId = payload['authorId']?.toString();
+    final myId = _userProfile['id']?.toString();
+    if (authorId != null && authorId == myId) return;
+
+    final snapshot = LudoGameSnapshot.fromJson(payload);
+    if (snapshot.roomCode != roomCode) return;
+
+    _applyRemoteSnapshot(snapshot);
+    _beginGame = true;
+
+    if (_isHost && !_engine.currentPlayer.isHuman && _engine.winner == null) {
+      _scheduleAiTurn();
+    }
+  }
+
+  void _handleRoomPayload(Map<String, dynamic> payload, String roomCode) {
+    final type = payload['type']?.toString();
+    if (type == 'presence') {
+      final action = payload['action']?.toString();
+      final playerData = payload['player'] as Map<String, dynamic>?;
+      if (action == 'join' && playerData != null) {
+        final playerName = playerData['name']?.toString() ?? '';
+        if (playerName.isNotEmpty) {
+          final list = List<String>.from(_participantsNotifier.value);
+          if (!list.contains(playerName)) list.add(playerName);
+          _participantsNotifier.value = list;
+        }
+      }
+      return;
+    }
+    if (type == 'participants') {
+      final participantList = payload['participants'] as List<dynamic>?;
+      if (participantList != null) {
+        final parsed = participantList
+            .map((item) => _parseLudoHumanFromMap(
+                  Map<String, dynamic>.from(item as Map),
+                ))
+            .toList();
+        setState(() {
+          _playerSubscribe = parsed;
+          _participantsNotifier.value = parsed
+              .map((e) => e.name.toString())
+              .where((name) => name.isNotEmpty)
+              .toList();
+        });
+        if (_beginGame) {
+          _rebuildEngineFromSubscribers();
+        }
+      }
+      return;
+    }
+    if (type == 'start') {
+      _rebuildEngineFromSubscribers();
+      setState(() {
+        _beginGame = true;
+        _diceRolledThisTurn = false;
+      });
+      if (_isHost && !_engine.currentPlayer.isHuman) {
+        _scheduleAiTurn();
+      }
+      return;
+    }
+
+    setState(() => _handleRemoteGameState(payload, roomCode));
+  }
+
+  void _subscribeToRoom(String roomCode) {
+    _multiplayerSubscription?.cancel();
+    _multiplayerSubscription = _multiplayerService
+        .watchRoom(roomCode)
+        .listen((payload) {
+          if (!mounted) return;
+          _handleRoomPayload(payload, roomCode);
+        });
+  }
+
+  LudoEngine _createEngine() {
+    return LudoEngine(
+      human: _playerSubscribe,
+      isMultiplayer: true,
+      roomCode: _roomCode,
+      onStateChange: _onEngineStateChange,
+    );
+  }
+
+  void _rebuildEngineFromSubscribers() {
+    _engine = _createEngine();
+  }
+
+  void _startMultParticipantGame() {
+    if (_playerSubscribe.isEmpty) return;
+
+    setState(() {
+      _isHost = false;
+      _isMultiplayer = true;
+      _roomCode = 'ludo_global';
+      _isRoomReady = true;
+      _engine = _createEngine();
+      _beginGame = true;
+    });
+
+    _subscribeToRoom(_roomCode);
+  }
+
   Future<void> _startMultiplayerGame({required bool createRoom}) async {
-    final playerName =
-        context.read<AuthProvider?>()?.userProfile?['username']?.toString() ??
-        'Joueur';
+    final playerHote = _userProfile;
+
     final playerFriends = await FriendsService().getFriendsSubscribeToGam();
 
-    final List<Map<String, dynamic>> players = [
-      {'name': playerName, 'color': LudoColor.red},
-      ...playerFriends.map((e) => {'name': e['username'], 'color': LudoColor.yellow}),
+    final List<LudoHuman> players = [
+      LudoHuman(
+        name: playerHote!['username'] ?? 'Player',
+        color: LudoColor.red,
+        id: playerHote['id'],
+        avatar: playerHote['avatar_url'],
+      ),
+      ...playerFriends.map(
+        (e) => LudoHuman(
+          name: e['username'],
+          color: LudoColor.yellow,
+          id: e['id'],
+          avatar: e['avatar_url'],
+        ),
+      ),
     ];
 
     setState(() {
@@ -369,115 +532,62 @@ class _LudoScreenState extends State<LudoScreen>
     });
 
     setState(() {
-      _playerName = playerName;
+      _playerName = playerHote['username'] ?? 'Player';
       _isMultiplayer = true;
     });
 
     if (createRoom) {
       final session = await _multiplayerService.createRoom(
-        playerName: playerName,
+        playerName: playerHote['username'] ?? 'Player',
         playerColor: LudoColor.red.name,
       );
-
-      print('Session => $session');
 
       setState(() {
         _roomCode = session.roomCode;
         _isRoomReady = true;
+        _isHost = true;
       });
-      // host is already participant (store names for the notifier)
-      _participantsNotifier.value = players.map((elt) => elt['name'].toString()).toList();
-      // listen for presence/state
-      _multiplayerSubscription = _multiplayerService
-          .watchRoom(session.roomCode)
-          .listen((payload) {
-            if (!mounted) return;
-            final type = payload['type']?.toString();
-            if (type == 'presence') {
-              final action = payload['action']?.toString();
-              final playerData = payload['player'] as Map<String, dynamic>?;
-              if (action == 'join' && playerData != null) {
-                final playerName = playerData['name']?.toString() ?? '';
-                if (playerName.isNotEmpty) {
-                  final list = List<String>.from(_participantsNotifier.value);
-                  if (!list.contains(playerName)) list.add(playerName);
-                  _participantsNotifier.value = list;
-                }
-              }
-              return;
-            }
-            if (type == 'participants') {
-              final participantList = payload['participants'] as List<dynamic>?;
-              if (participantList != null) {
-                final parsed = participantList.map<Map<String, dynamic>>((item) {
-                  final map = item as Map<String, dynamic>;
-                  final colorString = map['color']?.toString() ?? '';
-                  final color = LudoColor.values.firstWhere(
-                    (c) => c.name == colorString,
-                    orElse: () => LudoColor.yellow,
-                  );
-                  return {'name': map['name']?.toString() ?? 'Joueur inconnu', 'color': color};
-                }).toList();
-                setState(() {
-                  _playerSubscribe = parsed;
-                  _participantsNotifier.value = parsed
-                      .map((e) => e['name']?.toString() ?? '')
-                      .where((name) => name.isNotEmpty)
-                      .toList();
-                });
-              }
-              return;
-            }
+      _participantsNotifier.value = players
+          .map((elt) => elt.name.toString())
+          .toList();
 
-            final snapshot = LudoGameSnapshot.fromJson(payload);
-            if (snapshot.roomCode == session.roomCode) {
-              setState(() {
-                _engine.applySnapshot(snapshot);
-                _beginGame = true;
-                _diceRolledThisTurn = snapshot.diceRolled;
-                _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
-              });
-            }
-          });
-    
-      // show participants and ask host to start
       final start = await _showParticipantsConfirmDialog(players);
 
-      _engine = LudoEngine(
-        human: _playerSubscribe
-            .map((player) => LudoHuman(
-                  name: player['name']?.toString() ?? 'Joueur inconnu',
-                  color: player['color'] as LudoColor,
-                ))
-            .toList(),
-        isMultiplayer: true,
-        roomCode: session.roomCode,
-        onStateChange: (snapshot) => _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-      );
-      
+      setState(() {
+        _engine = _createEngine();
+      });
+      _subscribeToRoom(session.roomCode);
+
       final friendId = playerFriends[0]['id'];
       if (start == true) {
         await _multiplayerService.sendParticipants(
           session.roomCode,
-          _playerSubscribe.map((player) => {
-            'name': player['name']?.toString() ?? 'Joueur inconnu',
-            'color': (player['color'] as LudoColor).name,
-          }).toList(),
+          _playerSubscribe
+              .map(
+                (player) => {
+                  'name': player.name.toString(),
+                  'color': _parseColor(player.color).name,
+                  'id': player.id.toString(),
+                  'avatar': player.avatar.toString(),
+                },
+              )
+              .toList(),
         );
         await _multiplayerService.sendGameStart(session.roomCode);
-        await _multiplayerService.sendState(
-          session.roomCode,
-          _engine.snapshot().toJson(),
-        );
+        _broadcastState(_engine.snapshot());
         await FriendsService().playingGame(friendId);
         setState(() {
           _beginGame = true;
         });
+        if (!_engine.currentPlayer.isHuman) {
+          _scheduleAiTurn();
+        }
       } else {
-        // host cancelled, cleanup
+        _multiplayerSubscription?.cancel();
         _multiplayerService.disposeRoom(session.roomCode);
         setState(() {
           _isMultiplayer = false;
+          _isHost = false;
           _roomCode = '';
           _isRoomReady = false;
         });
@@ -488,7 +598,7 @@ class _LudoScreenState extends State<LudoScreen>
 
     // Join the global platform without asking for a room code
     final session = await _multiplayerService.joinRoom(
-      playerName: playerName,
+      playerName: playerHote['username'] ?? 'Player',
       playerColor: LudoColor.yellow.name,
     );
     if (session == null) {
@@ -504,115 +614,41 @@ class _LudoScreenState extends State<LudoScreen>
     setState(() {
       _roomCode = session.roomCode;
       _isRoomReady = true;
-      _playerName = playerName;
+      _isHost = false;
+      _playerName = playerHote['username'] ?? 'Player';
       _isMultiplayer = true;
       _playerSubscribe = [
-        {'name': playerName, 'color': LudoColor.yellow},
+        LudoHuman(
+          name: playerHote['username'] ?? 'Player',
+          color: LudoColor.yellow,
+          id: playerHote['id']?.toString(),
+          avatar: playerHote['avatar_url']?.toString(),
+        ),
       ];
-      _participantsNotifier.value = [playerName];
+      _participantsNotifier.value = [playerHote['username'] ?? 'Player'];
+      _engine = _createEngine();
     });
 
-    _engine = LudoEngine(
-      human: [
-        LudoHuman(name: playerName, color: LudoColor.yellow),
-      ],
-      isMultiplayer: true,
-      roomCode: session.roomCode,
-      onStateChange: (snapshot) => _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-    );
-
-    // notify host and others we joined
     await _multiplayerService.sendJoin(
       session.roomCode,
-      playerName,
+      playerHote['username'] ?? 'Player',
       LudoColor.yellow.name,
     );
 
-    // update local participants list from service
     _participantsNotifier.value = _multiplayerService
         .getParticipants(session.roomCode)
         .map((player) => player['name']?.toString() ?? '')
         .where((name) => name.isNotEmpty)
         .toList();
 
-    // listen for presence, participants and state updates
-    _multiplayerSubscription = _multiplayerService
-        .watchRoom(session.roomCode)
-        .listen((payload) {
-      if (!mounted) return;
-      final type = payload['type']?.toString();
-      if (type == 'presence') {
-        final action = payload['action']?.toString();
-        final playerData = payload['player'] as Map<String, dynamic>?;
-        if (action == 'join' && playerData != null) {
-          final playerName = playerData['name']?.toString() ?? '';
-          if (playerName.isNotEmpty) {
-            final list = List<String>.from(_participantsNotifier.value);
-            if (!list.contains(playerName)) list.add(playerName);
-            _participantsNotifier.value = list;
-          }
-        }
-        return;
-      }
-      if (type == 'participants') {
-        final participantList = payload['participants'] as List<dynamic>?;
-        if (participantList != null) {
-          final parsed = participantList.map<Map<String, dynamic>>((item) {
-            final map = item as Map<String, dynamic>;
-            final colorString = map['color']?.toString() ?? '';
-            final color = LudoColor.values.firstWhere(
-              (c) => c.name == colorString,
-              orElse: () => LudoColor.yellow,
-            );
-            return {'name': map['name']?.toString() ?? 'Joueur inconnu', 'color': color};
-          }).toList();
-          setState(() {
-            _playerSubscribe = parsed;
-            _participantsNotifier.value = parsed
-                .map((e) => e['name']?.toString() ?? '')
-                .where((name) => name.isNotEmpty)
-                .toList();
-          });
-          _rebuildEngineFromSubscribers();
-        }
-        return;
-      }
-
-      if (type == 'start') {
-        _rebuildEngineFromSubscribers();
-        setState(() {
-          _beginGame = true;
-          _diceRolledThisTurn = false;
-        });
-        return;
-      }
-
-      final snapshot = LudoGameSnapshot.fromJson(payload);
-      if (snapshot.roomCode == session.roomCode) {
-        setState(() {
-          _engine.applySnapshot(snapshot);
-          _beginGame = true;
-          _diceRolledThisTurn = snapshot.diceRolled;
-          _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
-        });
-      }
-    });
-
-    _engine = LudoEngine(
-      human: [
-        LudoHuman(name: playerName, color: LudoColor.yellow),
-      ],
-      isMultiplayer: true,
-      roomCode: session.roomCode,
-      onStateChange: (snapshot) => _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-    );
+    _subscribeToRoom(session.roomCode);
     setState(() {});
   }
 
   // Room code dialog removed: joining now uses the global Supabase channel.
 
   Future<bool?> _showParticipantsConfirmDialog(
-    List<Map<String, dynamic>> playerSubscribe,
+    List<LudoHuman> playerSubscribe,
   ) async {
     return showDialog<bool>(
       context: context,
@@ -632,35 +668,34 @@ class _LudoScreenState extends State<LudoScreen>
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    ...List.generate(list.length, (index) => ListTile(
+                    ...List.generate(
+                      list.length,
+                      (index) => ListTile(
                         leading: const Icon(Icons.person, color: Colors.white),
                         title: Text(
                           list[index],
                           style: const TextStyle(color: Colors.white),
                         ),
-                        trailing: DropdownButton<dynamic>
-                          ( 
-                            value: playerSubscribe[index]['color'],
-                            items: LudoColor.values.map((color) {
-                              return DropdownMenuItem<LudoColor>(
-                                value: color,
-                                child: Icon(
-                                  Icons.circle,
-                                  color: LudoBoardLayout.colorValues[color],
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              if (value == null) return;
-                              setState(() {
-                                _playerSubscribe[index]['color'] = value;
-                              });
-                            },
-                          ),
+                        trailing: DropdownButton<LudoColor>(
+                          value: _parseColor(playerSubscribe[index].color),
+                          items: LudoColor.values.map((color) {
+                            return DropdownMenuItem<LudoColor>(
+                              value: color,
+                              child: Icon(
+                                Icons.circle,
+                                color: LudoBoardLayout.colorValues[color],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            /* setState(() {
+                                _playerSubscribe[index].color = value;
+                              }); */
+                          },
+                        ),
                       ),
-                    
-                    )
-                      
+                    ),
                   ],
                 );
               },
@@ -672,10 +707,8 @@ class _LudoScreenState extends State<LudoScreen>
               child: const Text('Annuler'),
             ),
             ElevatedButton(
-              onPressed: () async => {
-                Navigator.pop(context, true),
-              },
-              
+              onPressed: () async => {Navigator.pop(context, true)},
+
               child: const Text('Démarrer'),
             ),
           ],
@@ -831,8 +864,8 @@ class _LudoScreenState extends State<LudoScreen>
   void _showWinnerDialog() {
     if (_winnerDialogShown) return;
     _winnerDialogShown = true;
-    final isHumanWin = _engine.winner != null &&
-        _engine.humanColor.contains(_engine.winner!);
+    final isHumanWin =
+        _engine.winner != null && _engine.humanColor.contains(_engine.winner!);
 
     showDialog(
       context: context,
@@ -934,7 +967,7 @@ class _LudoScreenState extends State<LudoScreen>
       }
     }
 
-    final profileName = context.read<AuthProvider?>()?.userProfile?['username']?.toString(); 
+    //final profileName = context.read<AuthProvider?>()?.userProfile?['username']?.toString();
 
     return Scaffold(
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
@@ -968,14 +1001,20 @@ class _LudoScreenState extends State<LudoScreen>
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 24),
                         child: GestureDetector(
-                          onTap:
-                              !_isDraggingDice &&
-                                  !_isSlidingDice &&
-                                  _engine.currentPlayer.isHuman &&
-                                  _engine.winner == null &&
-                                  !_diceRolledThisTurn
-                              ? _onRollDice
-                              : null,
+                          onTap: 
+                            /* print(
+                              'verifier => ${_engine.currentPlayer.id == _userProfile['id']}\n ${_playerSubscribe.map((elt) => elt.id).toList()}\n ${_engine.currentPlayer.id}',
+                            ); */
+                            !_isDraggingDice &&
+                                    !_isSlidingDice &&
+                                    _engine.currentPlayer.isHuman &&
+                                    _engine.winner == null &&
+                                    !_diceRolledThisTurn &&
+                                    _engine.currentPlayer.id ==
+                                        _userProfile['id']
+                                ? _onRollDice
+                                : null,
+
                           onPanStart: (_) {
                             _slideTimer?.cancel();
                             setState(() {
@@ -994,7 +1033,8 @@ class _LudoScreenState extends State<LudoScreen>
                                 _isDraggingDice &&
                                 _engine.currentPlayer.isHuman &&
                                 _engine.winner == null &&
-                                !_diceRolledThisTurn;
+                                !_diceRolledThisTurn &&
+                                _engine.currentPlayer.id == _userProfile['id'];
 
                             _slideVelocity = details.velocity.pixelsPerSecond;
 
@@ -1019,9 +1059,10 @@ class _LudoScreenState extends State<LudoScreen>
                               child: _buildDice(
                                 _engine.currentPlayer.isHuman &&
                                     _engine.winner == null &&
-                                    !_diceRolledThisTurn
-                                    ,
-                                    _engine
+                                    !_diceRolledThisTurn &&
+                                    _engine.currentPlayer.id ==
+                                        _userProfile['id'],
+                                _engine,
                               ),
                             ),
                           ),
@@ -1260,7 +1301,9 @@ class _LudoScreenState extends State<LudoScreen>
             ),
             const SizedBox(height: 16),
             Text(
-              _roomCode.isNotEmpty ? 'Salle : $_roomCode' : 'Connexion en cours...',
+              _roomCode.isNotEmpty
+                  ? 'Salle : $_roomCode'
+                  : 'Connexion en cours...',
               style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
             const SizedBox(height: 24),
@@ -1271,7 +1314,11 @@ class _LudoScreenState extends State<LudoScreen>
                   children: [
                     const Text(
                       'Participants',
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     if (list.isEmpty)
@@ -1280,13 +1327,18 @@ class _LudoScreenState extends State<LudoScreen>
                         style: TextStyle(color: Colors.white54),
                       )
                     else
-                      ...list.map((name) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Text(
-                              name,
-                              style: const TextStyle(color: Colors.white70, fontSize: 16),
+                      ...list.map(
+                        (name) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Text(
+                            name,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
                             ),
-                          )),
+                          ),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -1375,9 +1427,9 @@ class _LudoScreenState extends State<LudoScreen>
 
   List<Widget> _buildPawns(double cellSize) {
     final widgets = <Widget>[];
-    print('Les playeurs sont:');
+    //print('Les playeurs sont:');
     for (final player in _engine.players) {
-      print('${player.color} => ${player.isHuman}');
+      // print('${player.color} => ${player.isHuman}');
       for (final pawn in player.pawns) {
         final isAnimating =
             _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
@@ -1438,33 +1490,31 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   List<Widget> _buildPlayerInfo() {
-    final authProvider = context.read<AuthProvider?>(); 
-
-    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
-    final username =
-        authProvider?.userProfile?['username']?.toString() ?? 'Profil';
+    final authProvider = context.read<AuthProvider?>();
 
     return LudoColor.values.map((color) {
       final isHuman = _engine.humanColor.contains(color);
 
-      final matchingPlayer = _playerSubscribe.cast<Map<String, dynamic>>().firstWhere(
-        (elt) => elt['color'] == color,
-        orElse: () => {'name': 'Joueur inconnu', 'color': color},
+      final matchingPlayer = _playerSubscribe.firstWhere(
+        (player) => player.color == color,
+        orElse: () => LudoHuman(name: 'Joueur inconnu', color: color),
       );
 
-      final displayName = isHuman ? matchingPlayer['name']?.toString() ?? 'Joueur inconnu' : 'IA ${color.label}';
+      final displayName = isHuman ? matchingPlayer.name : 'IA ${color.label}';
 
       final icon = isHuman
-          ? (avatarUrl != null && avatarUrl.isNotEmpty
+          ? (matchingPlayer.avatar != null && matchingPlayer.avatar!.isNotEmpty
                 ? null as Widget?
                 : const Icon(Icons.person, color: Colors.white, size: 14))
           : const Icon(Icons.smart_toy, color: Colors.white, size: 14);
 
       Widget avatar;
-      if (isHuman && avatarUrl != null && avatarUrl.isNotEmpty) {
+      if (isHuman &&
+          matchingPlayer.avatar != null &&
+          matchingPlayer.avatar!.isNotEmpty) {
         avatar = CircleAvatar(
           radius: 8,
-          backgroundImage: NetworkImage(avatarUrl),
+          backgroundImage: NetworkImage(matchingPlayer.avatar ?? ''),
         );
       } else {
         avatar = icon!;
@@ -1516,12 +1566,13 @@ class _LudoScreenState extends State<LudoScreen>
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: canRoll ? Colors.white : Colors.grey.shade300,
+              color: canRoll ? Colors.white : Colors.grey.shade600,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: /* canRoll
-                    ? */ LudoBoardLayout.colorValues[engine.currentPlayer.color]!,
-                    /* : Colors.grey, */
+                    ? */
+                    LudoBoardLayout.colorValues[engine.currentPlayer.color]!,
+                /* : Colors.grey, */
                 width: 3,
               ),
               boxShadow: [
