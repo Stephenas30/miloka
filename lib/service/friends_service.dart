@@ -153,6 +153,8 @@ class FriendsService {
           //'is_connected': friendDetails['is_connected'],
         });
       }
+
+      print('serveur => $friendsList');
       return friendsList;
     } catch (e) {
       throw Exception('Erreur lors de la récupération de la liste d\'amis: $e');
@@ -199,6 +201,21 @@ class FriendsService {
       await client
           .from('amis')
           .update({'send_partie': 'none'})
+          .or('id_user.eq.$userId, id_user.eq.$friendId, id_user.eq.$friendId, id_user.eq.$userId');
+    } catch (e) {
+      throw Exception('Erreur lors de la suppression d\'un ami: $e');
+    }
+  }
+
+   Future<void> playingGame(String friendId) async {
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+      await client
+          .from('amis')
+          .update({'send_partie': 'playing'})
           .eq('id_user', userId)
           .eq('id_ami', friendId);
     } catch (e) {

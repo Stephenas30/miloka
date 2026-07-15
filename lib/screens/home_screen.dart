@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:miloka/screens/ludo_screen.dart';
 import 'package:miloka/service/friends_service.dart';
 import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
@@ -20,11 +21,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
-  RealtimeChannel? _gameRequestChannel;
-  RealtimeChannel? _gameResponseChannel;
-
-  bool loadingfriends = false;
-  bool loadingSfriends = false;
 
   List<dynamic> fSubscribeToGame = [];
 
@@ -40,11 +36,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _subscribeToGameRequests() {
-    _gameRequestChannel = SupabaseService().client.channel('game_pending_channel');
+    final channel = SupabaseService().client.channel('game_pending_channel');
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
-    _gameRequestChannel!.onPostgresChanges(
+    channel.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'amis',
@@ -54,40 +50,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         value: currentUser?.id,
       ),
       callback: (payload) async {
-        if (!mounted) return;
         final data = payload.newRecord;
-        if (data['send_partie'] == 'pending') {
-          showGameRequestPopup(data);
-        }
+        if (data['send_partie'] == 'pending') showGameRequestPopup(data);
         if (data['send_partie'] == 'none') {
-          if (!mounted) return;
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-          showGameDeclinedPopup(data);
-          if (!mounted) return;
-          setState(() {
-            fSubscribeToGame = [];
-          });
+          if (mounted) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
+          }
         }
         if (data['send_partie'] == 'accepted') {
-          if (!mounted) return;
           showWaitingGame();
           final fsg = await FriendsService().getHoteSubscribeToGam();
-          if (!mounted) return;
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
+        if (data['send_partie'] == 'playing') {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LudoScreen(beginGame: true,)));
+        }
+        //print(data);
       },
     );
-    _gameRequestChannel!.subscribe();
+    channel.subscribe();
   }
 
   void _responseToGameRequests() {
-    _gameResponseChannel = SupabaseService().client.channel('game_response_channel');
+    final channel = SupabaseService().client.channel('game_response_channel');
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
-    _gameResponseChannel!.onPostgresChanges(
+    channel.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'amis',
@@ -97,23 +88,157 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         value: currentUser?.id,
       ),
       callback: (payload) async {
-        if (!mounted) return;
         final data = payload.newRecord;
-        if (data['send_partie'] == 'declined') {
-          if (!mounted) return;
-          showGameDeclinedPopup(data);
-        }
+        if (data['send_partie'] == 'declined') showGameDeclinedPopup(data);
         if (data['send_partie'] == 'accepted' || data['send_partie'] == 'none') {
           final fsg = await FriendsService().getFriendsSubscribeToGam();
-          if (!mounted) return;
           print(fsg);
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
+        //print(data);
       },
     );
-    _gameResponseChannel!.subscribe();
+    channel.subscribe();
+  }
+
+  void _subscribeToFriendNotifications() {
+    final channel = SupabaseService().client.channel('friend_notif_channel');
+    final currentUser = SupabaseService().getCurrentUser();
+
+    // Nouvelle demande d'ami reçue
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_ami',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['status'] == 'pending') {
+          final requesterId = data['id_user'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', requesterId)
+              .single();
+          if (mounted) {
+            showFriendRequestPopup(
+              requesterId.toString(),
+              (userResp['username'] ?? 'Quelqu\'un').toString(),
+            );
+          }
+        }
+      },
+    );
+
+    // Demande d'ami acceptée
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['status'] == 'accepted') {
+          final friendId = data['id_ami'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', friendId)
+              .single();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("${userResp['username']} a accepté votre demande d'ami !"),
+              ),
+            );
+          }
+        }
+      },
+    );
+
+    // Demande d'ami refusée
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.delete,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final oldData = payload.oldRecord;
+        if (oldData['status'] == 'pending') {
+          final friendId = oldData['id_ami'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', friendId)
+              .single();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("${userResp['username']} a refusé votre demande d'ami."),
+              ),
+            );
+          }
+        }
+      },
+    );
+
+    channel.subscribe();
+  }
+
+  void showFriendRequestPopup(String requesterId, String username) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Demande d'ami", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "$username vous a envoyé une demande d'ami !",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+            },
+            child: const Text("Voir plus tard", style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await FriendsService().acceptFriendRequest(requesterId);
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Vous êtes maintenant ami avec $username !")),
+                  );
+                }
+              } catch (e) {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Erreur: $e")),
+                );
+              }
+            },
+            child: const Text("Accepter", style: TextStyle(color: Colors.greenAccent)),
+          ),
+        ],
+      ),
+    );
   }
 
   void showWaitingGame(){
@@ -194,7 +319,6 @@ await Supabase.instance.client
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       // Mettre is_online à false quand l’app est quittée
-      print('Cancel');
       await SupabaseService().updateIsOffline();
     }
   }
@@ -203,8 +327,6 @@ await Supabase.instance.client
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
-    _gameRequestChannel?.unsubscribe();
-    _gameResponseChannel?.unsubscribe();
     super.dispose();
   }
 

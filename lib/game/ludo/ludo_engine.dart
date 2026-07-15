@@ -1,18 +1,85 @@
 import 'dart:math';
 
+class LudoGameSnapshot {
+  final bool isMultiplayer;
+  final String roomCode;
+  final int currentPlayerIndex;
+  final LudoColor currentPlayerColor;
+  final int lastDice;
+  final bool diceRolled;
+  final bool extraTurn;
+  final LudoColor? winner;
+  final String message;
+  final List<List<int>> pawnSteps;
+  final bool waitingForRemote;
+
+  const LudoGameSnapshot({
+    required this.isMultiplayer,
+    required this.roomCode,
+    required this.currentPlayerIndex,
+    required this.currentPlayerColor,
+    required this.lastDice,
+    required this.diceRolled,
+    required this.extraTurn,
+    required this.winner,
+    required this.message,
+    required this.pawnSteps,
+    required this.waitingForRemote,
+  });
+
+  factory LudoGameSnapshot.fromJson(Map<String, dynamic> json) {
+    return LudoGameSnapshot(
+      isMultiplayer: json['isMultiplayer'] as bool? ?? false,
+      roomCode: json['roomCode']?.toString() ?? '',
+      currentPlayerIndex: json['currentPlayerIndex'] as int? ?? 0,
+      currentPlayerColor:
+          LudoColor.values[json['currentPlayerColorIndex'] as int? ?? 0],
+      lastDice: json['lastDice'] as int? ?? 0,
+      diceRolled: json['diceRolled'] as bool? ?? false,
+      extraTurn: json['extraTurn'] as bool? ?? false,
+      winner: json['winnerIndex'] == null
+          ? null
+          : LudoColor.values[json['winnerIndex'] as int],
+      message: json['message']?.toString() ?? '',
+      pawnSteps: (json['pawnSteps'] as List<dynamic>? ?? [])
+          .map<List<int>>(
+            (row) => (row as List<dynamic>)
+                .map<int>((value) => value as int)
+                .toList(),
+          )
+          .toList(),
+      waitingForRemote: json['waitingForRemote'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'isMultiplayer': isMultiplayer,
+      'roomCode': roomCode,
+      'currentPlayerIndex': currentPlayerIndex,
+      'currentPlayerColorIndex': currentPlayerColor.index,
+      'lastDice': lastDice,
+      'diceRolled': diceRolled,
+      'extraTurn': extraTurn,
+      'winnerIndex': winner?.index,
+      'message': message,
+      'pawnSteps': pawnSteps,
+      'waitingForRemote': waitingForRemote,
+    };
+  }
+}
 
 enum LudoColor { red, green, yellow, blue }
 
 extension LudoColorExt on LudoColor {
   String get label => switch (this) {
-        LudoColor.red => 'Rouge',
-        LudoColor.green => 'Vert',
-        LudoColor.yellow => 'Jaune',
-        LudoColor.blue => 'Bleu',
-      };
+    LudoColor.red => 'Rouge',
+    LudoColor.green => 'Vert',
+    LudoColor.yellow => 'Jaune',
+    LudoColor.blue => 'Bleu',
+  };
 
   int get startIndex => index * 13;
-
 }
 
 class LudoPawn {
@@ -32,17 +99,18 @@ class LudoPawn {
     return (color.startIndex + stepsFromStart) % 52;
   }
 
-  LudoPawn copy() => LudoPawn(id: id, color: color)
-    ..stepsFromStart = stepsFromStart;
+  LudoPawn copy() =>
+      LudoPawn(id: id, color: color)..stepsFromStart = stepsFromStart;
 }
 
 class LudoPlayer {
   final LudoColor color;
   final List<LudoPawn> pawns;
   final bool isHuman;
+  final String? namePlayer;
 
-  LudoPlayer({required this.color, required this.isHuman})
-      : pawns = List.generate(4, (i) => LudoPawn(id: i, color: color));
+  LudoPlayer({required this.color, required this.isHuman, this.namePlayer})
+    : pawns = List.generate(4, (i) => LudoPawn(id: i, color: color));
 
   bool get hasWon => pawns.every((p) => p.finished);
 }
@@ -61,6 +129,16 @@ class LudoMove {
   });
 }
 
+class LudoHuman {
+  final String name;
+  final LudoColor color;
+
+  const LudoHuman({
+    required this.name,
+    required this.color,
+  });
+}
+
 class LudoEngine {
   static const safeTrackIndices = {0, 8, 13, 21, 26, 34, 39, 47};
 
@@ -73,23 +151,63 @@ class LudoEngine {
   LudoMove? lastMove;
   String message = 'Lance le dé pour commencer';
 
-  final LudoColor humanColor;
+  final List<LudoHuman> human;
   final Random _random = Random();
+  final bool isMultiplayer;
+  final void Function(LudoGameSnapshot snapshot)? onStateChange;
+  bool waitingForRemote = false;
+  final String roomCode;
 
-  LudoEngine({required this.humanColor})
-      : players = [
-          LudoPlayer(color: LudoColor.red, isHuman: humanColor == LudoColor.red),
-          LudoPlayer(color: LudoColor.green, isHuman: humanColor == LudoColor.green),
-          LudoPlayer(color: LudoColor.yellow, isHuman: humanColor == LudoColor.yellow),
-          LudoPlayer(color: LudoColor.blue, isHuman: humanColor == LudoColor.blue),
-        ];
+  List<LudoColor> get humanColor => human.map((player) => player.color).toList();
+
+  String? playerNameForColor(LudoColor color) =>
+      human.firstWhereOrNull((player) => player.color == color)?.name;
+
+  LudoEngine({
+    required this.human,
+    bool? isMultiplayer,
+    String? roomCode,
+    this.onStateChange,
+  }) : isMultiplayer = isMultiplayer ?? false,
+       roomCode =
+           roomCode ?? (isMultiplayer ?? false ? _generateRoomCode() : ''),
+       players = [
+         LudoPlayer(
+           color: LudoColor.red,
+           isHuman: human.any((elt) => elt.color == LudoColor.red),
+           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.red)?.name,
+         ),
+         LudoPlayer(
+           color: LudoColor.green,
+           isHuman: human.any((elt) => elt.color == LudoColor.green),
+           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.green)?.name,
+         ),
+         LudoPlayer(
+           color: LudoColor.yellow,
+           isHuman: human.any((elt) => elt.color == LudoColor.yellow),
+           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.yellow)?.name,
+         ),
+         LudoPlayer(
+           color: LudoColor.blue,
+           isHuman: human.any((elt) => elt.color == LudoColor.blue),
+           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.blue)?.name,
+         ),
+       ];
+
+  static String _generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random();
+    return List.generate(5, (_) => chars[random.nextInt(chars.length)]).join();
+  }
 
   LudoPlayer get currentPlayer => players[currentPlayerIndex];
 
   int rollDice() {
-    if (/* diceRolled || */ winner != null) return lastDice;
-    lastDice =  _random.nextInt(6) + 1;
-    //diceRolled = true;
+    if ( /* diceRolled || */ winner != null) return lastDice;
+    //if (isMultiplayer && waitingForRemote) return lastDice;
+    //if (isMultiplayer && !humanColor.contains(currentPlayer.color)) return lastDice;
+    lastDice = _random.nextInt(6) + 1;
+    diceRolled = true;
     final moves = getValidMoves();
     if (moves.isEmpty) {
       message =
@@ -102,11 +220,15 @@ class LudoEngine {
     }
 
     print('View DiceRolled (${currentPlayer.color.label}) => $lastDice');
+    if (isMultiplayer) {
+      onStateChange?.call(snapshot());
+      waitingForRemote = true;
+    }
     return lastDice;
   }
 
   List<LudoMove> getValidMoves() {
-    if (/* !diceRolled || */ winner != null) return [];
+    if ( /* !diceRolled || */ winner != null) return [];
     final moves = <LudoMove>[];
     for (final pawn in currentPlayer.pawns) {
       final move = _evaluateMove(pawn, lastDice);
@@ -135,11 +257,13 @@ class LudoEngine {
   }
 
   bool canMovePawn(LudoPawn pawn) {
-    return getValidMoves().any((m) => m.pawn.id == pawn.id && m.pawn.color == pawn.color);
+    return getValidMoves().any(
+      (m) => m.pawn.id == pawn.id && m.pawn.color == pawn.color,
+    );
   }
 
   bool applyMove(LudoPawn pawn) {
-    if (winner != null /* || !diceRolled */) return false;
+    if (winner != null /* || !diceRolled */ ) return false;
 
     final move = getValidMoves().where((m) => m.pawn.id == pawn.id).firstOrNull;
     if (move == null) return false;
@@ -162,6 +286,7 @@ class LudoEngine {
     final captured = _lastCapture;
     final finishedPawn = move.toSteps >= 56;
     _lastCapture = false;
+    diceRolled = false;
 
     extraTurn = false;
     if (rolledSix || captured || finishedPawn) {
@@ -169,8 +294,12 @@ class LudoEngine {
       message = finishedPawn
           ? 'Pion arrivé au centre ! ${currentPlayer.color.label} rejoue'
           : captured
-              ? 'Capture ! ${currentPlayer.color.label} rejoue'
-              : '6 obtenu ! ${currentPlayer.color.label} rejoue';
+          ? 'Capture ! ${currentPlayer.color.label} rejoue'
+          : '6 obtenu ! ${currentPlayer.color.label} rejoue';
+    }
+    if (isMultiplayer) {
+      onStateChange?.call(snapshot());
+      waitingForRemote = true;
     }
     return true;
   }
@@ -196,19 +325,24 @@ class LudoEngine {
   void scheduleTurnEnd({required bool extraTurn}) {
     this.extraTurn = extraTurn;
     if (!extraTurn) {
-       _nextPlayer();
+      _nextPlayer();
     } else {
       diceRolled = false;
       message = '${currentPlayer.color.label} rejoue (6)';
+    }
+    if (isMultiplayer) {
+      onStateChange?.call(snapshot());
+      waitingForRemote = true;
     }
   }
 
   void skipTurnIfNoMoves() {
     extraTurn = false;
+    diceRolled = false;
   }
 
   void _nextPlayer() {
-      print('Lancer');
+    print('Lancer');
 
     extraTurn = false;
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
@@ -219,13 +353,53 @@ class LudoEngine {
   void reset() {
     currentPlayerIndex = 0;
     lastDice = 0;
-    //diceRolled = false;
+    diceRolled = false;
     extraTurn = false;
     winner = null;
     message = 'Lance le dé pour commencer';
     for (final player in players) {
       for (final pawn in player.pawns) {
         pawn.stepsFromStart = -1;
+      }
+    }
+  }
+
+  LudoGameSnapshot snapshot() {
+    return LudoGameSnapshot(
+      isMultiplayer: isMultiplayer,
+      roomCode: roomCode,
+      currentPlayerIndex: currentPlayerIndex,
+      currentPlayerColor: currentPlayer.color,
+      lastDice: lastDice,
+      diceRolled: diceRolled,
+      extraTurn: extraTurn,
+      waitingForRemote: waitingForRemote,
+      winner: winner,
+      message: message,
+      pawnSteps: players
+          .map(
+            (player) =>
+                player.pawns.map((pawn) => pawn.stepsFromStart).toList(),
+          )
+          .toList(),
+    );
+  }
+
+  void applySnapshot(LudoGameSnapshot snapshot) {
+    // applying remote snapshot — stop waiting for remote
+    waitingForRemote = false;
+    currentPlayerIndex = snapshot.currentPlayerIndex;
+    lastDice = snapshot.lastDice;
+    diceRolled = snapshot.diceRolled;
+    extraTurn = snapshot.extraTurn;
+    winner = snapshot.winner;
+    message = snapshot.message;
+
+    for (var playerIndex = 0; playerIndex < players.length; playerIndex++) {
+      final player = players[playerIndex];
+      final steps = snapshot.pawnSteps[playerIndex];
+      for (var pawnIndex = 0; pawnIndex < player.pawns.length; pawnIndex++) {
+        player.pawns[pawnIndex].stepsFromStart = steps[pawnIndex];
       }
     }
   }
@@ -254,7 +428,7 @@ class LudoEngine {
     });
 
     lastMove = moves.first;
-    applyMove(moves.first.pawn); 
+    applyMove(moves.first.pawn);
   }
 }
 
@@ -262,6 +436,15 @@ extension _FirstOrNull<E> on Iterable<E> {
   E? get firstOrNull {
     final it = iterator;
     if (it.moveNext()) return it.current;
+    return null;
+  }
+}
+
+extension _FirstWhereOrNull<E> on Iterable<E> {
+  E? firstWhereOrNull(bool Function(E element) test) {
+    for (final element in this) {
+      if (test(element)) return element;
+    }
     return null;
   }
 }
