@@ -4,7 +4,7 @@ import 'package:miloka/game/ludo/ludo_engine.dart';
 void main() {
   group('Ludo multiplayer state', () {
     test('creates a multiplayer room snapshot with useful turn data', () {
-      final engine = LudoEngine(humanColor: LudoColor.red, isMultiplayer: true);
+      final engine = LudoEngine(human: [LudoHuman(name: 'Joueur', color: LudoColor.red)], isMultiplayer: true);
 
       final snapshot = engine.snapshot();
 

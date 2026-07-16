@@ -27,8 +27,7 @@ class LudoScreen extends StatefulWidget {
 
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
-  late LudoEngine _engine;
-  bool _isHost = false;
+  late final LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
   int _displayDice = 1;
@@ -48,6 +47,7 @@ class _LudoScreenState extends State<LudoScreen>
   final LudoMultiplayerService _multiplayerService = LudoMultiplayerService();
   final ValueNotifier<List<String>> _participantsNotifier = ValueNotifier([]);
   final List<LudoColor> _participantColorSelection = [];
+  bool isHost = true;
 
   Offset _diceDragOffset = Offset.zero;
   Offset _slideVelocity = Offset.zero;
@@ -73,12 +73,19 @@ class _LudoScreenState extends State<LudoScreen>
     if (widget.beginGame) {
       //_startGame(LudoColor.yellow);
       _playerSubscribe = widget.playerSubscribe
-          .map((player) => _parseLudoHumanFromMap(
-                Map<String, dynamic>.from(player as Map),
-              ))
+          .map(
+            (player) => LudoHuman(
+              name: player['name']?.toString() ?? 'Joueur inconnu',
+              color: _parseColor(player['color']),
+              id: player['id'],
+              avatar: player['avatar'],
+            ),
+          )
           .toList();
+
       _startMultParticipantGame();
     }
+
     _userProfile = context.read<AuthProvider?>()?.userProfile;
   }
 
@@ -97,7 +104,6 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _scheduleAiTurn() {
-    if (!_isHost) return;
     if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
     if (_aiTimer != null && _aiTimer!.isActive) return;
     if (_aiPlaying) return;
@@ -173,28 +179,40 @@ class _LudoScreenState extends State<LudoScreen>
         _diceRolledThisTurn) {
       return;
     }
+
+    print('Host? => $isHost');
     _diceRolledThisTurn = true;
     final value = _engine.rollDice();
     setState(() => _selectedPawn = null);
     // engine now broadcasts state via its `onStateChange` callback in multiplayer
-    _animateDiceRoll(value).then((_) {
-      if (!mounted) return;
-      setState(() {
-        if (_engine.getValidMoves().isEmpty) {
-          _diceRolledThisTurn = false;
-          _engine.scheduleTurnEnd(extraTurn: false);
-          _scheduleAiTurn();
-        }
+
+    if (isHost) {
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (_engine.getValidMoves().isEmpty) {
+            _diceRolledThisTurn = false;
+            _engine.scheduleTurnEnd(extraTurn: false);
+            _scheduleAiTurn();
+          }
+        });
       });
-    });
+    } else {
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (_engine.getValidMoves().isEmpty) {
+            _diceRolledThisTurn = false;
+            _engine.scheduleTurnEnd(extraTurn: false);
+            //_scheduleAiTurn();
+          }
+        });
+      });
+    }
   }
 
   void _onPawnTap(LudoPawn pawn) {
     if (_engine.winner != null || !_engine.currentPlayer.isHuman) {
-      return;
-    }
-    if (_isMultiplayer &&
-        _engine.currentPlayer.id != _userProfile['id']?.toString()) {
       return;
     }
     if (!_engine.canMovePawn(pawn)) return;
@@ -221,7 +239,7 @@ class _LudoScreenState extends State<LudoScreen>
         _engine.scheduleTurnEnd(extraTurn: true);
       } else {
         _engine.scheduleTurnEnd(extraTurn: false);
-        _scheduleAiTurn();
+        if (isHost || !_engine.isMultiplayer) _scheduleAiTurn();
       }
       // engine will broadcast new state when needed via its callback
     });
@@ -365,144 +383,64 @@ class _LudoScreenState extends State<LudoScreen>
     return LudoColor.yellow;
   }
 
-  LudoHuman _parseLudoHumanFromMap(Map<String, dynamic> map) {
-    return LudoHuman(
-      name: map['name']?.toString() ?? 'Joueur inconnu',
-      color: _parseColor(map['color']),
-      id: map['id']?.toString(),
-      avatar: map['avatar']?.toString(),
-    );
-  }
+  void _rebuildEngineFromSubscribers() {
+    final humanPlayers = _playerSubscribe;
 
-  void _broadcastState(LudoGameSnapshot snapshot) {
-    if (_roomCode.isEmpty) return;
-    final payload = snapshot.toJson()
-      ..['authorId'] = _userProfile['id']?.toString();
-    _multiplayerService.sendState(_roomCode, payload);
-  }
-
-  void _onEngineStateChange(LudoGameSnapshot snapshot) {
-    if (_roomCode.isEmpty) return;
-    if (_isHost) {
-      _broadcastState(snapshot);
-      return;
-    }
-    if (_engine.currentPlayer.isHuman &&
-        _engine.currentPlayer.id == _userProfile['id']?.toString()) {
-      _broadcastState(snapshot);
-    }
-  }
-
-  void _applyRemoteSnapshot(LudoGameSnapshot snapshot) {
-    _engine.applySnapshot(snapshot);
-    _diceRolledThisTurn = snapshot.diceRolled;
-    _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
-    _selectedPawn = null;
-  }
-
-  void _handleRemoteGameState(Map<String, dynamic> payload, String roomCode) {
-    final authorId = payload['authorId']?.toString();
-    final myId = _userProfile['id']?.toString();
-    if (authorId != null && authorId == myId) return;
-
-    final snapshot = LudoGameSnapshot.fromJson(payload);
-    if (snapshot.roomCode != roomCode) return;
-
-    _applyRemoteSnapshot(snapshot);
-    _beginGame = true;
-
-    if (_isHost && !_engine.currentPlayer.isHuman && _engine.winner == null) {
-      _scheduleAiTurn();
-    }
-  }
-
-  void _handleRoomPayload(Map<String, dynamic> payload, String roomCode) {
-    final type = payload['type']?.toString();
-    if (type == 'presence') {
-      final action = payload['action']?.toString();
-      final playerData = payload['player'] as Map<String, dynamic>?;
-      if (action == 'join' && playerData != null) {
-        final playerName = playerData['name']?.toString() ?? '';
-        if (playerName.isNotEmpty) {
-          final list = List<String>.from(_participantsNotifier.value);
-          if (!list.contains(playerName)) list.add(playerName);
-          _participantsNotifier.value = list;
-        }
-      }
-      return;
-    }
-    if (type == 'participants') {
-      final participantList = payload['participants'] as List<dynamic>?;
-      if (participantList != null) {
-        final parsed = participantList
-            .map((item) => _parseLudoHumanFromMap(
-                  Map<String, dynamic>.from(item as Map),
-                ))
-            .toList();
-        setState(() {
-          _playerSubscribe = parsed;
-          _participantsNotifier.value = parsed
-              .map((e) => e.name.toString())
-              .where((name) => name.isNotEmpty)
-              .toList();
-        });
-        if (_beginGame) {
-          _rebuildEngineFromSubscribers();
-        }
-      }
-      return;
-    }
-    if (type == 'start') {
-      _rebuildEngineFromSubscribers();
-      setState(() {
-        _beginGame = true;
-        _diceRolledThisTurn = false;
-      });
-      if (_isHost && !_engine.currentPlayer.isHuman) {
-        _scheduleAiTurn();
-      }
-      return;
-    }
-
-    setState(() => _handleRemoteGameState(payload, roomCode));
-  }
-
-  void _subscribeToRoom(String roomCode) {
-    _multiplayerSubscription?.cancel();
-    _multiplayerSubscription = _multiplayerService
-        .watchRoom(roomCode)
-        .listen((payload) {
-          if (!mounted) return;
-          _handleRoomPayload(payload, roomCode);
-        });
-  }
-
-  LudoEngine _createEngine() {
-    return LudoEngine(
-      human: _playerSubscribe,
+    _engine = LudoEngine(
+      human: humanPlayers,
       isMultiplayer: true,
       roomCode: _roomCode,
-      onStateChange: _onEngineStateChange,
+      onStateChange: (snapshot) {
+        if (_roomCode.isNotEmpty) {
+          _multiplayerService.sendState(_roomCode, snapshot.toJson());
+        }
+      },
     );
   }
 
-  void _rebuildEngineFromSubscribers() {
-    _engine = _createEngine();
-  }
-
-  void _startMultParticipantGame() {
+  void _startMultParticipantGame() async {
     if (_playerSubscribe.isEmpty) return;
 
+    print('Participant => $_playerSubscribe');
+
+    await _multiplayerService.joinRoom(
+      playerName: _playerSubscribe.first.name,
+      playerColor: _playerSubscribe.first.color.name,
+    );
+
     setState(() {
-      _isHost = false;
-      _isMultiplayer = true;
-      _roomCode = 'ludo_global';
-      _isRoomReady = true;
-      _engine = _createEngine();
+      _engine = LudoEngine(
+        human: _playerSubscribe,
+        isMultiplayer: true,
+        roomCode: 'ludo_global',
+        onStateChange: (snapshot) => _multiplayerService.sendState(
+          'ludo_global',
+          snapshot.toJson(),
+          true,
+        ),
+      );
+      isHost = false;
       _beginGame = true;
     });
 
-    _subscribeToRoom(_roomCode);
+    _multiplayerSubscription = _multiplayerService
+        .watchRoom('ludo_global')
+        .listen((payload) {
+          if (!mounted) return;
+          final type = payload['type']?.toString();
+          if (type == 'presence' || type == 'participants' || type == 'start') {
+            return;
+          }
+
+          final snapshot = LudoGameSnapshot.fromJson(payload);
+          if (snapshot.roomCode == 'ludo_global') {
+            setState(() {
+              _engine.applySnapshot(snapshot);
+              _diceRolledThisTurn = snapshot.diceRolled;
+              _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
+            });
+          }
+        });
   }
 
   Future<void> _startMultiplayerGame({required bool createRoom}) async {
@@ -542,21 +480,86 @@ class _LudoScreenState extends State<LudoScreen>
         playerColor: LudoColor.red.name,
       );
 
+      print('Session => ${session.roomCode}');
+
       setState(() {
         _roomCode = session.roomCode;
         _isRoomReady = true;
-        _isHost = true;
       });
+      // host is already participant (store names for the notifier)
       _participantsNotifier.value = players
           .map((elt) => elt.name.toString())
           .toList();
+      // listen for presence/state
+      _multiplayerSubscription = _multiplayerService
+          .watchRoom('ludo_global')
+          .listen((payload) {
+            if (!mounted) return;
+            print('=>  response payload = $payload');
+            final type = payload['type']?.toString();
+            if (type == 'presence') {
+              final action = payload['action']?.toString();
+              final playerData = payload['player'] as Map<String, dynamic>?;
+              if (action == 'join' && playerData != null) {
+                final playerName = playerData['name']?.toString() ?? '';
+                if (playerName.isNotEmpty) {
+                  final list = List<String>.from(_participantsNotifier.value);
+                  if (!list.contains(playerName)) list.add(playerName);
+                  _participantsNotifier.value = list;
+                }
+              }
+              return;
+            }
+            if (type == 'participants') {
+              final participantList = payload['participants'] as List<dynamic>?;
+              if (participantList != null) {
+                final parsed = participantList.map<LudoHuman>((item) {
+                  final map = item as Map<String, dynamic>;
+                  final colorString = map['color']?.toString() ?? '';
+                  final color = LudoColor.values.firstWhere(
+                    (c) => c.name == colorString,
+                    orElse: () => LudoColor.yellow,
+                  );
+                  return LudoHuman(
+                    name: map['name']?.toString() ?? 'Joueur inconnu',
+                    color: color,
+                  );
+                }).toList();
+                setState(() {
+                  _playerSubscribe = parsed;
+                  _participantsNotifier.value = parsed
+                      .map((e) => e.name.toString())
+                      .where((name) => name.isNotEmpty)
+                      .toList();
+                });
+              }
+              return;
+            }
 
+            final snapshot = LudoGameSnapshot.fromJson(payload);
+            if (snapshot.roomCode == session.roomCode) {
+              setState(() {
+                _engine.applySnapshot(snapshot);
+                _beginGame = true;
+                _diceRolledThisTurn = snapshot.diceRolled;
+                _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
+              });
+              if (!_engine.currentPlayer.isHuman) {
+                _scheduleAiTurn();
+              }
+            }
+          });
+
+      // show participants and ask host to start
       final start = await _showParticipantsConfirmDialog(players);
 
-      setState(() {
-        _engine = _createEngine();
-      });
-      _subscribeToRoom(session.roomCode);
+      _engine = LudoEngine(
+        human: _playerSubscribe,
+        isMultiplayer: true,
+        roomCode: session.roomCode,
+        onStateChange: (snapshot) =>
+            _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
+      );
 
       final friendId = playerFriends[0]['id'];
       if (start == true) {
@@ -574,20 +577,22 @@ class _LudoScreenState extends State<LudoScreen>
               .toList(),
         );
         await _multiplayerService.sendGameStart(session.roomCode);
-        _broadcastState(_engine.snapshot());
+        await _multiplayerService.sendState(
+          session.roomCode,
+          _engine.snapshot().toJson(),
+        );
         await FriendsService().playingGame(friendId);
         setState(() {
           _beginGame = true;
         });
-        if (!_engine.currentPlayer.isHuman) {
-          _scheduleAiTurn();
-        }
+        /* if (!widget.beginGame && isHost) {
+          _listenChanelMultiplayerGame();
+        } */
       } else {
-        _multiplayerSubscription?.cancel();
+        // host cancelled, cleanup
         _multiplayerService.disposeRoom(session.roomCode);
         setState(() {
           _isMultiplayer = false;
-          _isHost = false;
           _roomCode = '';
           _isRoomReady = false;
         });
@@ -614,34 +619,122 @@ class _LudoScreenState extends State<LudoScreen>
     setState(() {
       _roomCode = session.roomCode;
       _isRoomReady = true;
-      _isHost = false;
       _playerName = playerHote['username'] ?? 'Player';
       _isMultiplayer = true;
       _playerSubscribe = [
         LudoHuman(
           name: playerHote['username'] ?? 'Player',
           color: LudoColor.yellow,
-          id: playerHote['id']?.toString(),
-          avatar: playerHote['avatar_url']?.toString(),
         ),
       ];
       _participantsNotifier.value = [playerHote['username'] ?? 'Player'];
-      _engine = _createEngine();
     });
 
+    _engine = LudoEngine(
+      human: [
+        LudoHuman(
+          name: playerHote['username'] ?? 'Player',
+          color: LudoColor.yellow,
+        ),
+      ],
+      isMultiplayer: true,
+      roomCode: session.roomCode,
+      onStateChange: (snapshot) =>
+          _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
+    );
+
+    // notify host and others we joined
     await _multiplayerService.sendJoin(
       session.roomCode,
       playerHote['username'] ?? 'Player',
       LudoColor.yellow.name,
     );
 
+    // update local participants list from service
     _participantsNotifier.value = _multiplayerService
         .getParticipants(session.roomCode)
         .map((player) => player['name']?.toString() ?? '')
         .where((name) => name.isNotEmpty)
         .toList();
 
-    _subscribeToRoom(session.roomCode);
+    // listen for presence, participants and state updates
+    _multiplayerSubscription = _multiplayerService
+        .watchRoom(session.roomCode)
+        .listen((payload) {
+          if (!mounted) return;
+          final type = payload['type']?.toString();
+          if (type == 'presence') {
+            final action = payload['action']?.toString();
+            final playerData = payload['player'] as Map<String, dynamic>?;
+            if (action == 'join' && playerData != null) {
+              final playerName = playerData['name']?.toString() ?? '';
+              if (playerName.isNotEmpty) {
+                final list = List<String>.from(_participantsNotifier.value);
+                if (!list.contains(playerName)) list.add(playerName);
+                _participantsNotifier.value = list;
+              }
+            }
+            return;
+          }
+          if (type == 'participants') {
+            final participantList = payload['participants'] as List<dynamic>?;
+            if (participantList != null) {
+              final parsed = participantList.map<LudoHuman>((item) {
+                final map = item as Map<String, dynamic>;
+                final colorString = map['color']?.toString() ?? '';
+                final color = LudoColor.values.firstWhere(
+                  (c) => c.name == colorString,
+                  orElse: () => LudoColor.yellow,
+                );
+                return LudoHuman(
+                  name: map['name']?.toString() ?? 'Joueur inconnu',
+                  color: color,
+                );
+              }).toList();
+              setState(() {
+                _playerSubscribe = parsed;
+                _participantsNotifier.value = parsed
+                    .map((e) => e.name.toString())
+                    .where((name) => name.isNotEmpty)
+                    .toList();
+              });
+              _rebuildEngineFromSubscribers();
+            }
+            return;
+          }
+
+          if (type == 'start') {
+            _rebuildEngineFromSubscribers();
+            setState(() {
+              _beginGame = true;
+              _diceRolledThisTurn = false;
+            });
+            return;
+          }
+
+          final snapshot = LudoGameSnapshot.fromJson(payload);
+          if (snapshot.roomCode == session.roomCode) {
+            setState(() {
+              _engine.applySnapshot(snapshot);
+              _beginGame = true;
+              _diceRolledThisTurn = snapshot.diceRolled;
+              _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
+            });
+          }
+        });
+
+    _engine = LudoEngine(
+      human: [
+        LudoHuman(
+          name: playerHote['username'] ?? 'Player',
+          color: LudoColor.yellow,
+        ),
+      ],
+      isMultiplayer: true,
+      roomCode: session.roomCode,
+      onStateChange: (snapshot) =>
+          _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
+    );
     setState(() {});
   }
 
@@ -1001,19 +1094,22 @@ class _LudoScreenState extends State<LudoScreen>
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 24),
                         child: GestureDetector(
-                          onTap: 
+                          onTap: /* () { */
                             /* print(
                               'verifier => ${_engine.currentPlayer.id == _userProfile['id']}\n ${_playerSubscribe.map((elt) => elt.id).toList()}\n ${_engine.currentPlayer.id}',
-                            ); */
+                            );
+                            print([!_isDraggingDice, !_isSlidingDice, _engine.currentPlayer.isHuman, _engine.winner == null, !_diceRolledThisTurn, _engine.currentPlayer.id ==
+                                        _userProfile['id']]); */
                             !_isDraggingDice &&
                                     !_isSlidingDice &&
                                     _engine.currentPlayer.isHuman &&
                                     _engine.winner == null &&
-                                    !_diceRolledThisTurn &&
+                                    //!_diceRolledThisTurn &&
                                     _engine.currentPlayer.id ==
                                         _userProfile['id']
                                 ? _onRollDice
                                 : null,
+                          /* }, */
 
                           onPanStart: (_) {
                             _slideTimer?.cancel();
@@ -1033,7 +1129,7 @@ class _LudoScreenState extends State<LudoScreen>
                                 _isDraggingDice &&
                                 _engine.currentPlayer.isHuman &&
                                 _engine.winner == null &&
-                                !_diceRolledThisTurn &&
+                                //!_diceRolledThisTurn &&
                                 _engine.currentPlayer.id == _userProfile['id'];
 
                             _slideVelocity = details.velocity.pixelsPerSecond;
@@ -1059,7 +1155,7 @@ class _LudoScreenState extends State<LudoScreen>
                               child: _buildDice(
                                 _engine.currentPlayer.isHuman &&
                                     _engine.winner == null &&
-                                    !_diceRolledThisTurn &&
+                                   // !_diceRolledThisTurn &&
                                     _engine.currentPlayer.id ==
                                         _userProfile['id'],
                                 _engine,
