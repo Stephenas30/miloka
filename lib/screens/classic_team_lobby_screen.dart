@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../screens/game_screen.dart';
 import '../service/team_lobby_service.dart';
+import '../service/game_channel_service.dart';
 
 class ClassicTeamLobbyScreen extends StatefulWidget {
   final String teamId;
@@ -16,6 +17,7 @@ class ClassicTeamLobbyScreen extends StatefulWidget {
 
 class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
   final TeamLobbyService _teamLobbyService = TeamLobbyService();
+  final GameChannelService _gameChannel = GameChannelService();
   bool _guestReady = false;
   Map<String, dynamic>? team;
   Timer? _refreshTimer;
@@ -36,6 +38,28 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
   Future<void> _loadTeam() async {
     final loadedTeam = await _teamLobbyService.getTeam(widget.teamId);
     if (!mounted) return;
+
+    if (loadedTeam?['status'] == 'playing' && !widget.isHost) {
+      _refreshTimer?.cancel();
+      _gameChannel.connect(widget.teamId);
+      final hostProfile = loadedTeam?['host_profile'] as Map<String, dynamic>?;
+      final guestProfile = loadedTeam?['guest_profile'] as Map<String, dynamic>?;
+      final hostName = hostProfile?['username'] ?? hostProfile?['full_name'] ?? 'Sud';
+      final guestName = guestProfile?['username'] ?? guestProfile?['full_name'] ?? 'Nord';
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GameScreen(
+            teamId: widget.teamId,
+            isHost: false,
+            humanPlayers: const {'Sud', 'Nord'},
+            playerNames: {'Sud': hostName, 'Nord': guestName},
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       team = loadedTeam;
       _guestReady = loadedTeam?['guest_ready'] ?? false;
@@ -53,13 +77,29 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
     }
   }
 
-  void _startMatchmaking() {
+  Future<void> _startGame(String gameType) async {
     if (team == null || team?['guest_id'] == null) return;
     if (!(team?['guest_ready'] == true)) return;
 
-    Navigator.push(
+    await _teamLobbyService.startGame(widget.teamId);
+    await _gameChannel.connect(widget.teamId);
+
+    final hostProfile = team?['host_profile'] as Map<String, dynamic>?;
+    final guestProfile = team?['guest_profile'] as Map<String, dynamic>?;
+    final hostName = hostProfile?['username'] ?? hostProfile?['full_name'] ?? 'Sud';
+    final guestName = guestProfile?['username'] ?? guestProfile?['full_name'] ?? 'Nord';
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const GameScreen()),
+      MaterialPageRoute(
+        builder: (_) => GameScreen(
+          teamId: widget.teamId,
+          isHost: true,
+          humanPlayers: const {'Sud', 'Nord'},
+          playerNames: {'Sud': hostName, 'Nord': guestName},
+        ),
+      ),
     );
   }
 
@@ -185,12 +225,43 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
                 ),
                 const SizedBox(height: 24),
                 if (isHost)
-                  ElevatedButton(
-                    onPressed: team != null && team?['guest_id'] != null && team?['guest_ready'] == true
-                        ? _startMatchmaking
-                        : null,
-                    style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                    child: const Text('Matchmaking'),
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: team != null && team?['guest_id'] != null && team?['guest_ready'] == true
+                                  ? () => _startGame('private')
+                                  : null,
+                              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                              child: const Text('Partie privée'),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: team != null && team?['guest_id'] != null && team?['guest_ready'] == true
+                                  ? () => _startGame('public')
+                                  : null,
+                              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                              child: const Text('Partie publique'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: team != null && team?['guest_id'] != null && team?['guest_ready'] == true
+                              ? () => _startGame('coop_vs_ai')
+                              : null,
+                          style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                          child: const Text('Partie contre IA'),
+                        ),
+                      ),
+                    ],
                   ),
                 if (!isHost)
                   ElevatedButton(

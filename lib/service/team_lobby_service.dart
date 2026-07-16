@@ -64,7 +64,7 @@ class TeamLobbyService {
       if (response == null) {
         return _teams[teamId];
       }
-      return Map<String, dynamic>.from(response as Map<String, dynamic>);
+      return Map<String, dynamic>.from(response);
     } catch (_) {
       return _teams[teamId];
     }
@@ -120,6 +120,13 @@ class TeamLobbyService {
       ...payload,
     };
     return true;
+  }
+
+  Future<void> startGame(String teamId) async {
+    await _client.from('teams').update({
+      'status': 'playing',
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('team_id', teamId);
   }
 }
 
