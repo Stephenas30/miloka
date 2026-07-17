@@ -212,7 +212,7 @@ class LudoEngine {
   LudoPlayer get currentPlayer => players[currentPlayerIndex];
 
   int rollDice() {
-    if ( /* diceRolled || */ winner != null) return lastDice;
+    if (diceRolled || winner != null) return lastDice;
     //if (isMultiplayer && waitingForRemote) return lastDice;
     //if (isMultiplayer && !humanColor.contains(currentPlayer.color)) return lastDice;
     lastDice = _random.nextInt(6) + 1;
@@ -237,7 +237,7 @@ class LudoEngine {
   }
 
   List<LudoMove> getValidMoves() {
-    if ( /* !diceRolled || */ winner != null) return [];
+    if (!diceRolled || winner != null) return [];
     final moves = <LudoMove>[];
     for (final pawn in currentPlayer.pawns) {
       final move = _evaluateMove(pawn, lastDice);
@@ -351,12 +351,16 @@ class LudoEngine {
   }
 
   void _nextPlayer() {
-    print('Lancer');
-
+    diceRolled = false;
     extraTurn = false;
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
-    print(currentPlayerIndex);
     message = 'Tour de ${currentPlayer.color.label}';
+  }
+
+  void advancePastDisconnected(Set<LudoColor> disconnected) {
+    while (disconnected.contains(currentPlayer.color)) {
+      _nextPlayer();
+    }
   }
 
   void reset() {

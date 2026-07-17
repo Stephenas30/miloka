@@ -184,6 +184,26 @@ class LudoMultiplayerService {
         _streams[channelName]?.add(data);
       },
     );
+
+    channel.onBroadcast(
+      event: 'ludo_game_ended',
+      callback: (payload, [ref]) {
+        final data = payload is Map<String, dynamic>
+            ? payload
+            : Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_player_left',
+      callback: (payload, [ref]) {
+        final data = payload is Map<String, dynamic>
+            ? payload
+            : Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
   }
 
   Stream<Map<String, dynamic>> watchRoom(String roomCode) {
@@ -302,6 +322,28 @@ class LudoMultiplayerService {
       event: 'ludo_start',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'start'},
+    );
+  }
+
+  Future<void> sendGameEnded(String roomCode) async {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    await channel.send(
+      event: 'ludo_game_ended',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'game_ended'},
+    );
+  }
+
+  Future<void> sendPlayerLeft(String roomCode, String playerName, String color) async {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    await channel.send(
+      event: 'ludo_player_left',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'player_left', 'player': playerName, 'color': color},
     );
   }
 

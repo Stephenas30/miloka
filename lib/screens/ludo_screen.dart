@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../service/ludo_multiplayer_service.dart';
 import '../service/stats_service.dart';
 import '../widgets/friends_dialog.dart';
+import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
 
@@ -27,7 +28,7 @@ class LudoScreen extends StatefulWidget {
 
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
-  late final LudoEngine _engine;
+  late LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
   int _displayDice = 1;
@@ -48,6 +49,7 @@ class _LudoScreenState extends State<LudoScreen>
   final ValueNotifier<List<String>> _participantsNotifier = ValueNotifier([]);
   final List<LudoColor> _participantColorSelection = [];
   bool isHost = true;
+  final Set<LudoColor> _disconnectedColors = {};
 
   Offset _diceDragOffset = Offset.zero;
   Offset _slideVelocity = Offset.zero;
@@ -95,7 +97,22 @@ class _LudoScreenState extends State<LudoScreen>
     _moveTimer?.cancel();
     _slideTimer?.cancel();
     _multiplayerSubscription?.cancel();
-    if (_roomCode.isNotEmpty) {
+    if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame) {
+      if (isHost) {
+        _multiplayerService.sendGameEnded(_roomCode);
+      } else if (_engine.players.isNotEmpty) {
+        final player = _engine.players.firstWhere(
+          (p) => p.namePlayer == _playerName,
+          orElse: () => _engine.players.first,
+        );
+        _multiplayerService.sendPlayerLeft(
+          _roomCode,
+          player.namePlayer ?? _playerName,
+          player.color.name,
+        );
+      }
+      _multiplayerService.disposeRoom(_roomCode);
+    } else if (_roomCode.isNotEmpty) {
       _multiplayerService.disposeRoom(_roomCode);
     }
     _participantsNotifier.dispose();
@@ -104,7 +121,17 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _scheduleAiTurn() {
-    if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
+    if (_engine.winner != null) return;
+    if (_disconnectedColors.contains(_engine.currentPlayer.color)) {
+      _engine.advancePastDisconnected(_disconnectedColors);
+      setState(() {});
+      if (_isMultiplayer && isHost && _engine.onStateChange != null) {
+        _engine.onStateChange!(_engine.snapshot());
+      }
+      _scheduleAiTurn();
+      return;
+    }
+    if (_engine.currentPlayer.isHuman) return;
     if (_aiTimer != null && _aiTimer!.isActive) return;
     if (_aiPlaying) return;
 
@@ -173,10 +200,14 @@ class _LudoScreenState extends State<LudoScreen>
     });
   }
 
+  bool get _isMyTurn =>
+      _engine.currentPlayer.isHuman &&
+      _engine.winner == null &&
+      (!_engine.isMultiplayer ||
+          _engine.currentPlayer.id == _userProfile?['id']);
+
   void _onRollDice() {
-    if (_engine.winner != null ||
-        !_engine.currentPlayer.isHuman ||
-        _diceRolledThisTurn) {
+    if (!_isMyTurn || _diceRolledThisTurn) {
       return;
     }
 
@@ -212,10 +243,8 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _onPawnTap(LudoPawn pawn) {
-    if (_engine.winner != null || !_engine.currentPlayer.isHuman) {
-      return;
-    }
-    if (!_engine.canMovePawn(pawn)) return;
+    if (!_isMyTurn) return;
+    if (!_diceRolledThisTurn || !_engine.canMovePawn(pawn)) return;
 
     final fromSteps = pawn.stepsFromStart;
     final move = _engine.getValidMoves().firstWhere(
@@ -243,6 +272,74 @@ class _LudoScreenState extends State<LudoScreen>
       }
       // engine will broadcast new state when needed via its callback
     });
+  }
+
+  void _handleGameEnded() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a2e),
+        title: const Text(
+          'Partie terminée',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          "L'hôte a quitté la partie.",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => route.isFirst,
+              );
+            },
+            child: const Text('OK', style: TextStyle(color: Colors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handlePlayerLeft(Map<String, dynamic> payload) {
+    final colorName = payload['color']?.toString();
+    final playerName = payload['player']?.toString() ?? 'Un joueur';
+    if (colorName == null) return;
+
+    final color = LudoColor.values.firstWhere(
+      (c) => c.name == colorName,
+      orElse: () => LudoColor.red,
+    );
+
+    setState(() {
+      _disconnectedColors.add(color);
+    });
+
+    _participantsNotifier.value = _participantsNotifier.value
+        .where((name) => name != playerName)
+        .toList();
+
+    if (_disconnectedColors.contains(_engine.currentPlayer.color)) {
+      _engine.advancePastDisconnected(_disconnectedColors);
+      setState(() {});
+      if (_isMultiplayer && isHost && _engine.onStateChange != null) {
+        _engine.onStateChange!(_engine.snapshot());
+      }
+      _scheduleAiTurn();
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$playerName a quitté la partie.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   void _startPawnMove(
@@ -372,6 +469,22 @@ class _LudoScreenState extends State<LudoScreen>
     }
   }
 
+  void _startLocalGame(List<LudoColor> colors) {
+    final names = <String>['Joueur 1', 'Joueur 2', 'Joueur 3', 'Joueur 4'];
+    setState(() {
+      _engine = LudoEngine(
+        human: [
+          for (var i = 0; i < colors.length; i++)
+            LudoHuman(name: names[i], color: colors[i]),
+        ],
+      );
+      _beginGame = true;
+    });
+    if (!_engine.currentPlayer.isHuman) {
+      _scheduleAiTurn();
+    }
+  }
+
   LudoColor _parseColor(dynamic colorValue) {
     if (colorValue is LudoColor) return colorValue;
     if (colorValue is String) {
@@ -409,6 +522,8 @@ class _LudoScreenState extends State<LudoScreen>
     );
 
     setState(() {
+      _roomCode = 'ludo_global';
+      _playerName = _playerSubscribe.first.name;
       _engine = LudoEngine(
         human: _playerSubscribe,
         isMultiplayer: true,
@@ -431,12 +546,20 @@ class _LudoScreenState extends State<LudoScreen>
           if (type == 'presence' || type == 'participants' || type == 'start') {
             return;
           }
+          if (type == 'game_ended') {
+            _handleGameEnded();
+            return;
+          }
+          if (type == 'player_left') {
+            _handlePlayerLeft(payload);
+            return;
+          }
 
           final snapshot = LudoGameSnapshot.fromJson(payload);
           if (snapshot.roomCode == 'ludo_global') {
             setState(() {
               _engine.applySnapshot(snapshot);
-              _diceRolledThisTurn = snapshot.diceRolled;
+              _diceRolledThisTurn = snapshot.diceRolled && _isMyTurn;
               _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
             });
           }
@@ -532,11 +655,20 @@ class _LudoScreenState extends State<LudoScreen>
                       .where((name) => name.isNotEmpty)
                       .toList();
                 });
-              }
-              return;
             }
+            return;
+          }
 
-            final snapshot = LudoGameSnapshot.fromJson(payload);
+          if (type == 'game_ended') {
+            _handleGameEnded();
+            return;
+          }
+          if (type == 'player_left') {
+            _handlePlayerLeft(payload);
+            return;
+          }
+
+          final snapshot = LudoGameSnapshot.fromJson(payload);
             if (snapshot.roomCode == session.roomCode) {
               setState(() {
                 _engine.applySnapshot(snapshot);
@@ -561,7 +693,7 @@ class _LudoScreenState extends State<LudoScreen>
             _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
       );
 
-      final friendId = playerFriends[0]['id'];
+      final friendId = playerFriends.isNotEmpty ? playerFriends[0]['id'] : null;
       if (start == true) {
         await _multiplayerService.sendParticipants(
           session.roomCode,
@@ -581,7 +713,9 @@ class _LudoScreenState extends State<LudoScreen>
           session.roomCode,
           _engine.snapshot().toJson(),
         );
-        await FriendsService().playingGame(friendId);
+        if (friendId != null) {
+          await FriendsService().playingGame(friendId);
+        }
         setState(() {
           _beginGame = true;
         });
@@ -602,6 +736,7 @@ class _LudoScreenState extends State<LudoScreen>
     }
 
     // Join the global platform without asking for a room code
+    isHost = false;
     final session = await _multiplayerService.joinRoom(
       playerName: playerHote['username'] ?? 'Player',
       playerColor: LudoColor.yellow.name,
@@ -712,6 +847,15 @@ class _LudoScreenState extends State<LudoScreen>
             return;
           }
 
+          if (type == 'game_ended') {
+            _handleGameEnded();
+            return;
+          }
+          if (type == 'player_left') {
+            _handlePlayerLeft(payload);
+            return;
+          }
+
           final snapshot = LudoGameSnapshot.fromJson(payload);
           if (snapshot.roomCode == session.roomCode) {
             setState(() {
@@ -723,18 +867,6 @@ class _LudoScreenState extends State<LudoScreen>
           }
         });
 
-    _engine = LudoEngine(
-      human: [
-        LudoHuman(
-          name: playerHote['username'] ?? 'Player',
-          color: LudoColor.yellow,
-        ),
-      ],
-      isMultiplayer: true,
-      roomCode: session.roomCode,
-      onStateChange: (snapshot) =>
-          _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-    );
     setState(() {});
   }
 
@@ -746,65 +878,109 @@ class _LudoScreenState extends State<LudoScreen>
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1a1a2e),
-          title: const Text(
-            'Participants',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: SizedBox(
-            width: 280,
-            child: ValueListenableBuilder<List<String>>(
-              valueListenable: _participantsNotifier,
-              builder: (context, list, _) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ...List.generate(
-                      list.length,
-                      (index) => ListTile(
-                        leading: const Icon(Icons.person, color: Colors.white),
-                        title: Text(
-                          list[index],
-                          style: const TextStyle(color: Colors.white),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final takenColors = _playerSubscribe
+                .map((p) => p.color)
+                .toSet();
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1a1a2e),
+              title: const Text(
+                'Participants',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: SizedBox(
+                width: 280,
+                child: ValueListenableBuilder<List<String>>(
+                  valueListenable: _participantsNotifier,
+                  builder: (context, list, _) {
+                    // Sync new joiners into _playerSubscribe
+                    while (_playerSubscribe.length < list.length) {
+                      final usedColors = _playerSubscribe
+                          .map((p) => p.color)
+                          .toSet();
+                      final freeColor = LudoColor.values.firstWhere(
+                        (c) => !usedColors.contains(c),
+                        orElse: () => LudoColor.yellow,
+                      );
+                      _playerSubscribe.add(
+                        LudoHuman(
+                          name: list[_playerSubscribe.length],
+                          color: freeColor,
                         ),
-                        trailing: DropdownButton<LudoColor>(
-                          value: _parseColor(playerSubscribe[index].color),
-                          items: LudoColor.values.map((color) {
-                            return DropdownMenuItem<LudoColor>(
-                              value: color,
-                              child: Icon(
-                                Icons.circle,
-                                color: LudoBoardLayout.colorValues[color],
+                      );
+                    }
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ...List.generate(
+                          list.length,
+                          (index) {
+                            final participant = _playerSubscribe[index];
+                            final availableColors = LudoColor.values.where(
+                              (c) =>
+                                  c == participant.color ||
+                                  !takenColors.contains(c),
+                            );
+
+                            return ListTile(
+                              leading: const Icon(
+                                Icons.person,
+                                color: Colors.white,
+                              ),
+                              title: Text(
+                                list[index],
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              trailing: DropdownButton<LudoColor>(
+                                value: participant.color,
+                                dropdownColor: const Color(0xFF2A2A40),
+                                items: availableColors.map((color) {
+                                  return DropdownMenuItem<LudoColor>(
+                                    value: color,
+                                    child: Icon(
+                                      Icons.circle,
+                                      color:
+                                          LudoBoardLayout.colorValues[color],
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  final newParticipant = LudoHuman(
+                                    name: participant.name,
+                                    color: value,
+                                    id: participant.id,
+                                    avatar: participant.avatar,
+                                  );
+                                  setDialogState(() {
+                                    _playerSubscribe[index] = newParticipant;
+                                  });
+                                },
                               ),
                             );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            /* setState(() {
-                                _playerSubscribe[index].color = value;
-                              }); */
                           },
                         ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () async => {Navigator.pop(context, true)},
-
-              child: const Text('Démarrer'),
-            ),
-          ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Démarrer'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -818,28 +994,29 @@ class _LudoScreenState extends State<LudoScreen>
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1a1a2e),
+          backgroundColor: const Color(0xFF1C1C2E),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
           ),
           title: const Center(
             child: Text(
               'Choisis ta couleur',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 22,
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
+                letterSpacing: 1,
               ),
             ),
           ),
           content: SizedBox(
-            width: 220,
+            width: 240,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Quelle couleur veux-tu jouer ?',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  'Quelle couleur pour tenter ta chance ?',
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -849,27 +1026,36 @@ class _LudoScreenState extends State<LudoScreen>
                   alignment: WrapAlignment.center,
                   children: LudoColor.values.map((color) {
                     final isSelected = selectedColor == color;
+                    final baseColor = LudoBoardLayout.colorValues[color]!;
                     return GestureDetector(
                       onTap: () => setDialogState(() => selectedColor = color),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        width: 80,
-                        height: 80,
+                        width: 76,
+                        height: 76,
                         decoration: BoxDecoration(
-                          color: LudoBoardLayout.colorValues[color],
+                          gradient: LinearGradient(
+                            colors: [baseColor, baseColor.withValues(alpha: 0.6)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isSelected ? Colors.white : Colors.black26,
-                            width: isSelected ? 4 : 2,
+                            color: isSelected ? Colors.white : Colors.white24,
+                            width: isSelected ? 3 : 1.5,
                           ),
                           boxShadow: [
                             if (isSelected)
                               BoxShadow(
-                                color: LudoBoardLayout.colorValues[color]!
-                                    .withValues(alpha: 0.6),
-                                blurRadius: 12,
+                                color: baseColor.withValues(alpha: 0.5),
+                                blurRadius: 16,
                                 spreadRadius: 2,
                               ),
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
                           ],
                         ),
                         child: Center(
@@ -879,7 +1065,7 @@ class _LudoScreenState extends State<LudoScreen>
                               color: color == LudoColor.yellow
                                   ? Colors.black87
                                   : Colors.white,
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -893,29 +1079,218 @@ class _LudoScreenState extends State<LudoScreen>
           ),
           actions: [
             Center(
-              child: SizedBox(
-                width: 180,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: selectedColor != null
-                        ? LudoBoardLayout.colorValues[selectedColor]
-                        : Colors.grey.shade600,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SizedBox(
+                  width: 180,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: selectedColor != null
+                          ? const Color(0xFFD4A017)
+                          : Colors.grey.shade700,
+                      foregroundColor: selectedColor != null
+                          ? const Color(0xFF1C1C2E)
+                          : Colors.white38,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: selectedColor != null ? 4 : 0,
+                    ),
+                    onPressed: selectedColor != null
+                        ? () {
+                            Navigator.pop(ctx);
+                            _startGame(selectedColor!);
+                          }
+                        : null,
+                    child: Text(
+                      'C\'est parti !',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
                     ),
                   ),
-                  onPressed: selectedColor != null
-                      ? () {
-                          Navigator.pop(ctx);
-                          _startGame(selectedColor!);
-                        }
-                      : null,
-                  child: const Text(
-                    'Valider',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLocalPicker() async {
+    final selectedColors = <LudoColor>{};
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1C1C2E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Center(
+            child: Text(
+              'Local multi',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+          content: SizedBox(
+            width: 240,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Choisis 2 à 4 joueurs',
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.center,
+                  children: LudoColor.values.map((color) {
+                    final isSelected = selectedColors.contains(color);
+                    final baseColor = LudoBoardLayout.colorValues[color]!;
+                    return GestureDetector(
+                      onTap: () {
+                        setDialogState(() {
+                          if (isSelected) {
+                            selectedColors.remove(color);
+                          } else {
+                            selectedColors.add(color);
+                          }
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              baseColor,
+                              baseColor.withValues(alpha: isSelected ? 1 : 0.4),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? Colors.white : Colors.white24,
+                            width: isSelected ? 3 : 1.5,
+                          ),
+                          boxShadow: [
+                            if (isSelected)
+                              BoxShadow(
+                                color: baseColor.withValues(alpha: 0.5),
+                                blurRadius: 16,
+                                spreadRadius: 2,
+                              ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                color.label,
+                                style: TextStyle(
+                                  color: color == LudoColor.yellow
+                                      ? Colors.black87
+                                      : Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (isSelected)
+                                Text(
+                                  '${selectedColors.toList().indexOf(color) + 1}',
+                                  style: TextStyle(
+                                    color: color == LudoColor.yellow
+                                        ? Colors.black54
+                                        : Colors.white70,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (selectedColors.length < 2)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Minimum 2 joueurs',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
+              ],
+            ),
+          ),
+          actions: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text(
+                        'Annuler',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: selectedColors.length >= 2
+                            ? const Color(0xFFD4A017)
+                            : Colors.grey.shade700,
+                        foregroundColor: selectedColors.length >= 2
+                            ? const Color(0xFF1C1C2E)
+                            : Colors.white38,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      onPressed: selectedColors.length >= 2
+                          ? () {
+                              Navigator.pop(ctx);
+                              _startLocalGame(selectedColors.toList());
+                            }
+                          : null,
+                      child: const Text(
+                        'Jouer',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -959,6 +1334,9 @@ class _LudoScreenState extends State<LudoScreen>
     _winnerDialogShown = true;
     final isHumanWin =
         _engine.winner != null && _engine.humanColor.contains(_engine.winner!);
+    final winColor = _engine.winner != null
+        ? LudoBoardLayout.colorValues[_engine.winner!]!
+        : Colors.amber;
 
     showDialog(
       context: context,
@@ -970,44 +1348,87 @@ class _LudoScreenState extends State<LudoScreen>
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 40),
               decoration: BoxDecoration(
-                color: Colors.grey[900],
-                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1C1C2E),
+                    winColor.withValues(alpha: 0.15),
+                    const Color(0xFF1C1C2E),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isHumanWin ? const Color(0xFFD4A017) : Colors.white24,
+                  width: 2,
+                ),
+                boxShadow: [
+                  if (isHumanWin)
+                    BoxShadow(
+                      color: const Color(0xFFD4A017).withValues(alpha: 0.3),
+                      blurRadius: 30,
+                      spreadRadius: 4,
+                    ),
+                ],
               ),
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    isHumanWin ? Icons.emoji_events : Icons.smart_toy,
-                    color: isHumanWin ? Colors.amber : Colors.white54,
-                    size: 48,
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          const Color(0xFFD4A017).withValues(alpha: 0.3),
+                          const Color(0xFFD4A017).withValues(alpha: 0.0),
+                        ],
+                      ),
+                    ),
+                    child: Icon(
+                      isHumanWin ? Icons.emoji_events : Icons.smart_toy,
+                      color: isHumanWin
+                          ? const Color(0xFFD4A017)
+                          : Colors.white54,
+                      size: 44,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    isHumanWin ? 'Victoire !' : 'Partie terminée',
+                    isHumanWin ? '💰 Victoire !' : 'Partie terminée',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 24,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_engine.winner!.label} remporte la victoire !',
-                    style: const TextStyle(color: Colors.white70, fontSize: 16),
+                    isHumanWin
+                        ? '${_engine.winner!.label} empoche la cagnotte !'
+                        : '${_engine.winner!.label} remporte la victoire !',
+                    style: TextStyle(
+                      color: winColor.withValues(alpha: 0.8),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 28),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.amber.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        backgroundColor: const Color(0xFFD4A017),
+                        foregroundColor: const Color(0xFF1C1C2E),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(30),
                         ),
+                        elevation: 4,
                       ),
                       onPressed: () {
                         Navigator.pop(context);
@@ -1015,11 +1436,15 @@ class _LudoScreenState extends State<LudoScreen>
                       },
                       child: const Text(
                         'Rejouer',
-                        style: TextStyle(fontSize: 16),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: TextButton(
@@ -1029,7 +1454,7 @@ class _LudoScreenState extends State<LudoScreen>
                       },
                       child: const Text(
                         'Quitter',
-                        style: TextStyle(color: Colors.white54, fontSize: 14),
+                        style: TextStyle(color: Colors.white38, fontSize: 14),
                       ),
                     ),
                   ),
@@ -1102,11 +1527,8 @@ class _LudoScreenState extends State<LudoScreen>
                                         _userProfile['id']]); */
                             !_isDraggingDice &&
                                     !_isSlidingDice &&
-                                    _engine.currentPlayer.isHuman &&
-                                    _engine.winner == null &&
-                                    //!_diceRolledThisTurn &&
-                                    _engine.currentPlayer.id ==
-                                        _userProfile['id']
+                                    _isMyTurn &&
+                                    !_diceRolledThisTurn
                                 ? _onRollDice
                                 : null,
                           /* }, */
@@ -1127,10 +1549,8 @@ class _LudoScreenState extends State<LudoScreen>
                           onPanEnd: (details) {
                             final canRoll =
                                 _isDraggingDice &&
-                                _engine.currentPlayer.isHuman &&
-                                _engine.winner == null &&
-                                //!_diceRolledThisTurn &&
-                                _engine.currentPlayer.id == _userProfile['id'];
+                                _isMyTurn &&
+                                !_diceRolledThisTurn;
 
                             _slideVelocity = details.velocity.pixelsPerSecond;
 
@@ -1153,11 +1573,7 @@ class _LudoScreenState extends State<LudoScreen>
                             child: Transform.rotate(
                               angle: _diceSlideAngle,
                               child: _buildDice(
-                                _engine.currentPlayer.isHuman &&
-                                    _engine.winner == null &&
-                                   // !_diceRolledThisTurn &&
-                                    _engine.currentPlayer.id ==
-                                        _userProfile['id'],
+                                _isMyTurn,
                                 _engine,
                               ),
                             ),
@@ -1170,6 +1586,27 @@ class _LudoScreenState extends State<LudoScreen>
                       left: 12,
                       right: 12,
                       child: _buildTopBar(),
+                    ),
+                    Positioned(
+                      top: 56,
+                      right: 12,
+                      child: GestureDetector(
+                        onTap: _restartGame,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: const Icon(
+                            Icons.refresh,
+                            color: Color(0xFFD4A017),
+                            size: 18,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 )
@@ -1299,26 +1736,52 @@ class _LudoScreenState extends State<LudoScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'Ludo',
+                '🎲 Ludo',
                 style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 52,
+                  fontWeight: FontWeight.w900,
                   color: Colors.white,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                  letterSpacing: 2,
+                  shadows: [
+                    Shadow(color: Colors.black87, blurRadius: 12),
+                    Shadow(color: Color(0xFFD4A017), blurRadius: 20),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFD4A017).withValues(alpha: 0.3)),
+                ),
+                child: const Text(
+                  '💰 Tente ta chance',
+                  style: TextStyle(
+                    color: Color(0xFFD4A017),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 1,
+                  ),
                 ),
               ),
               const SizedBox(height: 40),
-              _buildPawnChoice('Solo', LudoColor.red, () {
+              _buildGameChip('Solo', LudoColor.red, Icons.person, () {
                 _showColorPicker();
               }),
-              const SizedBox(height: 20),
-              _buildPawnChoice('En ligne', LudoColor.green, () async {
+              const SizedBox(height: 16),
+              _buildGameChip('Local', LudoColor.yellow, Icons.people, () {
+                _showLocalPicker();
+              }),
+              const SizedBox(height: 16),
+              _buildGameChip('En ligne', LudoColor.green, Icons.wifi, () async {
                 await _startMultiplayerGame(createRoom: true);
               }),
-              const SizedBox(height: 20),
-              _buildPawnChoice('Multi', LudoColor.blue, () async {
+              /* const SizedBox(height: 16),
+              _buildGameChip('Multi', LudoColor.blue, Icons.groups, () async {
                 await _startMultiplayerGame(createRoom: false);
-              }),
+              }), */
             ],
           ),
         ),
@@ -1328,52 +1791,65 @@ class _LudoScreenState extends State<LudoScreen>
           left: 16,
           child: FloatingActionButton(
             mini: true,
-            backgroundColor: const Color(0xFF006400),
+            backgroundColor: Colors.black.withValues(alpha: 0.6),
+            shape: const CircleBorder(),
             onPressed: () => Navigator.pop(context),
-            child: const Icon(Icons.arrow_back, color: Colors.white),
+            child: const Icon(Icons.arrow_back, color: Colors.white70),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildPawnChoice(String label, LudoColor color, VoidCallback onTap) {
+  Widget _buildGameChip(String label, LudoColor color, IconData icon, VoidCallback onTap) {
+    final baseColor = LudoBoardLayout.colorValues[color]!;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 180,
-        height: 68,
+        width: 200,
+        height: 64,
         decoration: BoxDecoration(
-          color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
+          gradient: LinearGradient(
+            colors: [
+              baseColor.withValues(alpha: 0.8),
+              baseColor.withValues(alpha: 0.4),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.3),
+            width: 2,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
+              color: baseColor.withValues(alpha: 0.4),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 8,
-              offset: const Offset(2, 4),
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Center(
-          child: Container(
-            width: 140,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.9),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: LudoBoardLayout.colorValues[color],
-                ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: 1,
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1386,52 +1862,100 @@ class _LudoScreenState extends State<LudoScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFD4A017).withValues(alpha: 0.3),
+                  width: 2,
+                ),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4A017)),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             const Text(
               'En attente du host...',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 28,
+                fontSize: 26,
                 fontWeight: FontWeight.bold,
+                letterSpacing: 1,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
               _roomCode.isNotEmpty
                   ? 'Salle : $_roomCode'
                   : 'Connexion en cours...',
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
+              style: const TextStyle(color: Colors.white54, fontSize: 15),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             ValueListenableBuilder<List<String>>(
               valueListenable: _participantsNotifier,
               builder: (context, list, _) {
                 return Column(
                   children: [
-                    const Text(
-                      'Participants',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Participants (${list.length})',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
                     if (list.isEmpty)
-                      const Text(
-                        'Aucun participant détecté',
-                        style: TextStyle(color: Colors.white54),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Aucun participant détecté',
+                          style: TextStyle(color: Colors.white38, fontSize: 14),
+                        ),
                       )
                     else
                       ...list.map(
                         (name) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
-                            ),
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.person,
+                                size: 16,
+                                color: Colors.white38,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -1442,8 +1966,13 @@ class _LudoScreenState extends State<LudoScreen>
             const SizedBox(height: 32),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFcc0000),
-                foregroundColor: Colors.white,
+                backgroundColor: Colors.white.withValues(alpha: 0.1),
+                foregroundColor: Colors.white54,
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
               ),
               onPressed: () {
                 _multiplayerSubscription?.cancel();
@@ -1468,28 +1997,43 @@ class _LudoScreenState extends State<LudoScreen>
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.only(top: 56, left: 16, right: 16),
       child: Column(
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: () => _restartGame(),
-              icon: const Icon(Icons.refresh, color: Colors.amber),
-            ),
-          ),
-
-          const SizedBox(height: 4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.black.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white10),
             ),
-            child: Text(
-              _engine.message,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-              textAlign: TextAlign.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _engine.currentPlayer.isHuman
+                      ? Icons.person
+                      : Icons.smart_toy,
+                  size: 16,
+                  color: LudoBoardLayout
+                      .colorValues[_engine.currentPlayer.color]!
+                      .withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _engine.message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1537,13 +2081,15 @@ class _LudoScreenState extends State<LudoScreen>
         }
 
         final isSelectable =
-            _engine.currentPlayer.isHuman &&
+            _isMyTurn &&
+            _diceRolledThisTurn &&
             _engine.canMovePawn(pawn) &&
             !isAnimating;
 
         final isSelected =
             _selectedPawn?.id == pawn.id && _selectedPawn?.color == pawn.color;
 
+        final pawnColor = LudoBoardLayout.colorValues[pawn.color]!;
         widgets.add(
           Positioned(
             left: pos.dx - cellSize * 0.32,
@@ -1556,16 +2102,26 @@ class _LudoScreenState extends State<LudoScreen>
                 height: cellSize * 0.64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: LudoBoardLayout.colorValues[pawn.color],
+                  gradient: LinearGradient(
+                    colors: [pawnColor, pawnColor.withValues(alpha: 0.7)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   border: Border.all(
                     color: isSelected
                         ? Colors.white
                         : isSelectable
-                        ? Colors.amber
+                        ? const Color(0xFFD4A017)
                         : Colors.black87,
                     width: isSelected || isSelectable ? 3 : 1.5,
                   ),
                   boxShadow: [
+                    if (isSelectable)
+                      BoxShadow(
+                        color: const Color(0xFFD4A017).withValues(alpha: 0.5),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.35),
                       blurRadius: 4,
@@ -1573,9 +2129,18 @@ class _LudoScreenState extends State<LudoScreen>
                     ),
                   ],
                 ),
-                child: pawn.finished
-                    ? const Icon(Icons.star, color: Colors.white, size: 14)
-                    : null,
+                child: Center(
+                  child: pawn.finished
+                      ? const Icon(Icons.star, color: Colors.white, size: 12)
+                      : Container(
+                          width: cellSize * 0.2,
+                          height: cellSize * 0.2,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                ),
               ),
             ),
           ),
@@ -1598,22 +2163,18 @@ class _LudoScreenState extends State<LudoScreen>
 
       final displayName = isHuman ? matchingPlayer.name : 'IA ${color.label}';
 
-      final icon = isHuman
-          ? (matchingPlayer.avatar != null && matchingPlayer.avatar!.isNotEmpty
-                ? null as Widget?
-                : const Icon(Icons.person, color: Colors.white, size: 14))
-          : const Icon(Icons.smart_toy, color: Colors.white, size: 14);
-
       Widget avatar;
       if (isHuman &&
           matchingPlayer.avatar != null &&
           matchingPlayer.avatar!.isNotEmpty) {
         avatar = CircleAvatar(
           radius: 8,
-          backgroundImage: NetworkImage(matchingPlayer.avatar ?? ''),
+          backgroundImage: NetworkImage(matchingPlayer.avatar!),
         );
+      } else if (isHuman) {
+        avatar = const Icon(Icons.person, color: Colors.white, size: 14);
       } else {
-        avatar = icon!;
+        avatar = const Icon(Icons.smart_toy, color: Colors.white, size: 14);
       }
 
       return Positioned(
@@ -1659,11 +2220,11 @@ class _LudoScreenState extends State<LudoScreen>
         return Transform.rotate(
           angle: _diceController.value * math.pi * 2,
           child: Container(
-            width: 64,
-            height: 64,
+            width: 68,
+            height: 68,
             decoration: BoxDecoration(
-              color: canRoll ? Colors.white : Colors.grey.shade600,
-              borderRadius: BorderRadius.circular(12),
+              color: canRoll ? Colors.white : Colors.grey.shade700,
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: /* canRoll
                     ? */
@@ -1672,7 +2233,7 @@ class _LudoScreenState extends State<LudoScreen>
                 width: 3,
               ),
               boxShadow: [
-                BoxShadow(
+                  BoxShadow(
                   color: Colors.black.withValues(alpha: 0.25),
                   blurRadius: 6,
                   offset: const Offset(2, 3),
@@ -1681,7 +2242,7 @@ class _LudoScreenState extends State<LudoScreen>
             ),
             child: Center(
               child: _displayDice > 0
-                  ? _DiceFace(value: _displayDice)
+                  ? _DiceFace(value: _displayDice, dark: !canRoll)
                   : const SizedBox.shrink(),
             ),
           ),
@@ -1782,8 +2343,9 @@ class _ConfettiPainter extends CustomPainter {
 
 class _DiceFace extends StatelessWidget {
   final int value;
+  final bool dark;
 
-  const _DiceFace({required this.value});
+  const _DiceFace({required this.value, this.dark = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1823,14 +2385,14 @@ class _DiceFace extends StatelessWidget {
             return Positioned(
               left: p.dx * w - 5,
               top: p.dy * h - 5,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: Colors.black87,
-                  shape: BoxShape.circle,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: dark ? Colors.white54 : Colors.black87,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
             );
           }).toList(),
         );
@@ -1848,14 +2410,21 @@ class _LudoBoardPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint();
 
-    // Fond blanc central
-    paint.color = Colors.white;
-    canvas.drawRect(
-      Rect.fromLTWH(6 * cellSize, 6 * cellSize, 3 * cellSize, 3 * cellSize),
+    // Fond sombre du plateau pour vibe casino
+    paint.color = const Color(0xFF1C1C2E);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+
+    // Fond central plus clair
+    paint.color = const Color(0xFF2A2A40);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(6 * cellSize, 6 * cellSize, 3 * cellSize, 3 * cellSize),
+        Radius.circular(cellSize * 0.2),
+      ),
       paint,
     );
 
-    // Bases colorées
+    // Bases colorées avec dégradé
     _drawBase(canvas, LudoColor.red, 9, 0);
     _drawBase(canvas, LudoColor.green, 0, 0);
     _drawBase(canvas, LudoColor.yellow, 0, 9);
@@ -1871,12 +2440,14 @@ class _LudoBoardPainter extends CustomPainter {
     for (var i = 0; i < LudoBoardLayout.pathCoords.length; i++) {
       final c = LudoBoardLayout.pathCoords[i];
       final isSafe = LudoEngine.safeTrackIndices.contains(i);
-      paint.color = isSafe ? Colors.grey.shade300 : Colors.white;
+      paint.color = isSafe
+          ? const Color(0xFF3A3A55)
+          : const Color(0xFF2A2A40);
       canvas.drawRect(
         Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
         paint,
       );
-      paint.color = Colors.black26;
+      paint.color = const Color(0xFF4A4A65);
       paint.style = PaintingStyle.stroke;
       paint.strokeWidth = 0.5;
       canvas.drawRect(
@@ -1886,10 +2457,16 @@ class _LudoBoardPainter extends CustomPainter {
       paint.style = PaintingStyle.fill;
 
       if (isSafe) {
-        paint.color = Colors.black38;
+        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.6);
         canvas.drawCircle(
           Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
-          cellSize * 0.12,
+          cellSize * 0.14,
+          paint,
+        );
+        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.2);
+        canvas.drawCircle(
+          Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
+          cellSize * 0.28,
           paint,
         );
       }
@@ -1900,34 +2477,67 @@ class _LudoBoardPainter extends CustomPainter {
   }
 
   void _drawBase(Canvas canvas, LudoColor color, int row, int col) {
+    final baseColor = LudoBoardLayout.colorValues[color]!;
     final paint = Paint()
-      ..color = LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85);
+      ..shader = LinearGradient(
+        colors: [baseColor.withValues(alpha: 0.7), baseColor.withValues(alpha: 0.35)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromLTWH(
+        col * cellSize,
+        row * cellSize,
+        6 * cellSize,
+        6 * cellSize,
+      ));
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
-          col * cellSize,
-          row * cellSize,
-          6 * cellSize,
-          6 * cellSize,
+          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
         ),
         Radius.circular(cellSize * 0.3),
       ),
       paint,
     );
 
-    paint.color = Colors.white.withValues(alpha: 0.9);
+    paint
+      ..shader = null
+      ..color = Colors.white.withValues(alpha: 0.15)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
+        ),
+        Radius.circular(cellSize * 0.3),
+      ),
+      paint,
+    );
+    paint
+      ..style = PaintingStyle.fill
+      ..strokeWidth = 0;
+
+    paint.color = Colors.white.withValues(alpha: 0.25);
     for (final coords in LudoBoardLayout.baseCoords[color]!) {
       canvas.drawCircle(
         Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
-        cellSize * 0.35,
+        cellSize * 0.32,
         paint,
       );
+      paint.color = Colors.white.withValues(alpha: 0.1);
+      canvas.drawCircle(
+        Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
+        cellSize * 0.38,
+        paint,
+      );
+      paint.color = Colors.white.withValues(alpha: 0.25);
     }
   }
 
   void _drawHomeStretch(Canvas canvas, LudoColor color) {
+    final baseColor = LudoBoardLayout.colorValues[color]!;
     final paint = Paint()
-      ..color = LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.75);
+      ..color = baseColor.withValues(alpha: 0.3);
     for (final c in LudoBoardLayout.homeStretchCoords[color]!) {
       canvas.drawRect(
         Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
@@ -1947,7 +2557,7 @@ class _LudoBoardPainter extends CustomPainter {
     ];
 
     for (var i = 0; i < 4; i++) {
-      final paint = Paint()..color = colors[i];
+      final paint = Paint()..color = colors[i].withValues(alpha: 0.7);
       final path = Path();
       final angle = -math.pi / 4 + i * math.pi / 2;
       path.moveTo(center.dx, center.dy);
@@ -1960,6 +2570,14 @@ class _LudoBoardPainter extends CustomPainter {
       path.close();
       canvas.drawPath(path, paint);
     }
+
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.1);
+    canvas.drawCircle(center, cellSize * 0.8, paint);
+    paint.color = const Color(0xFFD4A017).withValues(alpha: 0.3);
+    canvas.drawCircle(center, cellSize * 0.5, paint);
+    paint.color = const Color(0xFFD4A017).withValues(alpha: 0.6);
+    canvas.drawCircle(center, cellSize * 0.2, paint);
   }
 
   @override

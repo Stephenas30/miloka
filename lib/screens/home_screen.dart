@@ -24,6 +24,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<dynamic> fSubscribeToGame = [];
   dynamic _dataOnChannel;
+  final List<RealtimeChannel> _homeChannels = [];
+  bool _isListeningLudoGlobal = false;
+  BuildContext? _waitingDialogContext;
 
   @override
   void initState() {
@@ -36,8 +39,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _subscribeToFriendNotifications();
   }
 
-  dynamic _listenChanelMultiplayerGame(){
+  void _listenChanelMultiplayerGame() {
+    if (_isListeningLudoGlobal) return;
+    _isListeningLudoGlobal = true;
     final channel = SupabaseService().client.channel('ludo_global');
+    _homeChannels.add(channel);
 
    channel.onBroadcast(
       event: 'ludo_participants',
@@ -53,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _subscribeToGameRequests() {
     final channel = SupabaseService().client.channel('game_pending_channel');
+    _homeChannels.add(channel);
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
@@ -70,20 +77,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (data['send_partie'] == 'pending') showGameRequestPopup(data);
         if (data['send_partie'] == 'none') {
           if (mounted) {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen()));
+            if (_waitingDialogContext != null) {
+              Navigator.of(_waitingDialogContext!).pop();
+              _waitingDialogContext = null;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('La partie a été annulée.')),
+            );
           }
         }
         if (data['send_partie'] == 'accepted') {
           showWaitingGame();
           _listenChanelMultiplayerGame();
-          
-          
+
           final fsg = await FriendsService().getHoteSubscribeToGam();
           setState(() {
             fSubscribeToGame = fsg;
           });
         }
         if (data['send_partie'] == 'playing') {
+          if (_waitingDialogContext != null) {
+            Navigator.of(_waitingDialogContext!).pop();
+            _waitingDialogContext = null;
+          }
           print('data => ${_dataOnChannel['participants']}');
           final participantList = _dataOnChannel['participants'] as List<dynamic>?;
           if (participantList != null && _dataOnChannel['event'] == 'ludo_participants') {
@@ -106,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _responseToGameRequests() {
     final channel = SupabaseService().client.channel('game_response_channel');
+    _homeChannels.add(channel);
     final currentUser = SupabaseService().getCurrentUser();
     print(currentUser?.id);
 
@@ -136,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _subscribeToFriendNotifications() {
     final channel = SupabaseService().client.channel('friend_notif_channel');
+    _homeChannels.add(channel);
     final currentUser = SupabaseService().getCurrentUser();
 
     // Nouvelle demande d'ami reçue
@@ -273,11 +291,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void showWaitingGame(){
-    showDialog(context: context, barrierDismissible: false, builder: (context) {
-      return AlertDialog(
-        content: Text('En attente du lancement de jeu ...')
+    if (_waitingDialogContext != null) return;
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) {
+      _waitingDialogContext = ctx;
+      return const AlertDialog(
+        content: Text('En attente du lancement de jeu ...'),
       );
-    });
+    }).then((_) => _waitingDialogContext = null);
   }
 
   void showGameDeclinedPopup(Map<String, dynamic> request) {
@@ -356,6 +376,9 @@ await Supabase.instance.client
 
   @override
   void dispose() {
+    for (final channel in _homeChannels) {
+      try { channel.unsubscribe(); } catch (_) {}
+    }
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
     super.dispose();
