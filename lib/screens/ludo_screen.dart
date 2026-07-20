@@ -896,6 +896,8 @@ class _LudoScreenState extends State<LudoScreen>
                 child: ValueListenableBuilder<List<String>>(
                   valueListenable: _participantsNotifier,
                   builder: (context, list, _) {
+                    final bool showFriendsList = list.length <= 1;
+
                     // Sync new joiners into _playerSubscribe
                     while (_playerSubscribe.length < list.length) {
                       final usedColors = _playerSubscribe
@@ -910,6 +912,25 @@ class _LudoScreenState extends State<LudoScreen>
                           name: list[_playerSubscribe.length],
                           color: freeColor,
                         ),
+                      );
+                    }
+
+                    if (showFriendsList) {
+                      return _FriendsInviteList(
+                        onInvite: (friend) async {
+                          await FriendsService().sendGameRequest(
+                            friend['id'],
+                          );
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Invitation envoyée à ${friend['username']}',
+                                ),
+                              ),
+                            );
+                          }
+                        },
                       );
                     }
 
@@ -974,10 +995,11 @@ class _LudoScreenState extends State<LudoScreen>
                   onPressed: () => Navigator.pop(context, false),
                   child: const Text('Annuler'),
                 ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Démarrer'),
-                ),
+                if (_participantsNotifier.value.length > 1)
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Démarrer'),
+                  ),
               ],
             );
           },
@@ -2066,10 +2088,8 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   List<Widget> _buildPawns(double cellSize) {
-    final widgets = <Widget>[];
-    //print('Les playeurs sont:');
+    final Map<String, List<_PawnRenderInfo>> posGroups = {};
     for (final player in _engine.players) {
-      // print('${player.color} => ${player.isHuman}');
       for (final pawn in player.pawns) {
         final isAnimating =
             _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
@@ -2089,13 +2109,41 @@ class _LudoScreenState extends State<LudoScreen>
         final isSelected =
             _selectedPawn?.id == pawn.id && _selectedPawn?.color == pawn.color;
 
-        final pawnColor = LudoBoardLayout.colorValues[pawn.color]!;
+        final key = '${pos.dx.toStringAsFixed(1)}_${pos.dy.toStringAsFixed(1)}';
+        posGroups.putIfAbsent(key, () => []);
+        posGroups[key]!.add(_PawnRenderInfo(
+          pawn: pawn,
+          pos: pos,
+          isSelectable: isSelectable,
+          isSelected: isSelected,
+          isAnimating: isAnimating,
+          playerColor: player.color,
+        ));
+      }
+    }
+
+    final widgets = <Widget>[];
+    for (final group in posGroups.values) {
+      final count = group.length;
+      for (var i = 0; i < count; i++) {
+        final info = group[i];
+        Offset renderPos;
+        if (count > 1 && !info.isAnimating) {
+          final angle = (2 * math.pi * i / count) - math.pi / 2;
+          final offset = cellSize * 0.18;
+          renderPos = info.pos +
+              Offset(math.cos(angle) * offset, math.sin(angle) * offset);
+        } else {
+          renderPos = info.pos;
+        }
+
+        final pawnColor = LudoBoardLayout.colorValues[info.playerColor]!;
         widgets.add(
           Positioned(
-            left: pos.dx - cellSize * 0.32,
-            top: pos.dy - cellSize * 0.32,
+            left: renderPos.dx - cellSize * 0.32,
+            top: renderPos.dy - cellSize * 0.32,
             child: GestureDetector(
-              onTap: isSelectable ? () => _onPawnTap(pawn) : null,
+              onTap: info.isSelectable ? () => _onPawnTap(info.pawn) : null,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 width: cellSize * 0.64,
@@ -2108,15 +2156,15 @@ class _LudoScreenState extends State<LudoScreen>
                     end: Alignment.bottomRight,
                   ),
                   border: Border.all(
-                    color: isSelected
+                    color: info.isSelected
                         ? Colors.white
-                        : isSelectable
+                        : info.isSelectable
                         ? const Color(0xFFD4A017)
                         : Colors.black87,
-                    width: isSelected || isSelectable ? 3 : 1.5,
+                    width: info.isSelected || info.isSelectable ? 3 : 1.5,
                   ),
                   boxShadow: [
-                    if (isSelectable)
+                    if (info.isSelectable)
                       BoxShadow(
                         color: const Color(0xFFD4A017).withValues(alpha: 0.5),
                         blurRadius: 12,
@@ -2130,7 +2178,7 @@ class _LudoScreenState extends State<LudoScreen>
                   ],
                 ),
                 child: Center(
-                  child: pawn.finished
+                  child: info.pawn.finished
                       ? const Icon(Icons.star, color: Colors.white, size: 12)
                       : Container(
                           width: cellSize * 0.2,
@@ -2341,6 +2389,24 @@ class _ConfettiPainter extends CustomPainter {
   bool shouldRepaint(covariant _ConfettiPainter oldDelegate) => true;
 }
 
+class _PawnRenderInfo {
+  final LudoPawn pawn;
+  final Offset pos;
+  final bool isSelectable;
+  final bool isSelected;
+  final bool isAnimating;
+  final LudoColor playerColor;
+
+  const _PawnRenderInfo({
+    required this.pawn,
+    required this.pos,
+    required this.isSelectable,
+    required this.isSelected,
+    required this.isAnimating,
+    required this.playerColor,
+  });
+}
+
 class _DiceFace extends StatelessWidget {
   final int value;
   final bool dark;
@@ -2397,6 +2463,99 @@ class _DiceFace extends StatelessWidget {
           }).toList(),
         );
       },
+    );
+  }
+}
+
+class _FriendsInviteList extends StatefulWidget {
+  final void Function(Map<String, dynamic> friend) onInvite;
+  const _FriendsInviteList({required this.onInvite});
+
+  @override
+  State<_FriendsInviteList> createState() => _FriendsInviteListState();
+}
+
+class _FriendsInviteListState extends State<_FriendsInviteList> {
+  List<dynamic>? _friends;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFriends();
+  }
+
+  Future<void> _loadFriends() async {
+    setState(() => _loading = true);
+    try {
+      _friends = await FriendsService().getFriendsList();
+    } catch (_) {
+      _friends = [];
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_friends == null || _friends!.isEmpty) {
+      return const Column(
+        children: [
+          Text(
+            "Vous n'avez pas d'amis",
+            style: TextStyle(color: Colors.white70),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Ajoute des amis pour jouer',
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'Invite des amis à rejoindre',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ),
+        ..._friends!.map((f) {
+          final avatarUrl = f['avatar_url']?.toString();
+          final isOnline = f['is_connected'] == true;
+          return ListTile(
+            leading: CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.white24,
+              backgroundImage:
+                  avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+              child: avatarUrl == null || avatarUrl.isEmpty
+                  ? const Icon(Icons.person, color: Colors.white)
+                  : null,
+            ),
+            title: Text(
+              f['username'] ?? '',
+              style: const TextStyle(color: Colors.white),
+            ),
+            trailing: IconButton(
+              icon: Icon(
+                Icons.person_add,
+                color: isOnline ? Colors.amber : Colors.white24,
+              ),
+              onPressed: isOnline
+                  ? () => widget.onInvite(f)
+                  : null,
+            ),
+          );
+        }),
+      ],
     );
   }
 }

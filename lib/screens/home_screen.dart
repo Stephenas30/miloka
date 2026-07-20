@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final channel = SupabaseService().client.channel('ludo_global');
     _homeChannels.add(channel);
 
-   channel.onBroadcast(
+    channel.onBroadcast(
       event: 'ludo_participants',
       callback: (payload, [ref]) {
         setState(() {
@@ -55,6 +55,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     channel.subscribe();
+
+    // Broadcast presence join so the host's ludo dialog picks up this player
+    _broadcastPresenceJoin(channel);
+  }
+
+  Future<void> _broadcastPresenceJoin(RealtimeChannel channel) async {
+    final currentUser = SupabaseService().getCurrentUser();
+    if (currentUser == null) return;
+    try {
+      final userResp = await SupabaseService().client
+          .from('users')
+          .select('username')
+          .eq('id', currentUser.id)
+          .single();
+      await channel.sendBroadcastMessage(
+        event: 'ludo_presence',
+        payload: {
+          'type': 'presence',
+          'action': 'join',
+          'player': {
+            'name': userResp['username']?.toString() ?? 'Joueur',
+            'color': 'yellow',
+          },
+        },
+      );
+    } catch (_) {}
   }
 
   void _subscribeToGameRequests() {
