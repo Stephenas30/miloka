@@ -695,7 +695,7 @@ class _LudoScreenState extends State<LudoScreen>
 
       final friendId = playerFriends.isNotEmpty ? playerFriends[0]['id'] : null;
       if (start == true) {
-        await _multiplayerService.sendParticipants(
+        _multiplayerService.sendParticipants(
           session.roomCode,
           _playerSubscribe
               .map(
@@ -708,7 +708,7 @@ class _LudoScreenState extends State<LudoScreen>
               )
               .toList(),
         );
-        await _multiplayerService.sendGameStart(session.roomCode);
+        _multiplayerService.sendGameStart(session.roomCode);
         await _multiplayerService.sendState(
           session.roomCode,
           _engine.snapshot().toJson(),
@@ -779,7 +779,7 @@ class _LudoScreenState extends State<LudoScreen>
     );
 
     // notify host and others we joined
-    await _multiplayerService.sendJoin(
+    _multiplayerService.sendJoin(
       session.roomCode,
       playerHote['username'] ?? 'Player',
       LudoColor.yellow.name,

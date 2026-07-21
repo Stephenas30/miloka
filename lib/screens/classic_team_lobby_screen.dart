@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/game_screen.dart';
 import '../service/team_lobby_service.dart';
 
@@ -18,19 +19,35 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
   final TeamLobbyService _teamLobbyService = TeamLobbyService();
   bool _guestReady = false;
   Map<String, dynamic>? team;
-  Timer? _refreshTimer;
-
   @override
   void initState() {
     super.initState();
     _loadTeam();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) => _loadTeam());
+    _subscribeToTeam();
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _subscribeToTeam() {
+    Supabase.instance.client
+        .channel('team-${widget.teamId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'teams',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'team_id',
+            value: widget.teamId,
+          ),
+          callback: (payload) {
+            _loadTeam();
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadTeam() async {

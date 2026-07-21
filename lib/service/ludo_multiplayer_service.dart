@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:realtime_client/src/types.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -49,7 +47,8 @@ class LudoMultiplayerService {
 
     _channels[roomCode] = channel;
 
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_presence',
       type: RealtimeListenTypes.broadcast,
       payload: {
@@ -81,7 +80,8 @@ class LudoMultiplayerService {
 
     _channels[channelName] = channel;
 
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_presence',
       type: RealtimeListenTypes.broadcast,
       payload: {
@@ -102,9 +102,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_state',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         _streams[channelName]?.add(data);
       },
     );
@@ -112,9 +110,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_state_response',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         _streams[channelName]?.add(data);
       },
     );
@@ -122,9 +118,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_presence',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         try {
           final type = data['type']?.toString();
           final action = data['action']?.toString();
@@ -149,9 +143,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_participants',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         try {
           final type = data['type']?.toString();
           if (type == 'participants') {
@@ -178,9 +170,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_start',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         _streams[channelName]?.add(data);
       },
     );
@@ -188,9 +178,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_game_ended',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         _streams[channelName]?.add(data);
       },
     );
@@ -198,9 +186,7 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_player_left',
       callback: (payload, [ref]) {
-        final data = payload is Map<String, dynamic>
-            ? payload
-            : Map<String, dynamic>.from(payload as Map);
+        final data = Map<String, dynamic>.from(payload as Map);
         _streams[channelName]?.add(data);
       },
     );
@@ -216,18 +202,6 @@ class LudoMultiplayerService {
         .stream;
   }
 
-  void _handleIncomingPayload(
-    String roomCode,
-    Map<String, dynamic> payload,
-  ) async {
-    final name = roomCode.isEmpty ? _globalChannel : roomCode;
-    final controller = _streams.putIfAbsent(
-      name,
-      () => StreamController<Map<String, dynamic>>.broadcast(),
-    );
-    controller.add(payload); // 🔴 pousse le payload dans le stream
-  }
-
   /// Écoute le canal Supabase et redirige vers le flux interne
   Future<void> subscribeToChannel(String roomCode) async {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
@@ -236,8 +210,12 @@ class LudoMultiplayerService {
     channel.onBroadcast(
       event: 'ludo_response',
       callback: (payload, [ref]) {
-        print("Supabase payload reçu: $payload");
-        _handleIncomingPayload(roomCode, payload);
+        final data = Map<String, dynamic>.from(payload as Map);
+        final controller = _streams.putIfAbsent(
+          name,
+          () => StreamController<Map<String, dynamic>>.broadcast(),
+        );
+        controller.add(data);
       },
     );
 
@@ -255,18 +233,19 @@ class LudoMultiplayerService {
     //print(payload);
 
     if (channel == null) return;
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: response ? 'ludo_state_response' : 'ludo_state',
       type: RealtimeListenTypes.broadcast,
       payload: payload,
     );
   }
 
-  Future<void> sendJoin(
+  void sendJoin(
     String roomCode,
     String playerName,
     String playerColor,
-  ) async {
+  ) {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
@@ -276,7 +255,8 @@ class LudoMultiplayerService {
     )) {
       existing.add({'name': playerName, 'color': playerColor});
     }
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_presence',
       type: RealtimeListenTypes.broadcast,
       payload: {
@@ -287,10 +267,10 @@ class LudoMultiplayerService {
     );
   }
 
-  Future<void> sendParticipants(
+  void sendParticipants(
     String roomCode,
     List<Map<String, dynamic>> participants,
-  ) async {
+  ) {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
@@ -307,40 +287,44 @@ class LudoMultiplayerService {
           },
         ),
       );
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_participants',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'participants', 'participants': existing},
     );
   }
 
-  Future<void> sendGameStart(String roomCode) async {
+  void sendGameStart(String roomCode) {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_start',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'start'},
     );
   }
 
-  Future<void> sendGameEnded(String roomCode) async {
+  void sendGameEnded(String roomCode) {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_game_ended',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'game_ended'},
     );
   }
 
-  Future<void> sendPlayerLeft(String roomCode, String playerName, String color) async {
+  void sendPlayerLeft(String roomCode, String playerName, String color) {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
-    await channel.send(
+    // ignore: invalid_use_of_internal_member
+    channel.send(
       event: 'ludo_player_left',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'player_left', 'player': playerName, 'color': color},
@@ -359,9 +343,4 @@ class LudoMultiplayerService {
     _streams.remove(roomCode);
   }
 
-  String _generateRoomCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = math.Random();
-    return List.generate(5, (_) => chars[random.nextInt(chars.length)]).join();
-  }
 }

@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool showPassword = false;
   bool disabled = true;
+  bool _isLoading = false;
 
   void handleInput() {
     if ((userNameController.text.isNotEmpty) &&
@@ -35,7 +36,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future connexion() async {
+  Future<void> connexion() async {
+    setState(() => _isLoading = true);
     final authProvider = context.read<AuthProvider>();
     try {
       await authProvider.loginWithEmail(
@@ -66,6 +68,8 @@ class _LoginScreenState extends State<LoginScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -249,7 +253,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                     BorderRadius.circular(12),
                                               ),
                                             ),
-                                            onPressed: disabled
+                                            onPressed: (disabled || _isLoading)
                                                 ? null
                                                 : () {
                                                     if (_formKey.currentState!
@@ -257,7 +261,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                                       connexion();
                                                     }
                                                   },
-                                            child: const Text('Continuer'),
+                                            child: _isLoading
+                                                ? const SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                                  )
+                                                : const Text('Continuer'),
                                           ),
                                         ),
                                         TextButton(

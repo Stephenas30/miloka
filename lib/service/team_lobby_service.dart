@@ -64,7 +64,7 @@ class TeamLobbyService {
       if (response == null) {
         return _teams[teamId];
       }
-      return Map<String, dynamic>.from(response as Map<String, dynamic>);
+      return Map<String, dynamic>.from(response);
     } catch (_) {
       return _teams[teamId];
     }

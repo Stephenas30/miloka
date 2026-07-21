@@ -212,9 +212,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           CircleAvatar(
                             radius: 50,
                             backgroundColor: Colors.white70,
-                            backgroundImage: avatarUrl != null && avatarUrl.startsWith('http')
-                                ? NetworkImage(avatarUrl)
-                                : (avatarUrl != null ? FileImage(File(avatarUrl)) : null) as ImageProvider<Object>?,
+                            backgroundImage: _resolveAvatar(avatarUrl),
                             child: avatarUrl == null
                                 ? const Icon(Icons.person, size: 50, color: Colors.blueGrey)
                                 : null,
@@ -323,6 +321,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  ImageProvider<Object>? _resolveAvatar(String? url) {
+    if (url == null || url.isEmpty) return null;
+    if (url.startsWith('http')) return NetworkImage(url);
+    final file = File(url);
+    if (file.existsSync()) return FileImage(file);
+    return null;
   }
 
   Widget _buildRecentActivity(String title, String subtitle) {

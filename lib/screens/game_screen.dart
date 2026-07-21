@@ -376,7 +376,6 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
-    final legal = playerName == "Sud" ? _legalCards("Sud") : [];
     const cardWidth = 80.0;
     const cardHeight = 100.0;
     const overlap = 36.0;

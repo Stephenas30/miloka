@@ -36,9 +36,6 @@ class SupabaseService {
   Future<AuthResponse> signInWithGoogle() async {
     try {
       final googleUser = await _googleSignIn.authenticate();
-      if (googleUser == null) {
-        throw Exception('Google Sign-In annulé');
-      }
 
       final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
@@ -64,8 +61,7 @@ class SupabaseService {
   // Créer ou mettre à jour le profil utilisateur
   Future<void> _createOrUpdateUserProfile(User user) async {
     try {
-      final googleUserFuture = _googleSignIn.attemptLightweightAuthentication();
-      final googleUser = googleUserFuture == null ? null : await googleUserFuture;
+      final googleUser = await _googleSignIn.attemptLightweightAuthentication();
       final existingProfile = await getUserProfile(user.id);
 
       final profileData = {
