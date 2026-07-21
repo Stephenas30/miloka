@@ -279,17 +279,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(width: 8),
                             const Text('Jetons :'),
                             const SizedBox(width: 8),
-                            Expanded(
-                              child: TextFormField(
-                                initialValue: _coins.toString(),
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                onChanged: (value) {
-                                  setState(() => _coins = int.tryParse(value) ?? 0);
-                                },
+                            Text(
+                              '$_coins',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],

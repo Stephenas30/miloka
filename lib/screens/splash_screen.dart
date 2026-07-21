@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:miloka/screens/home_screen.dart';
-import 'package:miloka/screens/login_screen.dart';
-import 'package:miloka/screens/onbording_screen.dart';
+import 'package:miloka/screens/onboarding_screen.dart';
 import 'package:miloka/service/auth_service.dart';
-import 'package:miloka/service/storage_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
   State<StatefulWidget> createState() {
-    // TODO: implement createState
     return _SplashScreenState();
   }
 }
@@ -23,21 +20,19 @@ class _SplashScreenState extends State<SplashScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => token ? HomeScreen() : OnbordingScreen()),
+        MaterialPageRoute(builder: (_) => token ? HomeScreen() : OnboardingScreen()),
       );
     });
   }
 
   @override
   void initState() {
-    // TODO: implement initState
     super.initState();
     loadApp();
   }
 
   @override
   Widget build(BuildContext context) {
-    // TODO: implement build
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(

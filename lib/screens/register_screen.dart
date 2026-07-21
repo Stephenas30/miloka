@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:miloka/screens/login_screen.dart';
-import 'package:miloka/service/auth_service.dart';
+import 'package:miloka/providers/auth_provider.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -41,48 +42,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void registerHandler() async {
-    if (_passwordController.text == _cpasswordController.text) {
-      setState(() {
-        loading = true;
-      });
-      try {
-        await AuthService.register(
-          _mailController.text,
-          _passwordController.text,
-          '${_fnameController.text} ${_lnameController.text}',
-          _usernameController.text,
-        );
-
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => LoginScreen()),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Inscription réussie"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-        );
-      } finally {
-        setState(() {
-          loading = false;
-        });
-      }
-    } else {
+    if (_passwordController.text != _cpasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Vueillez saisir le même mot de passe.',
+            'Veuillez saisir le même mot de passe.',
             style: TextStyle(color: Colors.white),
           ),
           backgroundColor: Colors.red,
         ),
+      );
+      return;
+    }
+    if (_passwordController.text.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Le mot de passe doit contenir au moins 6 caractères'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final authProvider = context.read<AuthProvider>();
+    try {
+      await authProvider.register(
+        _mailController.text,
+        _passwordController.text,
+        '${_fnameController.text} ${_lnameController.text}',
+        _usernameController.text,
+      );
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => LoginScreen()),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Inscription réussie"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
       );
     }
   }
@@ -201,7 +205,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                           validator: (String? value) {
                                             if (value == null ||
                                                 value.isEmpty) {
-                                              return 'Please enter some text';
+                                              return 'Veuillez entrer votre nom';
                                             }
                                             return null;
                                           },
@@ -234,7 +238,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                               validator: (String? value) {
                                                 if (value == null ||
                                                     value.isEmpty) {
-                                                  return 'Please enter some text';
+                                                  return 'Veuillez entrer votre prénom';
                                                 }
                                                 return null;
                                               },
@@ -264,7 +268,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                               validator: (String? value) {
                                                 if (value == null ||
                                                     value.isEmpty) {
-                                                  return 'Please enter some text';
+                                                  return 'Veuillez entrer un nom d\'utilisateur';
                                                 }
                                                 return null;
                                               },
@@ -293,7 +297,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                               validator: (String? value) {
                                                 if (value == null ||
                                                     value.isEmpty) {
-                                                  return 'Please enter some text';
+                                                  return 'Veuillez entrer votre email';
+                                                }
+                                                if (!value.contains('@')) {
+                                                  return 'Email invalide';
                                                 }
                                                 return null;
                                               },
@@ -338,7 +345,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                               validator: (String? value) {
                                                 if (value == null ||
                                                     value.isEmpty) {
-                                                  return 'Please enter some password';
+                                                  return 'Veuillez entrer un mot de passe';
+                                                }
+                                                if (value.length < 6) {
+                                                  return 'Minimum 6 caractères';
                                                 }
                                                 return null;
                                               },
@@ -369,7 +379,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                               validator: (String? value) {
                                                 if (value == null ||
                                                     value.isEmpty) {
-                                                  return 'Please enter some password';
+                                                  return 'Veuillez confirmer le mot de passe';
+                                                }
+                                                if (value != _passwordController.text) {
+                                                  return 'Les mots de passe ne correspondent pas';
                                                 }
                                                 return null;
                                               },

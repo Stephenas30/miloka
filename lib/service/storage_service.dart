@@ -13,12 +13,12 @@ static Future<String?> readTokenStorage() async {
   return token;
 }
 
-static void deleteTokenStorage() async {
+static Future<void> deleteTokenStorage() async {
   await storage.delete(key: 'token');
-  UserStorage.deleteUserStorage();
+  await UserStorage.deleteUserStorage();
 }
 
-static void allDeleteStorage() async {
+static Future<void> allDeleteStorage() async {
   await storage.deleteAll();
 }
 
@@ -42,11 +42,11 @@ static Future<String?> readUserStorage() async {
   return email;
 }
 
-static void deleteUserStorage() async {
+static Future<void> deleteUserStorage() async {
   await storage.delete(key: 'email');
 }
 
-static void allDeleteStorage() async {
+static Future<void> allDeleteStorage() async {
   await storage.deleteAll();
 }
 

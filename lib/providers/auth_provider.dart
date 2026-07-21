@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../service/supabase_service.dart';
+import '../service/auth_service.dart';
 
 class AuthProvider with ChangeNotifier {
   final SupabaseService _supabaseService = SupabaseService();
@@ -35,6 +36,50 @@ class AuthProvider with ChangeNotifier {
     try {
       final response = await _supabaseService.signInWithGoogle();
       _currentUser = response.user;
+      if (_currentUser != null) {
+        await _loadUserProfile();
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loginWithEmail(String email, String password) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await AuthService.login(email, password);
+      _currentUser = _supabaseService.getCurrentUser();
+      if (_currentUser != null) {
+        await _loadUserProfile();
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> register(String email, String password, String? fullName, String username) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await AuthService.register(email, password, fullName, username);
+      _currentUser = _supabaseService.getCurrentUser();
       if (_currentUser != null) {
         await _loadUserProfile();
       }

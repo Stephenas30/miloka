@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:miloka/screens/home_screen.dart';
 import 'package:miloka/screens/register_screen.dart';
-import 'package:miloka/service/auth_service.dart';
+import 'package:miloka/providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,7 +20,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController passwordController = TextEditingController();
 
   bool showPassword = false;
-  bool loading = false;
   bool disabled = true;
 
   void handleInput() {
@@ -35,11 +36,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future connexion() async {
-    setState(() {
-      loading = true;
-    });
+    final authProvider = context.read<AuthProvider>();
     try {
-      await AuthService.login(userNameController.text, passwordController.text);
+      await authProvider.loginWithEmail(
+        userNameController.text,
+        passwordController.text,
+      );
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -64,10 +66,6 @@ class _LoginScreenState extends State<LoginScreen> {
           backgroundColor: Colors.red,
         ),
       );
-    } finally {
-      setState(() {
-        loading = false;
-      });
     }
   }
 
@@ -180,7 +178,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                           validator: (String? value) {
                                             if (value == null ||
                                                 value.isEmpty) {
-                                              return 'Please enter some text';
+                                              return 'Veuillez entrer votre email';
+                                            }
+                                            if (!value.contains('@')) {
+                                              return 'Email invalide';
                                             }
                                             return null;
                                           },
@@ -222,7 +223,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                           validator: (String? value) {
                                             if (value == null ||
                                                 value.isEmpty) {
-                                              return 'Please enter some password';
+                                              return 'Veuillez entrer votre mot de passe';
+                                            }
+                                            if (value.length < 6) {
+                                              return 'Minimum 6 caractères';
                                             }
                                             return null;
                                           },
@@ -245,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                     BorderRadius.circular(12),
                                               ),
                                             ),
-                                            onPressed: (disabled | loading)
+                                            onPressed: disabled
                                                 ? null
                                                 : () {
                                                     if (_formKey.currentState!
@@ -253,24 +257,43 @@ class _LoginScreenState extends State<LoginScreen> {
                                                       connexion();
                                                     }
                                                   },
-                                            child: loading
-                                                ? const SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2.0,
-                                                      valueColor:
-                                                          AlwaysStoppedAnimation<
-                                                            Color
-                                                          >(Colors.white),
-                                                    ),
-                                                  )
-                                                : const Text('Continuer'),
+                                            child: const Text('Continuer'),
                                           ),
                                         ),
                                         TextButton(
-                                          onPressed: () {},
-                                          child: Text(
+                                          onPressed: () async {
+                                            final email = userNameController.text.trim();
+                                            if (email.isEmpty || !email.contains('@')) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Veuillez d\'abord entrer votre email'),
+                                                  backgroundColor: Colors.orange,
+                                                ),
+                                              );
+                                              return;
+                                            }
+                                            try {
+                                              await Supabase.instance.client.auth.resetPasswordForEmail(email);
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Email de réinitialisation envoyé à $email'),
+                                                    backgroundColor: Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Erreur: $e'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                          child: const Text(
                                             'Mot de passe oublié?',
                                             style: TextStyle(
                                               color: Colors.white70,

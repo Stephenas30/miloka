@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:miloka/screens/connexion_screen.dart';
 
-class OnbordingScreen extends StatefulWidget {
-  const OnbordingScreen({super.key});
+class OnboardingScreen extends StatefulWidget {
+  const OnboardingScreen({super.key});
 
   @override
   State<StatefulWidget> createState() {
-    // TODO: implement createState
-    return _OnbordingScreenState();
+    return _OnboardingScreenState();
   }
 }
 
-class _OnbordingScreenState extends State<OnbordingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> startLoading() async {
 
@@ -27,14 +26,12 @@ class _OnbordingScreenState extends State<OnbordingScreen> {
 
   @override
   void initState() {
-    // TODO: implement initState
-    startLoading();
     super.initState();
+    startLoading();
   }
 
   @override
   Widget build(BuildContext context) {
-    // TODO: implement build
     return Scaffold(
       body: Container(
         color: Colors.black,
@@ -52,25 +49,6 @@ class _OnbordingScreenState extends State<OnbordingScreen> {
                 fit: BoxFit.contain,
               ),
             ),),
-            
-
-            /* Positioned.fill(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    "Bienvenue dans Miloka",
-                    /* style: AppTextStyles(context: context).titleAppBAr, */
-                  ),
-                  Text(
-                    "Tous vos jeux préférés dans une seule application.",
-                    /* style: AppTextStyles.subtitleCard, */
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 50,)
-                ],
-              ),
-            ), */
           ],
         ),
       ),
