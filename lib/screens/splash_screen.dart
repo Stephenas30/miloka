@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:miloka/screens/home_screen.dart';
-import 'package:miloka/screens/login_screen.dart';
 import 'package:miloka/screens/onbording_screen.dart';
 import 'package:miloka/service/auth_service.dart';
-import 'package:miloka/service/storage_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});

@@ -42,20 +42,23 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
     if (loadedTeam?['status'] == 'playing' && !widget.isHost) {
       _refreshTimer?.cancel();
       _gameChannel.connect(widget.teamId);
-      final hostProfile = loadedTeam?['host_profile'] as Map<String, dynamic>?;
-      final guestProfile = loadedTeam?['guest_profile'] as Map<String, dynamic>?;
-      final hostName = hostProfile?['username'] ?? hostProfile?['full_name'] ?? 'Sud';
-      final guestName = guestProfile?['username'] ?? guestProfile?['full_name'] ?? 'Nord';
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            teamId: widget.teamId,
-            isHost: false,
-            humanPlayers: const {'Sud', 'Nord'},
-            playerNames: {'Sud': hostName, 'Nord': guestName},
-          ),
+    final hostProfile = loadedTeam?['host_profile'] as Map<String, dynamic>?;
+    final guestProfile = loadedTeam?['guest_profile'] as Map<String, dynamic>?;
+    final hostName = hostProfile?['username'] ?? hostProfile?['full_name'] ?? 'Sud';
+    final guestName = guestProfile?['username'] ?? guestProfile?['full_name'] ?? 'Nord';
+    final hostAvatar = hostProfile?['avatar_url']?.toString() ?? '';
+    final guestAvatar = guestProfile?['avatar_url']?.toString() ?? '';
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GameScreen(
+          teamId: widget.teamId,
+          isHost: false,
+          humanPlayers: const {'Sud', 'Nord'},
+          playerNames: {'Sud': hostName, 'Nord': guestName},
+          playerAvatars: {'Sud': hostAvatar, 'Nord': guestAvatar},
         ),
+      ),
       );
       return;
     }
@@ -88,6 +91,8 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
     final guestProfile = team?['guest_profile'] as Map<String, dynamic>?;
     final hostName = hostProfile?['username'] ?? hostProfile?['full_name'] ?? 'Sud';
     final guestName = guestProfile?['username'] ?? guestProfile?['full_name'] ?? 'Nord';
+    final hostAvatar = hostProfile?['avatar_url']?.toString() ?? '';
+    final guestAvatar = guestProfile?['avatar_url']?.toString() ?? '';
 
     if (!mounted) return;
     Navigator.pushReplacement(
@@ -98,6 +103,7 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
           isHost: true,
           humanPlayers: const {'Sud', 'Nord'},
           playerNames: {'Sud': hostName, 'Nord': guestName},
+          playerAvatars: {'Sud': hostAvatar, 'Nord': guestAvatar},
         ),
       ),
     );

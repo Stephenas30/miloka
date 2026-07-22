@@ -13,7 +13,7 @@ class ProfilScreen extends StatefulWidget {
 }
 
 class _ProfilScreenState extends State<ProfilScreen> {
-  late String _username = 'Gasy Strem';
+  late final String _username = 'Gasy Strem';
   late String _email = 'Gasystrem@gmail.com';
 
   void loadState() async {
@@ -73,7 +73,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                     ElevatedButton(
                       style: ButtonStyle(
                         maximumSize: 
-                             MaterialStateProperty.all(Size(double.infinity, 40))
+                             WidgetStateProperty.all(Size(double.infinity, 40))
                             
                       ),
                       onPressed: () async {
@@ -104,7 +104,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                     ElevatedButton(
                       style: ButtonStyle(
                         maximumSize: 
-                             MaterialStateProperty.all(Size(double.infinity, 40))
+                             WidgetStateProperty.all(Size(double.infinity, 40))
                             
                       ),
                       onPressed: () {
@@ -119,7 +119,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                     ElevatedButton(
                       style: ButtonStyle(
                         maximumSize: 
-                             MaterialStateProperty.all(Size(double.infinity, 40))
+                             WidgetStateProperty.all(Size(double.infinity, 40))
                             
                       ),
                       onPressed: () {
@@ -134,7 +134,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                     ElevatedButton(
                       style: ButtonStyle(
                         maximumSize: 
-                             MaterialStateProperty.all(Size(double.infinity, 40))
+                             WidgetStateProperty.all(Size(double.infinity, 40))
                             
                       ),
                       onPressed: () {}, child: Text('Language', style: TextStyle(fontSize: 10))),
@@ -145,7 +145,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                         Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen()));
                       },
                       style: ButtonStyle(
-                        backgroundColor: MaterialStateProperty.all(
+                        backgroundColor: WidgetStateProperty.all(
                           Colors.black,
                         ),
                       ),
