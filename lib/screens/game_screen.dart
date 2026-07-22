@@ -71,6 +71,15 @@ class _GameScreenState extends State<GameScreen>
 
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
+  CardModel? _draggingCard;
+  double _dragX = 0;
+  double _dragY = 0;
+  final GlobalKey _dragStackKey = GlobalKey();
+
+  bool _hostReady = false;
+  bool _guestReady = false;
+  Timer? _autoCloseTimer;
+
   bool _isHuman(String player) => widget.humanPlayers.contains(player);
 
   bool _isLocalPlayer(String player) {
@@ -100,11 +109,35 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  void _startAutoCloseTimer() {
+    _autoCloseTimer?.cancel();
+    _autoCloseTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      if (overallWinner != null) return;
+      if (widget.isHost) {
+        _hostReady = true;
+        if (_guestReady || widget.teamId == null) {
+          _hostReady = false;
+          _guestReady = false;
+          _applyLastHandAndNext();
+        } else {
+          setState(() {});
+        }
+      } else {
+        GameChannelService().send('player_ready', {});
+        setState(() {
+          gameLogic.waitingForNextHand = false;
+        });
+      }
+    });
+  }
+
   @override
   void dispose() {
     _networkSubscription?.cancel();
     _requestInitTimer?.cancel();
     _guestDealTimer?.cancel();
+    _autoCloseTimer?.cancel();
     if (widget.teamId != null) {
       GameChannelService().disconnect();
     }
@@ -149,6 +182,14 @@ class _GameScreenState extends State<GameScreen>
           _handleGuestBid(event);
         case 'play_card':
           _handleGuestPlay(event);
+        case 'player_ready':
+          setState(() => _guestReady = true);
+          if (_hostReady) {
+            _autoCloseTimer?.cancel();
+            _hostReady = false;
+            _guestReady = false;
+            _applyLastHandAndNext();
+          }
         case 'guest_bid':
           if (_pendingBidCompleter != null) {
             final callName = event['call'] as String? ?? 'pass';
@@ -203,6 +244,7 @@ class _GameScreenState extends State<GameScreen>
     gameLogic.playerHand = sudData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
     gameLogic.gameStarted = true;
     gameLogic.biddingFinished = true;
+    _autoCloseTimer?.cancel();
     gameLogic.waitingForNextHand = false;
     gameLogic.callSystem.contractCall = CallOption.values.byName(event['contract_call'] as String);
     gameLogic.callSystem.contractWinner = contractWinner;
@@ -239,6 +281,7 @@ class _GameScreenState extends State<GameScreen>
     final handData = event['hand'] as List? ?? [];
 
     setState(() {
+      gameLogic.waitingForNextHand = false;
       gameLogic.aiHands[0] = handData
           .map((c) => CardModel.fromMap(Map<String, dynamic>.from(c)))
           .toList();
@@ -307,6 +350,7 @@ class _GameScreenState extends State<GameScreen>
       gameLogic.gameOver = true;
       gameLogic.gameStarted = false;
       setState(() => gameLogic.waitingForNextHand = true);
+      _startAutoCloseTimer();
     }
     if (!gameLogic.gameOver) {
       Future.delayed(const Duration(milliseconds: 400), () {
@@ -323,7 +367,6 @@ class _GameScreenState extends State<GameScreen>
         'NS': (event['delta_ns'] as num?)?.toInt() ?? 0,
         'EO': (event['delta_eo'] as num?)?.toInt() ?? 0,
       };
-      gameLogic.waitingForNextHand = true;
       gameLogic.gameScore = {
         'NS': (event['score_ns'] as num?)?.toInt() ?? 0,
         'EO': (event['score_eo'] as num?)?.toInt() ?? 0,
@@ -332,6 +375,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _handleGuestGameOver(Map<String, dynamic> event) {
+    _autoCloseTimer?.cancel();
     setState(() {
       overallWinner = event['winner'] as String?;
     });
@@ -579,6 +623,7 @@ class _GameScreenState extends State<GameScreen>
         gameLogic.lastHandDelta = gameLogic.computeHandScores();
         _registerLastHandHistory();
         gameLogic.waitingForNextHand = true;
+        _startAutoCloseTimer();
       }
     });
 
@@ -608,6 +653,7 @@ class _GameScreenState extends State<GameScreen>
     final isGameOver = gameLogic.gameScore['NS']! + (gameLogic.lastHandDelta['NS'] ?? 0) >= 150 ||
                         gameLogic.gameScore['EO']! + (gameLogic.lastHandDelta['EO'] ?? 0) >= 150;
 
+    _autoCloseTimer?.cancel();
     setState(() {
       gameLogic.gameScore['NS'] = gameLogic.gameScore['NS']! + (gameLogic.lastHandDelta['NS'] ?? 0);
       gameLogic.gameScore['EO'] = gameLogic.gameScore['EO']! + (gameLogic.lastHandDelta['EO'] ?? 0);
@@ -774,6 +820,42 @@ class _GameScreenState extends State<GameScreen>
     return gameLogic.canPlayCard(card, player: player);
   }
 
+  void _onDragStart(CardModel card, String playerName, LongPressStartDetails details) {
+    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final local = box.globalToLocal(details.globalPosition);
+    setState(() {
+      _draggingCard = card;
+      _dragX = local.dx;
+      _dragY = local.dy;
+    });
+  }
+
+  void _onDragUpdate(LongPressMoveUpdateDetails details) {
+    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final local = box.globalToLocal(details.globalPosition);
+    setState(() {
+      _dragX = local.dx;
+      _dragY = local.dy;
+    });
+  }
+
+  void _onDragEnd(CardModel card, String playerName) {
+    if (!_canPlayCard(card, player: playerName)) {
+      setState(() => _draggingCard = null);
+      return;
+    }
+    final screenHeight = MediaQuery.of(context).size.height;
+    if (_dragY < screenHeight * 0.5) {
+      final playCard = card;
+      setState(() => _draggingCard = null);
+      _playCard(playerName, playCard);
+    } else {
+      setState(() => _draggingCard = null);
+    }
+  }
+
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
     const cardWidth = 80.0;
     const cardHeight = 100.0;
@@ -797,6 +879,15 @@ class _GameScreenState extends State<GameScreen>
                   child: GestureDetector(
                     onTap: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
                         ? () => _playCard(playerName, cards[i])
+                        : null,
+                    onLongPressStart: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
+                        ? (d) => _onDragStart(cards[i], playerName, d)
+                        : null,
+                    onLongPressMoveUpdate: _isHuman(playerName)
+                        ? _onDragUpdate
+                        : null,
+                    onLongPressEnd: _isHuman(playerName) && _draggingCard != null
+                        ? (_) => _onDragEnd(cards[i], playerName)
                         : null,
                     child: SvgPicture.asset(
                       cards[i].assetPath,
@@ -825,6 +916,34 @@ class _GameScreenState extends State<GameScreen>
         player: _playedCardFor(player),
     };
 
+    if (widget.teamId != null && !widget.isHost) {
+      return SizedBox(
+        height: 200,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Align(
+              alignment: const Alignment(0, -0.45),
+              child: _buildTrickCard(playedMap['Sud']),
+            ),
+            Align(
+              alignment: const Alignment(0.33, -0.05),
+              child: _buildTrickCard(playedMap['Ouest']),
+            ),
+            Align(
+              alignment: const Alignment(-0.33, -0.05),
+              child: _buildTrickCard(playedMap['Est']),
+            ),
+            Align(
+              alignment: const Alignment(0, 0.45),
+              child: _buildTrickCard(playedMap['Nord']),
+            ),
+          ],
+        ),
+      );
+    }
+
     return SizedBox(
       height: 200,
       child: Stack(
@@ -832,20 +951,19 @@ class _GameScreenState extends State<GameScreen>
         clipBehavior: Clip.none,
         children: [
           Align(
-            alignment: const Alignment(0, -0.58),
+            alignment: const Alignment(0, -0.45),
             child: _buildTrickCard(playedMap['Nord']),
           ),
-          // Est et Ouest rapprochés du centre
           Align(
-            alignment: const Alignment(0.38, -0.05),
+            alignment: const Alignment(0.33, -0.05),
             child: _buildTrickCard(playedMap['Est']),
           ),
           Align(
-            alignment: const Alignment(-0.38, -0.05),
+            alignment: const Alignment(-0.33, -0.05),
             child: _buildTrickCard(playedMap['Ouest']),
           ),
           Align(
-            alignment: const Alignment(0, 0.6),
+            alignment: const Alignment(0, 0.45),
             child: _buildTrickCard(playedMap['Sud']),
           ),
         ],
@@ -856,8 +974,8 @@ class _GameScreenState extends State<GameScreen>
   Widget _buildTrickCard(PlayedCard? playedCard) {
     if (playedCard == null) {
       return Container(
-        width: 50,
-        height: 64,
+        width: 60,
+        height: 76,
         decoration: BoxDecoration(
           color: Colors.white12,
           borderRadius: BorderRadius.circular(8),
@@ -866,8 +984,8 @@ class _GameScreenState extends State<GameScreen>
     }
     return SvgPicture.asset(
       playedCard.card.assetPath,
-      width: 42,
-      height: 54,
+      width: 60,
+      height: 76,
     );
   }
 
@@ -1334,20 +1452,47 @@ class _GameScreenState extends State<GameScreen>
 
   Alignment _playOrigin(String player) {
     if (widget.teamId != null && !widget.isHost) {
-      // Guest: Nord hand is at bottom, Sud at top
       switch (player) {
         case "Nord": return const Alignment(0, 0.85);
         case "Sud": return const Alignment(0, -0.85);
-        default: return _alignmentForPlayer(player);
+        case "Est": return const Alignment(-0.85, 0);
+        case "Ouest": return const Alignment(0.85, 0);
       }
     }
     return _alignmentForPlayer(player);
   }
 
+  Alignment _dealAlignment(String player) {
+    if (widget.teamId != null && !widget.isHost) {
+      switch (player) {
+        case "Nord": return const Alignment(0, 0.85);
+        case "Sud": return const Alignment(0, -0.85);
+        case "Est": return const Alignment(-0.85, 0);
+        case "Ouest": return const Alignment(0.85, 0);
+      }
+    }
+    return _alignmentForPlayer(player);
+  }
+
+  Widget _buildDragOverlay() {
+    return Positioned(
+      left: _dragX - 40,
+      top: _dragY - 50,
+      child: Transform.rotate(
+        angle: 0.05,
+        child: SvgPicture.asset(
+          _draggingCard!.assetPath,
+          width: 80,
+          height: 100,
+        ),
+      ),
+    );
+  }
+
   Widget _buildDealAnimation() {
     return AnimatedAlign(
       alignment: dealCardAtTarget
-          ? _alignmentForPlayer(animatingDealPlayer!)
+          ? _dealAlignment(animatingDealPlayer!)
           : Alignment.center,
       duration: dealAnimationDuration,
       curve: Curves.easeInOut,
@@ -1378,6 +1523,7 @@ class _GameScreenState extends State<GameScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
+        key: _dragStackKey,
         children: [
           Positioned.fill(
             child: Image.asset(
@@ -1387,6 +1533,7 @@ class _GameScreenState extends State<GameScreen>
           ),
           if (animatingDealCard != null) _buildDealAnimation(),
           if (animatingPlayCard != null) _buildPlayAnimation(),
+          if (_draggingCard != null) _buildDragOverlay(),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1431,12 +1578,16 @@ class _GameScreenState extends State<GameScreen>
                       children: [
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[2]),
+                          child: _buildOverlapCardsTopToBottom(
+                            _isGuestNetworked ? gameLogic.aiHands[1] : gameLogic.aiHands[2],
+                          ),
                         ),
                         const Expanded(child: SizedBox.shrink()),
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[1]),
+                          child: _buildOverlapCardsTopToBottom(
+                            _isGuestNetworked ? gameLogic.aiHands[2] : gameLogic.aiHands[1],
+                          ),
                         ),
                       ],
                     ),
@@ -1514,8 +1665,30 @@ class _GameScreenState extends State<GameScreen>
                           Text('EO : +${gameLogic.lastHandDelta["EO"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
                           const SizedBox(height: 12),
                           ElevatedButton(
-                            onPressed: (overallWinner == null && widget.isHost) ? _applyLastHandAndNext : null,
-                            child: const Text('Suivant'),
+                            onPressed: overallWinner == null
+                                ? (widget.isHost
+                                    ? () {
+                                        _autoCloseTimer?.cancel();
+                                        _hostReady = true;
+                                        if (_guestReady || widget.teamId == null) {
+                                          _hostReady = false;
+                                          _guestReady = false;
+                                          _applyLastHandAndNext();
+                                        } else {
+                                          setState(() {});
+                                        }
+                                      }
+                                    : () {
+                                        _autoCloseTimer?.cancel();
+                                        GameChannelService().send('player_ready', {});
+                                        setState(() {
+                                          gameLogic.waitingForNextHand = false;
+                                        });
+                                      })
+                                : null,
+                            child: Text(_hostReady && widget.isHost && widget.teamId != null
+                                ? 'Attente...'
+                                : 'Continuer'),
                           ),
                         ],
                       ),

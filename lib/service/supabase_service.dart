@@ -193,11 +193,6 @@ class SupabaseService {
             'last_seen': nowUtc.toIso8601String(),
           })
           .eq('id', user.id);
-
-      await _client
-          .from("amis")
-          .update({'send_partie': 'none'})
-          .or('id_ami.eq.${user.id},id_user.eq.${user.id}');
     }
   }
 }

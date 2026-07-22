@@ -277,6 +277,9 @@ class BeloteRules {
         callSystem.contractCall == CallOption.toutAs;
 
     if (isTrumpContract) {
+      if (callSystem.contractCall == CallOption.toutAs) {
+        return hand;
+      }
       final trumps = hand.where((card) => isTrump(card, callSystem)).toList();
       if (trumps.isEmpty) return hand;
 
