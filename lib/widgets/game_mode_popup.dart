@@ -137,6 +137,7 @@ class _GameModePopupState extends State<GameModePopup> {
               TextFormField(
                 controller: adversaireController,
                 decoration: const InputDecoration(labelText: "ID adversaire"),
+                keyboardType: TextInputType.number,
                 validator: (value) =>
                     value == null || value.isEmpty ? "Champ requis" : null,
               ),
@@ -158,6 +159,7 @@ class _GameModePopupState extends State<GameModePopup> {
             TextFormField(
               controller: teamIdController,
               decoration: const InputDecoration(labelText: "ID Équipe"),
+              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 16),
             if (errorMessage != null)

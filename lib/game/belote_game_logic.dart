@@ -151,10 +151,11 @@ class BeloteGameLogic {
     return players[(index + 1) % players.length];
   }
 
-  bool canPlayCard(CardModel card) {
-    if (callSystem.currentPlayer != 'Sud') return false;
-    if (!playerHand.contains(card)) return false;
-    return legalCards('Sud').contains(card);
+  bool canPlayCard(CardModel card, {String player = 'Sud'}) {
+    if (callSystem.currentPlayer != player) return false;
+    final hand = handFor(player);
+    if (!hand.contains(card)) return false;
+    return legalCards(player).contains(card);
   }
 
   String handWinningTeam() {

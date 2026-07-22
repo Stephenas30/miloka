@@ -121,5 +121,12 @@ class TeamLobbyService {
     };
     return true;
   }
+
+  Future<void> startGame(String teamId) async {
+    await _client.from('teams').update({
+      'status': 'playing',
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('team_id', teamId);
+  }
 }
 
