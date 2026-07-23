@@ -207,6 +207,22 @@ class FriendsService {
     }
   }
 
+  Future<void> removeAllFriendSubscribeToGame() async {
+    try {
+      final userId = SupabaseService().client.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+      await client
+          .from('amis')
+          .update({'send_partie': 'none'})
+          .eq('send_partie', 'accepted')
+          .or('id_user.eq.$userId,id_ami.eq.$userId');
+    } catch (e) {
+      throw Exception('Erreur lors de la suppression des invitations: $e');
+    }
+  }
+
    Future<void> playingGame(String friendId) async {
     try {
       final userId = SupabaseService().client.auth.currentUser?.id;

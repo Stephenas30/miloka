@@ -190,6 +190,14 @@ class LudoMultiplayerService {
         _streams[channelName]?.add(data);
       },
     );
+
+    channel.onBroadcast(
+      event: 'ludo_color_change',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
   }
 
   Stream<Map<String, dynamic>> watchRoom(String roomCode) {
@@ -316,6 +324,21 @@ class LudoMultiplayerService {
       event: 'ludo_game_ended',
       type: RealtimeListenTypes.broadcast,
       payload: {'type': 'game_ended'},
+    );
+  }
+
+  void sendColorChange(String roomCode, String playerName, String newColor) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    channel.send(
+      event: 'ludo_color_change',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'color_change',
+        'player': playerName,
+        'color': newColor,
+      },
     );
   }
 

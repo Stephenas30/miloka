@@ -27,7 +27,7 @@ class LudoScreen extends StatefulWidget {
 }
 
 class _LudoScreenState extends State<LudoScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
@@ -67,6 +67,7 @@ class _LudoScreenState extends State<LudoScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _diceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -93,31 +94,61 @@ class _LudoScreenState extends State<LudoScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _aiTimer?.cancel();
     _moveTimer?.cancel();
     _slideTimer?.cancel();
     _multiplayerSubscription?.cancel();
     if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame) {
-      if (isHost) {
-        _multiplayerService.sendGameEnded(_roomCode);
-      } else if (_engine.players.isNotEmpty) {
-        final player = _engine.players.firstWhere(
-          (p) => p.namePlayer == _playerName,
-          orElse: () => _engine.players.first,
-        );
-        _multiplayerService.sendPlayerLeft(
-          _roomCode,
-          player.namePlayer ?? _playerName,
-          player.color.name,
-        );
+      final code = _roomCode;
+      final host = isHost;
+      final name = _playerName;
+      String? colorName;
+      if (!host && _engine.players.isNotEmpty) {
+        try {
+          final player = _engine.players.firstWhere(
+            (p) => p.namePlayer == name,
+            orElse: () => _engine.players.first,
+          );
+          colorName = player.color.name;
+        } catch (_) {}
       }
-      _multiplayerService.disposeRoom(_roomCode);
+      Future.microtask(() {
+        if (host) {
+          _multiplayerService.sendGameEnded(code);
+        } else if (colorName != null) {
+          _multiplayerService.sendPlayerLeft(code, name, colorName);
+        }
+        _multiplayerService.disposeRoom(code);
+      });
     } else if (_roomCode.isNotEmpty) {
-      _multiplayerService.disposeRoom(_roomCode);
+      final code = _roomCode;
+      Future.microtask(() => _multiplayerService.disposeRoom(code));
     }
     _participantsNotifier.dispose();
     _diceController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame && mounted) {
+        if (isHost) {
+          _multiplayerService.sendGameEnded(_roomCode);
+        } else if (_engine.players.isNotEmpty) {
+          final player = _engine.players.firstWhere(
+            (p) => p.namePlayer == _playerName,
+            orElse: () => _engine.players.first,
+          );
+          _multiplayerService.sendPlayerLeft(
+            _roomCode,
+            player.namePlayer ?? _playerName,
+            player.color.name,
+          );
+        }
+      }
+    }
   }
 
   void _scheduleAiTurn() {
@@ -276,6 +307,7 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _handleGameEnded() {
     if (!mounted) return;
+    setState(() => _isMultiplayer = false);
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -535,6 +567,7 @@ class _LudoScreenState extends State<LudoScreen>
         ),
       );
       isHost = false;
+      _isMultiplayer = true;
       _beginGame = true;
     });
 
@@ -571,6 +604,8 @@ class _LudoScreenState extends State<LudoScreen>
 
     final playerFriends = await FriendsService().getFriendsSubscribeToGam();
 
+    const friendColors = [LudoColor.blue, LudoColor.green, LudoColor.yellow];
+
     final List<LudoHuman> players = [
       LudoHuman(
         name: playerHote!['username'] ?? 'Player',
@@ -578,13 +613,17 @@ class _LudoScreenState extends State<LudoScreen>
         id: playerHote['id'],
         avatar: playerHote['avatar_url'],
       ),
-      ...playerFriends.map(
-        (e) => LudoHuman(
-          name: e['username'],
-          color: LudoColor.yellow,
-          id: e['id'],
-          avatar: e['avatar_url'],
-        ),
+      ...playerFriends.take(3).toList().asMap().entries.map(
+        (entry) {
+          final i = entry.key;
+          final e = entry.value;
+          return LudoHuman(
+            name: e['username'],
+            color: friendColors[i],
+            id: e['id'],
+            avatar: e['avatar_url'],
+          );
+        },
       ),
     ];
 
@@ -631,6 +670,51 @@ class _LudoScreenState extends State<LudoScreen>
                   _participantsNotifier.value = list;
                 }
               }
+              return;
+            }
+            if (type == 'color_change') {
+              final playerName = payload['player']?.toString() ?? '';
+              final newColorStr = payload['color']?.toString() ?? '';
+              if (playerName.isEmpty || newColorStr.isEmpty) return;
+              final newColor = LudoColor.values.firstWhere(
+                (c) => c.name == newColorStr,
+                orElse: () => LudoColor.yellow,
+              );
+              final index = _playerSubscribe.indexWhere(
+                (p) => p.name == playerName,
+              );
+              if (index == -1) return;
+              final existingIndex = _playerSubscribe.indexWhere(
+                (p) => p.color == newColor && p.name != playerName,
+              );
+              setState(() {
+                if (existingIndex != -1) {
+                  final oldColor = _playerSubscribe[index].color;
+                  _playerSubscribe[existingIndex] = LudoHuman(
+                    name: _playerSubscribe[existingIndex].name,
+                    color: oldColor,
+                    id: _playerSubscribe[existingIndex].id,
+                    avatar: _playerSubscribe[existingIndex].avatar,
+                  );
+                }
+                _playerSubscribe[index] = LudoHuman(
+                  name: _playerSubscribe[index].name,
+                  color: newColor,
+                  id: _playerSubscribe[index].id,
+                  avatar: _playerSubscribe[index].avatar,
+                );
+              });
+              _multiplayerService.sendParticipants(
+                _roomCode,
+                _playerSubscribe
+                    .map((p) => {
+                          'name': p.name,
+                          'color': p.color.name,
+                          'id': p.id.toString(),
+                          'avatar': p.avatar.toString(),
+                        })
+                    .toList(),
+              );
               return;
             }
             if (type == 'participants') {
@@ -693,7 +777,6 @@ class _LudoScreenState extends State<LudoScreen>
             _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
       );
 
-      final friendId = playerFriends.isNotEmpty ? playerFriends[0]['id'] : null;
       if (start == true) {
         _multiplayerService.sendParticipants(
           session.roomCode,
@@ -713,8 +796,11 @@ class _LudoScreenState extends State<LudoScreen>
           session.roomCode,
           _engine.snapshot().toJson(),
         );
-        if (friendId != null) {
-          await FriendsService().playingGame(friendId);
+        for (final friend in playerFriends) {
+          final fId = friend['id'];
+          if (fId != null) {
+            await FriendsService().playingGame(fId.toString());
+          }
         }
         setState(() {
           _beginGame = true;
@@ -792,6 +878,11 @@ class _LudoScreenState extends State<LudoScreen>
         .where((name) => name.isNotEmpty)
         .toList();
 
+    // show waiting dialog for non-host participant
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showParticipantWaitingDialog();
+    });
+
     // listen for presence, participants and state updates
     _multiplayerSubscription = _multiplayerService
         .watchRoom(session.roomCode)
@@ -839,6 +930,23 @@ class _LudoScreenState extends State<LudoScreen>
           }
 
           if (type == 'start') {
+            final participantsFromService = _multiplayerService
+                .getParticipants(_roomCode);
+            if (_playerSubscribe.length < participantsFromService.length) {
+              final parsed = participantsFromService.map<LudoHuman>((item) {
+                final colorString = item['color']?.toString() ?? '';
+                final color = LudoColor.values.firstWhere(
+                  (c) => c.name == colorString,
+                  orElse: () => LudoColor.yellow,
+                );
+                return LudoHuman(
+                  name: item['name']?.toString() ?? 'Joueur inconnu',
+                  color: color,
+                );
+              }).toList();
+              _playerSubscribe = parsed;
+            }
+            Navigator.of(context).pop();
             _rebuildEngineFromSubscribers();
             setState(() {
               _beginGame = true;
@@ -1005,6 +1113,126 @@ class _LudoScreenState extends State<LudoScreen>
           },
         );
       },
+    );
+  }
+
+  void _showParticipantWaitingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return ValueListenableBuilder<List<String>>(
+            valueListenable: _participantsNotifier,
+            builder: (context, list, _) {
+              return AlertDialog(
+                backgroundColor: const Color(0xFF1a1a2e),
+                title: const Text('En attente du lancement...',
+                  style: TextStyle(color: Colors.white)),
+                content: SizedBox(
+                  width: 280,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: _playerSubscribe.map((participant) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (participant != _playerSubscribe.first)
+                            const Divider(color: Colors.white24),
+                          ListTile(
+                            leading: Icon(Icons.circle,
+                              color: LudoBoardLayout.colorValues[participant.color]),
+                            title: Text(participant.name,
+                              style: const TextStyle(color: Colors.white)),
+                            trailing: participant.name == _playerName
+                                ? TextButton(
+                                    onPressed: () => _showColorSwapDialog(ctx),
+                                    child: const Text('Changer',
+                                      style: TextStyle(color: Colors.amber)),
+                                  )
+                                : null,
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      _multiplayerService.sendPlayerLeft(
+                        _roomCode, _playerName, LudoColor.yellow.name,
+                      );
+                      _multiplayerService.disposeRoom(_roomCode);
+                      Navigator.of(ctx).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const HomeScreen()),
+                        (route) => route.isFirst,
+                      );
+                    },
+                    child: const Text('Quitter',
+                      style: TextStyle(color: Colors.redAccent)),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _showColorSwapDialog(BuildContext dialogContext) {
+    showDialog(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C2E),
+        title: const Text('Choisis ta couleur'),
+        content: Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          alignment: WrapAlignment.center,
+          children: LudoColor.values.map((color) {
+            final takenBy = _playerSubscribe.cast<LudoHuman?>().firstWhere(
+              (p) => p!.color == color,
+              orElse: () => null,
+            );
+            final isMine = takenBy?.name == _playerName;
+            final isFree = takenBy == null;
+            final baseColor = LudoBoardLayout.colorValues[color]!;
+            return GestureDetector(
+              onTap: () {
+                _multiplayerService.sendColorChange(
+                  _roomCode,
+                  _playerName,
+                  color.name,
+                );
+                Navigator.pop(ctx);
+              },
+              child: Container(
+                width: 60, height: 60,
+                decoration: BoxDecoration(
+                  color: baseColor.withValues(alpha: isMine ? 1.0 : 0.6),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isMine ? Colors.white : Colors.white24,
+                    width: isMine ? 3 : 1,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    isMine ? '✓' : (isFree ? '' : '⇄'),
+                    style: TextStyle(
+                      color: color == LudoColor.yellow
+                          ? Colors.black87 : Colors.white,
+                      fontSize: 20, fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
     );
   }
 
@@ -1471,8 +1699,10 @@ class _LudoScreenState extends State<LudoScreen>
                     width: double.infinity,
                     child: TextButton(
                       onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pop(context);
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(builder: (_) => const HomeScreen()),
+                          (route) => route.isFirst,
+                        );
                       },
                       child: const Text(
                         'Quitter',
@@ -1999,15 +2229,15 @@ class _LudoScreenState extends State<LudoScreen>
               onPressed: () {
                 _multiplayerSubscription?.cancel();
                 if (_roomCode.isNotEmpty) {
+                  _multiplayerService.sendPlayerLeft(
+                    _roomCode, _playerName, LudoColor.yellow.name,
+                  );
                   _multiplayerService.disposeRoom(_roomCode);
                 }
-                setState(() {
-                  _isMultiplayer = false;
-                  _beginGame = false;
-                  _roomCode = '';
-                  _playerSubscribe = [];
-                  _participantsNotifier.value = [];
-                });
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (route) => route.isFirst,
+                );
               },
               child: const Text('Quitter'),
             ),

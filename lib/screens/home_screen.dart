@@ -127,15 +127,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _waitingDialogContext = null;
           }
           print('data => ${_dataOnChannel['participants']}');
-          final participantList = _dataOnChannel['participants'] as List<dynamic>?;
-          if (participantList != null && _dataOnChannel['event'] == 'ludo_participants') {
-            final parsedParticipants = participantList.map<Map<String, dynamic>>((item) {
-              return Map<String, dynamic>.from(item as Map<dynamic, dynamic>);
-            }).toList();
+          final participantList =
+              _dataOnChannel['participants'] as List<dynamic>?;
+          if (participantList != null &&
+              _dataOnChannel['event'] == 'ludo_participants') {
+            final parsedParticipants = participantList
+                .map<Map<String, dynamic>>((item) {
+                  return Map<String, dynamic>.from(
+                    item as Map<dynamic, dynamic>,
+                  );
+                })
+                .toList();
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (_) => LudoScreen(beginGame: true, playerSubscribe: parsedParticipants),
+                builder: (_) => LudoScreen(
+                  beginGame: true,
+                  playerSubscribe: parsedParticipants,
+                ),
               ),
             );
           }
@@ -164,7 +173,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       callback: (payload) async {
         final data = payload.newRecord;
         if (data['send_partie'] == 'declined') showGameDeclinedPopup(data);
-        if (data['send_partie'] == 'accepted' || data['send_partie'] == 'none') {
+        if (data['send_partie'] == 'accepted' ||
+            data['send_partie'] == 'none') {
           final fsg = await FriendsService().getFriendsSubscribeToGam();
           print(fsg);
           setState(() {
@@ -233,7 +243,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text("${userResp['username']} a accepté votre demande d'ami !"),
+                content: Text(
+                  "${userResp['username']} a accepté votre demande d'ami !",
+                ),
               ),
             );
           }
@@ -263,7 +275,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text("${userResp['username']} a refusé votre demande d'ami."),
+                content: Text(
+                  "${userResp['username']} a refusé votre demande d'ami.",
+                ),
               ),
             );
           }
@@ -280,7 +294,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[900],
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Demande d'ami", style: TextStyle(color: Colors.white)),
+        title: const Text(
+          "Demande d'ami",
+          style: TextStyle(color: Colors.white),
+        ),
         content: Text(
           "$username vous a envoyé une demande d'ami !",
           style: const TextStyle(color: Colors.white70),
@@ -290,7 +307,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onPressed: () {
               Navigator.pop(ctx);
             },
-            child: const Text("Voir plus tard", style: TextStyle(color: Colors.white54)),
+            child: const Text(
+              "Voir plus tard",
+              style: TextStyle(color: Colors.white54),
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -299,31 +319,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 if (mounted) {
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Vous êtes maintenant ami avec $username !")),
+                    SnackBar(
+                      content: Text(
+                        "Vous êtes maintenant ami avec $username !",
+                      ),
+                    ),
                   );
                 }
               } catch (e) {
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Erreur: $e")),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text("Erreur: $e")));
               }
             },
-            child: const Text("Accepter", style: TextStyle(color: Colors.greenAccent)),
+            child: const Text(
+              "Accepter",
+              style: TextStyle(color: Colors.greenAccent),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void showWaitingGame(){
+  void showWaitingGame() {
     if (_waitingDialogContext != null) return;
-    showDialog(context: context, barrierDismissible: false, builder: (ctx) {
-      _waitingDialogContext = ctx;
-      return const AlertDialog(
-        content: Text('En attente du lancement de jeu ...'),
-      );
-    }).then((_) => _waitingDialogContext = null);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        _waitingDialogContext = ctx;
+        return const AlertDialog(
+          content: Text('En attente du lancement de jeu ...'),
+        );
+      },
+    ).then((_) => _waitingDialogContext = null);
   }
 
   void showGameDeclinedPopup(Map<String, dynamic> request) {
@@ -332,7 +363,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) {
         return AlertDialog(
           title: Text("Invitation de jeu"),
-          content: Text(request['send_partie'] == "declined" ? "Ton ami a réfusé votre demande !" : "Votre ami vous avait fait sorti"),
+          content: Text(
+            request['send_partie'] == "declined"
+                ? "Ton ami a réfusé votre demande !"
+                : "Votre ami vous avait fait sorti",
+          ),
           actions: [
             TextButton(
               onPressed: () async {
@@ -352,13 +387,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       builder: (context) {
         return AlertDialog(
           title: Text("Invitation de jeu"),
-          content: Text(request['send_partie'] == "pending" ? "Ton ami veut jouer avec toi !" : "Veux-tu faire sortie ton ami?"),
+          content: Text(
+            request['send_partie'] == "pending"
+                ? "Ton ami veut jouer avec toi !"
+                : "Veux-tu faire sortie ton ami?",
+          ),
           actions: [
             TextButton(
               onPressed: () async {
                 await Supabase.instance.client
                     .from('amis')
-                    .update({'send_partie': request['send_partie'] == "pending" ? 'accepted' : 'none'})
+                    .update({
+                      'send_partie': request['send_partie'] == "pending"
+                          ? 'accepted'
+                          : 'none',
+                    })
                     .eq('id_ami', request['id_ami'])
                     .eq('id_user', request['id_user']);
                 Navigator.pop(context);
@@ -367,12 +410,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             TextButton(
               onPressed: () async {
-                if(request['send_partie'] == "pending"){
-await Supabase.instance.client
-                    .from('amis')
-                    .update({'send_partie': 'declined'})
-                    .eq('id_ami', request['id_ami'])
-                    .eq('id_user', request['id_user']);
+                if (request['send_partie'] == "pending") {
+                  await Supabase.instance.client
+                      .from('amis')
+                      .update({'send_partie': 'declined'})
+                      .eq('id_ami', request['id_ami'])
+                      .eq('id_user', request['id_user']);
                 }
 
                 Navigator.pop(context);
@@ -403,7 +446,9 @@ await Supabase.instance.client
   @override
   void dispose() {
     for (final channel in _homeChannels) {
-      try { channel.unsubscribe(); } catch (_) {}
+      try {
+        channel.unsubscribe();
+      } catch (_) {}
     }
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
@@ -411,6 +456,96 @@ await Supabase.instance.client
   }
 
   void _showFriendsDialog(BuildContext context) => showFriendsDialog(context);
+
+  void _showSubscribedFriendsList() {
+    if (fSubscribeToGame.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          "Amis invités",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: fSubscribeToGame.length,
+            itemBuilder: (ctx, index) {
+              final friend = fSubscribeToGame[index];
+              final avatarUrl = friend['avatar_url'];
+              return ListTile(
+                leading: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Colors.white24,
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
+                      ? const Icon(Icons.person, color: Colors.white)
+                      : null,
+                ),
+                title: Text(
+                  friend['username'] ?? '',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showRemoveFriendDialog(friend);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await FriendsService().removeAllFriendSubscribeToGame();
+              final fsg = await FriendsService().getHoteSubscribeToGam();
+              if (mounted) {
+                setState(() => fSubscribeToGame = fsg);
+                Navigator.pop(ctx);
+              }
+            },
+            icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+            label: const Text(
+              "Tout supprimer",
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRemoveFriendDialog(dynamic friend) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Invitation de jeu"),
+        content: Text("Tu veux vraiment faire sortir ${friend['username']} !"),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await FriendsService().removeFriendSubscribeToGam(friend['id']);
+              final fsg = await FriendsService().getHoteSubscribeToGam();
+              if (mounted) {
+                setState(() => fSubscribeToGame = fsg);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text("Accepter"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Refuser"),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -467,42 +602,17 @@ await Supabase.instance.client
                   Row(
                     spacing: 8,
                     children: [
-                      Stack(
-                        children: [
-                          ...fSubscribeToGame.map((friend) {
+                      GestureDetector(
+                        onTap: () => _showSubscribedFriendsList(),
+                        child: Row(
+                          children: fSubscribeToGame.asMap().entries.map((
+                            entry,
+                          ) {
+                            final index = entry.key;
+                            final friend = entry.value;
                             final avatarUrl = friend['avatar_url'];
-                            return GestureDetector(
-                              onTap: () {
-                                showDialog(
-                                          context: context,
-                                          builder: (context) {
-                                            return AlertDialog(
-                                              title: Text("Invitation de jeu"),
-                                              content: Text(
-                                                "Tu veux vraiment faire sortir ${friend['username']} !",
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () async {
-                                                    await FriendsService()
-                                                        .removeFriendSubscribeToGam(
-                                                          friend['id'],
-                                                        );
-                                                    Navigator.pop(context);
-                                                  },
-                                                  child: Text("Accepter"),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () async {
-                                                    Navigator.pop(context);
-                                                  },
-                                                  child: Text("Refuser"),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        );
-                              },
+                            return Transform.translate(
+                              offset: Offset(index == 0 ? 0 : -8.0 * index, 0),
                               child: CircleAvatar(
                                 radius: 14,
                                 backgroundColor: Colors.white24,
@@ -517,11 +627,10 @@ await Supabase.instance.client
                                         size: 16,
                                       )
                                     : null,
-                              )
+                              ),
                             );
-                          },)
-                          
-                        ],
+                          }).toList(),
+                        ),
                       ),
                       GestureDetector(
                         onTap: () {
