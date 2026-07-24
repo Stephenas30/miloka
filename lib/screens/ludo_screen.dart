@@ -653,6 +653,28 @@ class _LudoScreenState extends State<LudoScreen>
                   final list = List<String>.from(_participantsNotifier.value);
                   if (!list.contains(playerName)) list.add(playerName);
                   _participantsNotifier.value = list;
+
+                  final playerColor = playerData['color']?.toString() ?? 'yellow';
+                  final color = LudoColor.values.firstWhere(
+                    (c) => c.name == playerColor,
+                    orElse: () => LudoColor.yellow,
+                  );
+                  if (!_playerSubscribe.any((p) => p.name == playerName)) {
+                    setState(() {
+                      _playerSubscribe.add(LudoHuman(name: playerName, color: color));
+                    });
+                  }
+                  _multiplayerService.sendParticipants(
+                    _roomCode,
+                    _playerSubscribe
+                        .map((p) => {
+                              'name': p.name,
+                              'color': p.color.name,
+                              'id': p.id.toString(),
+                              'avatar': p.avatar.toString(),
+                            })
+                        .toList(),
+                  );
                 }
               }
               return;
@@ -862,26 +884,7 @@ class _LudoScreenState extends State<LudoScreen>
           _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
     );
 
-    // notify host and others we joined
-    _multiplayerService.sendJoin(
-      session.roomCode,
-      playerHote['username'] ?? 'Player',
-      LudoColor.yellow.name,
-    );
-
-    // update local participants list from service
-    _participantsNotifier.value = _multiplayerService
-        .getParticipants(session.roomCode)
-        .map((player) => player['name']?.toString() ?? '')
-        .where((name) => name.isNotEmpty)
-        .toList();
-
-    // show waiting dialog for non-host participant
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _showParticipantsListDialog(isHost: false);
-    });
-
-    // listen for presence, participants and state updates
+    // listen for presence, participants and state updates BEFORE sending join
     _multiplayerSubscription = _multiplayerService
         .watchRoom(session.roomCode)
         .listen((payload) {
@@ -985,6 +988,11 @@ class _LudoScreenState extends State<LudoScreen>
             });
           }
         });
+
+    // show waiting dialog for non-host participant
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showParticipantsListDialog(isHost: false);
+    });
 
     setState(() {});
   }
