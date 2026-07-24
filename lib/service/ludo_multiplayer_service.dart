@@ -198,6 +198,14 @@ class LudoMultiplayerService {
         _streams[channelName]?.add(data);
       },
     );
+
+    channel.onBroadcast(
+      event: 'ludo_player_ready',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
   }
 
   Stream<Map<String, dynamic>> watchRoom(String roomCode) {
@@ -338,6 +346,21 @@ class LudoMultiplayerService {
         'type': 'color_change',
         'player': playerName,
         'color': newColor,
+      },
+    );
+  }
+
+  void sendPlayerReady(String roomCode, String playerName, bool isReady) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    channel.send(
+      event: 'ludo_player_ready',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'player_ready',
+        'player': playerName,
+        'ready': isReady,
       },
     );
   }
