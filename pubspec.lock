@@ -761,7 +761,7 @@ packages:
     source: hosted
     version: "2.2.0"
   realtime_client:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
       name: realtime_client
       sha256: cf816d406248a6286bf7aa2053b406583ff88bd0842ab7f3f3127d53f6f1c68b

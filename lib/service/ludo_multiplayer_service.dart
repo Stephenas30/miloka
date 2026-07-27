@@ -1,0 +1,399 @@
+import 'dart:async';
+import 'package:realtime_client/src/types.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class LudoMultiplayerSession {
+  final String roomCode;
+  final bool isHost;
+  final String playerName;
+
+  const LudoMultiplayerSession({
+    required this.roomCode,
+    required this.isHost,
+    required this.playerName,
+  });
+}
+
+class LudoMultiplayerService {
+  LudoMultiplayerService._internal();
+
+  static final LudoMultiplayerService _instance =
+      LudoMultiplayerService._internal();
+
+  factory LudoMultiplayerService() => _instance;
+
+  final SupabaseClient _client = Supabase.instance.client;
+  final Map<String, RealtimeChannel> _channels = {};
+  final Map<String, StreamController<Map<String, dynamic>>> _streams = {};
+  final Map<String, List<Map<String, dynamic>>> _participants = {};
+  static const String _globalChannel = 'ludo_global';
+
+  Future<LudoMultiplayerSession> createRoom({
+    required String playerName,
+    required String playerColor,
+  }) async {
+    final roomCode = _globalChannel;
+    final channel = _client.channel(roomCode);
+
+    _streams[roomCode] = StreamController<Map<String, dynamic>>.broadcast();
+
+    _participants[roomCode] = [
+      {'name': playerName, 'color': playerColor},
+    ];
+
+    await channel.subscribe();
+
+    _registerChannelListeners(channel, roomCode);
+
+    _channels[roomCode] = channel;
+
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_presence',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'presence',
+        'action': 'join',
+        'player': {'name': playerName, 'color': playerColor},
+      },
+    );
+
+    return LudoMultiplayerSession(
+      roomCode: roomCode,
+      isHost: true,
+      playerName: playerName,
+    );
+  }
+
+  Future<LudoMultiplayerSession?> joinRoom({
+    String roomCode = '',
+    required String playerName,
+    required String playerColor,
+  }) async {
+    final channelName = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _client.channel(channelName);
+    _streams[channelName] = StreamController<Map<String, dynamic>>.broadcast();
+    _participants.putIfAbsent(channelName, () => []);
+    await channel.subscribe();
+
+    _registerChannelListeners(channel, channelName);
+
+    _channels[channelName] = channel;
+
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_presence',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'presence',
+        'action': 'join',
+        'player': {'name': playerName, 'color': playerColor},
+      },
+    );
+
+    return LudoMultiplayerSession(
+      roomCode: channelName,
+      isHost: false,
+      playerName: playerName,
+    );
+  }
+
+  void _registerChannelListeners(RealtimeChannel channel, String channelName) {
+    channel.onBroadcast(
+      event: 'ludo_state',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_state_response',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_presence',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        try {
+          final type = data['event']?.toString();
+          final action = data['action']?.toString();
+          final playerData = data['player'] as Map<String, dynamic>?;
+          if (type == 'ludo_presence' && action == 'join' && playerData != null) {
+            final existing = _participants.putIfAbsent(channelName, () => []);
+            final name = playerData['name']?.toString() ?? '';
+            final color = playerData['color']?.toString() ?? '';
+            if (name.isNotEmpty && color.isNotEmpty) {
+              if (!existing.any(
+                (e) => e['name'] == name && e['color'] == color,
+              )) {
+                existing.add({'name': name, 'color': color});
+              }
+            }
+          }
+        } catch (_) {}
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_participants',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        try {
+          final type = data['event']?.toString();
+          if (type == 'ludo_participants') {
+            final participantList = data['participants'] as List<dynamic>?;
+            if (participantList != null) {
+              final existing = _participants.putIfAbsent(channelName, () => []);
+              existing.clear();
+              for (final item in participantList) {
+                if (item is Map<String, dynamic>) {
+                  final name = item['name']?.toString() ?? '';
+                  final color = item['color']?.toString() ?? '';
+                  if (name.isNotEmpty && color.isNotEmpty) {
+                    existing.add({'name': name, 'color': color});
+                  }
+                }
+              }
+            }
+          }
+        } catch (_) {}
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_start',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_game_ended',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_player_left',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_color_change',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+
+    channel.onBroadcast(
+      event: 'ludo_player_ready',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
+      },
+    );
+  }
+
+  Stream<Map<String, dynamic>> watchRoom(String roomCode) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    return _streams
+        .putIfAbsent(
+          name,
+          () => StreamController<Map<String, dynamic>>.broadcast(),
+        )
+        .stream;
+  }
+
+  /// Écoute le canal Supabase et redirige vers le flux interne
+  Future<void> subscribeToChannel(String roomCode) async {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _client.channel(name);
+
+    channel.onBroadcast(
+      event: 'ludo_response',
+      callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        final controller = _streams.putIfAbsent(
+          name,
+          () => StreamController<Map<String, dynamic>>.broadcast(),
+        );
+        controller.add(data);
+      },
+    );
+
+    channel.subscribe();
+  }
+
+  Future<void> sendState(
+    String roomCode,
+    Map<String, dynamic> payload, [
+    bool response = false,
+  ]) async {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+
+    //print(payload);
+
+    if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: response ? 'ludo_state_response' : 'ludo_state',
+      type: RealtimeListenTypes.broadcast,
+      payload: payload,
+    );
+  }
+
+  void sendJoin(
+    String roomCode,
+    String playerName,
+    String playerColor,
+  ) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    final existing = _participants.putIfAbsent(name, () => []);
+    if (!existing.any(
+      (e) => e['name'] == playerName && e['color'] == playerColor,
+    )) {
+      existing.add({'name': playerName, 'color': playerColor});
+    }
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_presence',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'presence',
+        'action': 'join',
+        'player': {'name': playerName, 'color': playerColor},
+      },
+    );
+  }
+
+  void sendParticipants(
+    String roomCode,
+    List<Map<String, dynamic>> participants,
+  ) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    final existing = _participants.putIfAbsent(name, () => []);
+    existing
+      ..clear()
+      ..addAll(
+        participants.map(
+          (entry) => {
+            'name': entry['name']?.toString() ?? '',
+            'color': entry['color']?.toString() ?? '',
+            'id': entry['id']?.toString() ?? '',
+            'avatar': entry['avatar']?.toString() ?? '',
+          },
+        ),
+      );
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_participants',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'participants', 'participants': existing},
+    );
+  }
+
+  void sendGameStart(String roomCode) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_start',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'start'},
+    );
+  }
+
+  void sendGameEnded(String roomCode) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_game_ended',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'game_ended'},
+    );
+  }
+
+  void sendColorChange(String roomCode, String playerName, String newColor) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    channel.send(
+      event: 'ludo_color_change',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'color_change',
+        'player': playerName,
+        'color': newColor,
+      },
+    );
+  }
+
+  void sendPlayerReady(String roomCode, String playerName, bool isReady) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    channel.send(
+      event: 'ludo_player_ready',
+      type: RealtimeListenTypes.broadcast,
+      payload: {
+        'type': 'player_ready',
+        'player': playerName,
+        'ready': isReady,
+      },
+    );
+  }
+
+  void sendPlayerLeft(String roomCode, String playerName, String color) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    final channel = _channels[name];
+    if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
+    channel.send(
+      event: 'ludo_player_left',
+      type: RealtimeListenTypes.broadcast,
+      payload: {'type': 'player_left', 'player': playerName, 'color': color},
+    );
+  }
+
+  List<Map<String, dynamic>> getParticipants(String roomCode) {
+    final name = roomCode.isEmpty ? _globalChannel : roomCode;
+    return _participants.putIfAbsent(name, () => []);
+  }
+
+  void disposeRoom(String roomCode) {
+    final channel = _channels.remove(roomCode);
+    _streams[roomCode]?.close();
+    _streams.remove(roomCode);
+
+    if (channel != null) {
+      Future.microtask(() {
+        try {
+          channel.unsubscribe();
+        } catch (_) {}
+      });
+    }
+  }
+
+}

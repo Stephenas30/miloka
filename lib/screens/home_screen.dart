@@ -5,8 +5,562 @@ import '../widgets/game_choice.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+List<Map<String, dynamic>>? parseLudoParticipantsPayload(dynamic payload) {
+  if (payload is! Map) return null;
+  if (payload['event'] != 'ludo_participants') return null;
+
+  final participantList = payload['participants'];
+  if (participantList is! List) return null;
+
+  return participantList
+      .whereType<Map>()
+      .map<Map<String, dynamic>>((item) => Map<String, dynamic>.from(item))
+      .toList();
+}
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  Timer? _heartbeatTimer;
+
+  List<dynamic> fSubscribeToGame = [];
+  dynamic _dataOnChannel;
+  final List<RealtimeChannel> _homeChannels = [];
+  bool _isListeningLudoGlobal = false;
+  BuildContext? _waitingDialogContext;
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startHeartbeat();
+    _subscribeToGameRequests();
+    _responseToGameRequests();
+    _subscribeToFriendNotifications();
+  }
+
+  void _listenChanelMultiplayerGame() {
+    if (_isListeningLudoGlobal) return;
+    _isListeningLudoGlobal = true;
+    final channel = SupabaseService().client.channel('ludo_global');
+    _homeChannels.add(channel);
+
+    channel.onBroadcast(
+      event: 'ludo_participants',
+      callback: (payload, [ref]) {
+        setState(() {
+          _dataOnChannel = payload;
+        });
+      },
+    );
+
+    channel.subscribe();
+
+    // Broadcast presence join so the host's ludo dialog picks up this player
+    _broadcastPresenceJoin(channel);
+  }
+
+  Future<void> _broadcastPresenceJoin(RealtimeChannel channel) async {
+    final currentUser = SupabaseService().getCurrentUser();
+    if (currentUser == null) return;
+    try {
+      final userResp = await SupabaseService().client
+          .from('users')
+          .select('username')
+          .eq('id', currentUser.id)
+          .single();
+      await channel.sendBroadcastMessage(
+        event: 'ludo_presence',
+        payload: {
+          'type': 'presence',
+          'action': 'join',
+          'player': {
+            'name': userResp['username']?.toString() ?? 'Joueur',
+            'color': 'yellow',
+          },
+        },
+      );
+    } catch (_) {}
+  }
+
+  void _subscribeToGameRequests() {
+    final channel = SupabaseService().client.channel('game_pending_channel');
+    _homeChannels.add(channel);
+    final currentUser = SupabaseService().getCurrentUser();
+    print(currentUser?.id);
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_ami',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['send_partie'] == 'pending') showGameRequestPopup(data);
+        if (data['send_partie'] == 'none') {
+          if (mounted) {
+            if (_waitingDialogContext != null) {
+              Navigator.of(_waitingDialogContext!).pop();
+              _waitingDialogContext = null;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('La partie a été annulée.')),
+            );
+          }
+        }
+        if (data['send_partie'] == 'accepted') {
+          showWaitingGame();
+          _listenChanelMultiplayerGame();
+
+          final fsg = await FriendsService().getHoteSubscribeToGam();
+          setState(() {
+            fSubscribeToGame = fsg;
+          });
+        }
+        if (data['send_partie'] == 'playing') {
+          if (_waitingDialogContext != null) {
+            Navigator.of(_waitingDialogContext!).pop();
+            _waitingDialogContext = null;
+          }
+
+          var participants = parseLudoParticipantsPayload(_dataOnChannel);
+
+          // Fallback: fetch participants from DB if broadcast hasn't arrived
+          if (participants == null || participants.isEmpty) {
+            final hostId = data['id_user']?.toString();
+            if (hostId != null && hostId.isNotEmpty) {
+              participants = await FriendsService().getGameParticipants(hostId);
+            }
+          }
+
+          final finalParticipants = participants;
+          if (finalParticipants != null && finalParticipants.isNotEmpty) {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => LudoScreen(
+                    beginGame: true,
+                    playerSubscribe: finalParticipants,
+                  ),
+                ),
+              );
+            }
+          }
+        }
+        //print(data);
+      },
+    );
+    channel.subscribe();
+  }
+
+  void _responseToGameRequests() {
+    final channel = SupabaseService().client.channel('game_response_channel');
+    _homeChannels.add(channel);
+    final currentUser = SupabaseService().getCurrentUser();
+    print(currentUser?.id);
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['send_partie'] == 'declined') showGameDeclinedPopup(data);
+        if (data['send_partie'] == 'accepted' ||
+            data['send_partie'] == 'none') {
+          final fsg = await FriendsService().getFriendsSubscribeToGam();
+          print(fsg);
+          setState(() {
+            fSubscribeToGame = fsg;
+          });
+        }
+        //print(data);
+      },
+    );
+    channel.subscribe();
+  }
+
+  void _subscribeToFriendNotifications() {
+    final channel = SupabaseService().client.channel('friend_notif_channel');
+    _homeChannels.add(channel);
+    final currentUser = SupabaseService().getCurrentUser();
+
+    // Nouvelle demande d'ami reçue
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_ami',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['status'] == 'pending') {
+          final requesterId = data['id_user'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', requesterId)
+              .single();
+          if (mounted) {
+            showFriendRequestPopup(
+              requesterId.toString(),
+              (userResp['username'] ?? 'Quelqu\'un').toString(),
+            );
+          }
+        }
+      },
+    );
+
+    // Demande d'ami acceptée
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['status'] == 'accepted') {
+          final friendId = data['id_ami'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', friendId)
+              .single();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  "${userResp['username']} a accepté votre demande d'ami !",
+                ),
+              ),
+            );
+          }
+        }
+      },
+    );
+
+    // Demande d'ami refusée
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.delete,
+      schema: 'public',
+      table: 'amis',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'id_user',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final oldData = payload.oldRecord;
+        if (oldData['status'] == 'pending') {
+          final friendId = oldData['id_ami'];
+          final userResp = await SupabaseService().client
+              .from('users')
+              .select('username')
+              .eq('id', friendId)
+              .single();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  "${userResp['username']} a refusé votre demande d'ami.",
+                ),
+              ),
+            );
+          }
+        }
+      },
+    );
+
+    channel.subscribe();
+  }
+
+  void showFriendRequestPopup(String requesterId, String username) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          "Demande d'ami",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          "$username vous a envoyé une demande d'ami !",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+            },
+            child: const Text(
+              "Voir plus tard",
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await FriendsService().acceptFriendRequest(requesterId);
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        "Vous êtes maintenant ami avec $username !",
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+              }
+            },
+            child: const Text(
+              "Accepter",
+              style: TextStyle(color: Colors.greenAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void showWaitingGame() {
+    if (_waitingDialogContext != null) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        _waitingDialogContext = ctx;
+        return const AlertDialog(
+          content: Text('En attente du lancement de jeu ...'),
+        );
+      },
+    ).then((_) => _waitingDialogContext = null);
+  }
+
+  void showGameDeclinedPopup(Map<String, dynamic> request) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Invitation de jeu"),
+          content: Text(
+            request['send_partie'] == "declined"
+                ? "Ton ami a réfusé votre demande !"
+                : "Votre ami vous avait fait sorti",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+              },
+              child: Text("Fermer"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showGameRequestPopup(Map<String, dynamic> request) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Invitation de jeu"),
+          content: Text(
+            request['send_partie'] == "pending"
+                ? "Ton ami veut jouer avec toi !"
+                : "Veux-tu faire sortie ton ami?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Supabase.instance.client
+                    .from('amis')
+                    .update({
+                      'send_partie': request['send_partie'] == "pending"
+                          ? 'accepted'
+                          : 'none',
+                    })
+                    .eq('id_ami', request['id_ami'])
+                    .eq('id_user', request['id_user']);
+                Navigator.pop(context);
+              },
+              child: Text("Accepter"),
+            ),
+            TextButton(
+              onPressed: () async {
+                if (request['send_partie'] == "pending") {
+                  await Supabase.instance.client
+                      .from('amis')
+                      .update({'send_partie': 'declined'})
+                      .eq('id_ami', request['id_ami'])
+                      .eq('id_user', request['id_user']);
+                }
+
+                Navigator.pop(context);
+              },
+              child: Text("Refuser"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+      await SupabaseService().updateIsOnline();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      // Mettre is_online à false quand l’app est quittée
+      await SupabaseService().updateIsOffline();
+    }
+  }
+
+  @override
+  void dispose() {
+    final channels = List<RealtimeChannel>.from(_homeChannels);
+    _homeChannels.clear();
+
+    for (final channel in channels) {
+      Future.microtask(() {
+        try {
+          channel.unsubscribe();
+        } catch (_) {}
+      });
+    }
+
+    WidgetsBinding.instance.removeObserver(this);
+    _heartbeatTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showFriendsDialog(BuildContext context) => showFriendsDialog(context);
+
+  void _showSubscribedFriendsList() {
+    if (fSubscribeToGame.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          "Amis invités",
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: fSubscribeToGame.length,
+            itemBuilder: (ctx, index) {
+              final friend = fSubscribeToGame[index];
+              final avatarUrl = friend['avatar_url'];
+              return ListTile(
+                leading: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Colors.white24,
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
+                      ? const Icon(Icons.person, color: Colors.white)
+                      : null,
+                ),
+                title: Text(
+                  friend['username'] ?? '',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showRemoveFriendDialog(friend);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await FriendsService().removeAllFriendSubscribeToGame();
+              final fsg = await FriendsService().getHoteSubscribeToGam();
+              if (mounted) {
+                setState(() => fSubscribeToGame = fsg);
+                Navigator.pop(ctx);
+              }
+            },
+            icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+            label: const Text(
+              "Tout supprimer",
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRemoveFriendDialog(dynamic friend) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Invitation de jeu"),
+        content: Text("Tu veux vraiment faire sortir ${friend['username']} !"),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await FriendsService().removeFriendSubscribeToGam(friend['id']);
+              final fsg = await FriendsService().getHoteSubscribeToGam();
+              if (mounted) {
+                setState(() => fSubscribeToGame = fsg);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text("Accepter"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Refuser"),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

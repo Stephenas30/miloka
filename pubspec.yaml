@@ -43,6 +43,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   supabase_flutter: ^2.15.1
 
+dependency_overrides:
+  realtime_client:
+    path: packages/realtime_client
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
