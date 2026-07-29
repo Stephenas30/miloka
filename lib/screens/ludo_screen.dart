@@ -55,6 +55,7 @@ class _LudoScreenState extends State<LudoScreen>
   final ValueNotifier<List<String>> _participantsNotifier = ValueNotifier([]);
   bool isHost = true;
   final Set<LudoColor> _disconnectedColors = {};
+  final ValueNotifier<Set<String>> _readyPlayersNotifier = ValueNotifier({});
 
   Offset _diceDragOffset = Offset.zero;
   Offset _slideVelocity = Offset.zero;
@@ -122,6 +123,7 @@ class _LudoScreenState extends State<LudoScreen>
       _multiplayerService.disposeRoom(_roomCode);
     }
     _participantsNotifier.dispose();
+    _readyPlayersNotifier.dispose();
     _diceController.dispose();
     super.dispose();
   }
@@ -359,6 +361,22 @@ class _LudoScreenState extends State<LudoScreen>
         ),
       );
     }
+  }
+
+  void _quitGame() {
+    if (_isMultiplayer && _roomCode.isNotEmpty) {
+      final playerColor = _engine.players.any((p) => p.namePlayer == _playerName)
+          ? _engine.players.firstWhere((p) => p.namePlayer == _playerName).color
+          : LudoColor.yellow;
+      _multiplayerService.sendPlayerLeft(_roomCode, _playerName, playerColor.name);
+      _multiplayerService.disposeRoom(_roomCode);
+      _multiplayerSubscription?.cancel();
+      _roomCode = '';
+    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => route.isFirst,
+    );
   }
 
   void _startPawnMove(
@@ -1491,7 +1509,7 @@ class _LudoScreenState extends State<LudoScreen>
             mini: true,
             backgroundColor: Colors.black.withValues(alpha: 0.6),
             shape: const CircleBorder(),
-            onPressed: () => Navigator.pop(context),
+            onPressed: _quitGame,
             child: const Icon(Icons.arrow_back, color: Colors.white70),
           ),
         ),
@@ -1675,15 +1693,15 @@ class _LudoScreenState extends State<LudoScreen>
               onPressed: () {
                 _multiplayerSubscription?.cancel();
                 if (_roomCode.isNotEmpty) {
+                  _multiplayerService.sendPlayerLeft(
+                    _roomCode, _playerName, LudoColor.yellow.name,
+                  );
                   _multiplayerService.disposeRoom(_roomCode);
                 }
-                setState(() {
-                  _isMultiplayer = false;
-                  _beginGame = false;
-                  _roomCode = '';
-                  _playerSubscribe = [];
-                  _participantsNotifier.value = [];
-                });
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (route) => route.isFirst,
+                );
               },
               child: const Text('Quitter'),
             ),
