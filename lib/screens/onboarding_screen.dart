@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:miloka/screens/connexion_screen.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -11,6 +12,7 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
+  String _appVersion = '';
 
   Future<void> startLoading() async {
 
@@ -28,6 +30,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void initState() {
     super.initState();
     startLoading();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = 'v${info.version}');
   }
 
   @override
@@ -49,6 +57,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 fit: BoxFit.contain,
               ),
             ),),
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: Text(
+                _appVersion,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
           ],
         ),
       ),
@@ -57,3 +75,4 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 }
+

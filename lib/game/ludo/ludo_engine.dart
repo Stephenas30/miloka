@@ -135,12 +135,14 @@ class LudoHuman {
   final String name;
   final LudoColor color;
   final String? avatar;
+  final int bet;
 
   const LudoHuman({
     required this.name,
     required this.color,
     this.id,
-    this.avatar
+    this.avatar,
+    this.bet = 0,
   });
 }
 
@@ -163,7 +165,7 @@ class LudoEngine {
   bool waitingForRemote = false;
   final String roomCode;
 
-  List<LudoColor> get humanColor => human.map((player) => player.color).toList();
+  List<LudoColor> get humanColor => players.where((p) => p.isHuman).map((p) => p.color).toList();
 
   String? playerNameForColor(LudoColor color) =>
       human.firstWhereOrNull((player) => player.color == color)?.name;
@@ -177,30 +179,13 @@ class LudoEngine {
        roomCode =
            roomCode ?? (isMultiplayer ?? false ? _generateRoomCode() : ''),
        players = [
-         LudoPlayer(
-           color: LudoColor.red,
-           isHuman: human.any((elt) => elt.color == LudoColor.red),
-           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.red)?.name,
-           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.red)?.id
-         ),
-         LudoPlayer(
-           color: LudoColor.green,
-           isHuman: human.any((elt) => elt.color == LudoColor.green),
-           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.green)?.name,
-           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.green)?.id
-         ),
-         LudoPlayer(
-           color: LudoColor.yellow,
-           isHuman: human.any((elt) => elt.color == LudoColor.yellow),
-           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.yellow)?.name,
-           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.yellow)?.id
-         ),
-         LudoPlayer(
-           color: LudoColor.blue,
-           isHuman: human.any((elt) => elt.color == LudoColor.blue),
-           namePlayer: human.firstWhereOrNull((elt) => elt.color == LudoColor.blue)?.name,
-           id: human.firstWhereOrNull((elt) => elt.color == LudoColor.blue)?.id
-         ),
+         for (final h in human)
+           LudoPlayer(
+             color: h.color,
+             isHuman: !(h.id?.startsWith('ai_') ?? false),
+             namePlayer: h.name,
+             id: h.id,
+           ),
        ];
 
   static String _generateRoomCode() {
@@ -287,7 +272,10 @@ class LudoEngine {
     if (currentPlayer.hasWon) {
       winner = currentPlayer.color;
       message = '${winner!.label} a gagné !';
-      //diceRolled = false;
+      if (isMultiplayer) {
+        onStateChange?.call(snapshot());
+        waitingForRemote = true;
+      }
       return true;
     }
 

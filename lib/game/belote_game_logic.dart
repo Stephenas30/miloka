@@ -25,9 +25,22 @@ class BeloteGameLogic {
   Map<String, int> lastHandDelta = {'NS': 0, 'EO': 0};
   int starterIndex = 0;
   late List<String> order;
+  int counterMultiplier = 1;
 
   BeloteGameLogic({required this.players}) {
     resetGame();
+  }
+
+  void initializeFromHands(Map<String, List<CardModel>> hands, int startIndex) {
+    playerHand = List.from(hands['Sud'] ?? []);
+    aiHands[0] = List.from(hands['Nord'] ?? []);
+    aiHands[1] = List.from(hands['Est'] ?? []);
+    aiHands[2] = List.from(hands['Ouest'] ?? []);
+    starterIndex = startIndex;
+    order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
+    callSystem = CallSystem(players, initialIndex: starterIndex, playerTeams: {
+      for (final p in players) p: BeloteRules.teamOf(p),
+    });
   }
 
   void resetGame() {
@@ -35,7 +48,9 @@ class BeloteGameLogic {
     deck.shuffle();
     starterIndex = Random().nextInt(players.length);
     order = [for (int i = 0; i < players.length; i++) players[(starterIndex + i) % players.length]];
-    callSystem = CallSystem(players, initialIndex: starterIndex);
+    callSystem = CallSystem(players, initialIndex: starterIndex, playerTeams: {
+      for (final p in players) p: BeloteRules.teamOf(p),
+    });
 
     playerHand = [];
     aiHands = [[], [], []];
@@ -50,6 +65,7 @@ class BeloteGameLogic {
     gameScore = {'NS': 0, 'EO': 0};
     waitingForNextHand = false;
     lastHandDelta = {'NS': 0, 'EO': 0};
+    counterMultiplier = 1;
   }
 
   List<CardModel> handFor(String player) {
@@ -153,6 +169,7 @@ class BeloteGameLogic {
 
   bool canPlayCard(CardModel card, {String player = 'Sud'}) {
     if (callSystem.currentPlayer != player) return false;
+    if (currentTrick.any((pc) => pc.player == player)) return false;
     final hand = handFor(player);
     if (!hand.contains(card)) return false;
     return legalCards(player).contains(card);
@@ -173,6 +190,7 @@ class BeloteGameLogic {
   }
 
   void resolveTrick() {
+    if (currentTrick.isEmpty) return;
     final leadSuit = currentTrick.first.card.suit;
     PlayedCard winner = currentTrick.first;
     for (final played in currentTrick) {

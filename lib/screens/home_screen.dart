@@ -1,14 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:miloka/service/ludo_team_invitation_service.dart';
+import 'package:miloka/screens/ludo_lobby_screen.dart';
 import 'package:miloka/screens/ludo_screen.dart';
 import 'package:miloka/service/friends_service.dart';
 import 'package:miloka/service/supabase_service.dart';
+import 'package:miloka/service/team_invitation_service.dart';
+import 'package:miloka/utils/retry_util.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/friends_dialog.dart';
 import '../widgets/game_choice.dart';
+import 'classic_team_lobby_screen.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
 
@@ -21,22 +26,25 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
+  bool _connectionLostDialogShown = false;
+  bool _isConnectionHealthy = true;
 
   List<dynamic> fSubscribeToGame = [];
   dynamic _dataOnChannel;
   final List<RealtimeChannel> _homeChannels = [];
+  List<Map<String, dynamic>> _pendingTeamInvitations = [];
   bool _isListeningLudoGlobal = false;
   BuildContext? _waitingDialogContext;
 
   @override
   void initState() {
-    // TODO: implement initState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startHeartbeat();
     _subscribeToGameRequests();
     _responseToGameRequests();
     _subscribeToFriendNotifications();
+    _subscribeToTeamInvitations();
   }
 
   void _listenChanelMultiplayerGame() {
@@ -274,6 +282,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     channel.subscribe();
   }
 
+  Future<List<Map<String, dynamic>>> _loadPendingInvitations() async {
+    final belote = await TeamInvitationService().getPendingInvitations();
+    final ludo = await LudoTeamInvitationService().getPendingInvitations();
+    return [...belote, ...ludo];
+  }
+
+  void _subscribeToTeamInvitations() {
+    final channel = SupabaseService().client.channel('team_invitation_channel');
+    _homeChannels.add(channel);
+    final currentUser = SupabaseService().getCurrentUser();
+
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'team_invitations',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'invitee_id',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final data = payload.newRecord;
+        if (data['status'] == 'pending' && mounted) {
+          final invitations = await _loadPendingInvitations();
+          setState(() => _pendingTeamInvitations = invitations);
+          _showTeamInvitationPopup();
+        }
+      },
+    );
+
+    // Also listen for status updates (when invitation is accepted/declined elsewhere)
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'team_invitations',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'invitee_id',
+        value: currentUser?.id,
+      ),
+      callback: (payload) async {
+        final invitations = await _loadPendingInvitations();
+        if (mounted) setState(() => _pendingTeamInvitations = invitations);
+      },
+    );
+
+    channel.subscribe();
+
+    // Load existing pending invitations on init
+    _loadPendingInvitations().then((invitations) {
+      if (mounted) setState(() => _pendingTeamInvitations = invitations);
+    });
+  }
+
   void showFriendRequestPopup(String requesterId, String username) {
     showDialog(
       context: context,
@@ -346,6 +408,81 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showTeamInvitationPopup() {
+    if (_pendingTeamInvitations.isEmpty) return;
+    final inv = _pendingTeamInvitations.first;
+    final inviterName = inv['inviter_name']?.toString() ?? 'Quelqu\'un';
+    final gameType = inv['game_type']?.toString() ?? 'belote';
+    final gameName = gameType == 'ludo' ? 'Ludo' : 'belote';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Invitation équipe', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '$inviterName vous a invité dans son équipe de $gameName',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              if (gameType == 'ludo') {
+                await LudoTeamInvitationService().declineInvitation(inv['id']);
+              } else {
+                await TeamInvitationService().declineInvitation(inv['id']);
+              }
+              Navigator.pop(ctx);
+              if (mounted) {
+                final invitations = await _loadPendingInvitations();
+                setState(() => _pendingTeamInvitations = invitations);
+              }
+            },
+            child: const Text('Refuser', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              if (gameType == 'ludo') {
+                final invResult = await LudoTeamInvitationService().acceptInvitation(inv['id']);
+                if (invResult != null && mounted) {
+                  final invitations = await _loadPendingInvitations();
+                  setState(() => _pendingTeamInvitations = invitations);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => LudoLobbyScreen(
+                        teamId: invResult['team_id'],
+                        isHost: false,
+                      ),
+                    ),
+                  );
+                }
+              } else {
+                final invResult = await TeamInvitationService().acceptInvitation(inv['id']);
+                if (invResult != null && mounted) {
+                  final invitations = await _loadPendingInvitations();
+                  setState(() => _pendingTeamInvitations = invitations);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ClassicTeamLobbyScreen(
+                        teamId: invResult['team_id'],
+                        isHost: false,
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Accepter', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void showGameRequestPopup(Map<String, dynamic> request) {
     showDialog(
       context: context,
@@ -387,15 +524,78 @@ await Supabase.instance.client
 
   void _startHeartbeat() {
     _heartbeatTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
-      await SupabaseService().updateIsOnline();
+      try {
+        final ok = await SupabaseService().updateIsOnline();
+        if (ok) {
+          _isConnectionHealthy = true;
+          return;
+        }
+      } catch (_) {}
+      if (!_isConnectionHealthy) return;
+      _isConnectionHealthy = false;
+      _showConnectionLostDialog();
     });
+  }
+
+  void _showConnectionLostDialog() {
+    if (!mounted || _connectionLostDialogShown) return;
+    _connectionLostDialogShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Connexion perdue'),
+          content: const Text('Problème de connexion réseau.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _tryReconnect();
+              },
+              child: const Text('Reconnecter'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Future<void> _tryReconnect() async {
+    try {
+      await NetworkRetry.retry(() => SupabaseService().updateIsOnline());
+      _isConnectionHealthy = true;
+      _connectionLostDialogShown = false;
+    } catch (_) {
+      if (!mounted) return;
+      _connectionLostDialogShown = false;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Connexion impossible'),
+          content: const Text(
+            'Vous avez perdu la connexion à cause de votre connexion ou le jeu est en maintenance. Réessayez plus tard.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _connectionLostDialogShown = false;
+              },
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      // Mettre is_online à false quand l’app est quittée
       await SupabaseService().updateIsOffline();
     }
   }
@@ -442,25 +642,61 @@ await Supabase.instance.client
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   GestureDetector(
-                    onTap: () => _showFriendsDialog(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 14,
-                        backgroundColor: Colors.black54,
-                        child: Icon(
-                          Icons.people_alt,
-                          color: Colors.white,
-                          size: 20,
+                    onTap: () {
+                      if (_pendingTeamInvitations.isNotEmpty) {
+                        _showTeamInvitationPopup();
+                      } else {
+                        _showFriendsDialog(context);
+                      }
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const CircleAvatar(
+                            radius: 14,
+                            backgroundColor: Colors.black54,
+                            child: Icon(
+                              Icons.people_alt,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
                         ),
-                      ),
+                        if (_pendingTeamInvitations.isNotEmpty)
+                          Positioned(
+                            right: -2,
+                            top: -2,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              constraints: const BoxConstraints(
+                                minWidth: 18,
+                                minHeight: 18,
+                              ),
+                              child: Text(
+                                '${_pendingTeamInvitations.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
 

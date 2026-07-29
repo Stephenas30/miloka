@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../utils/retry_util.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -166,28 +167,38 @@ class SupabaseService {
     return _client.auth.onAuthStateChange;
   }
 
-  Future<void> updateIsOnline() async {
+  Future<bool> updateIsOnline() async {
     final user = getCurrentUser();
+    if (user == null) return false;
     final nowUtc = DateTime.now().toUtc();
-    if (user != null) {
-      await _client
+    try {
+      await NetworkRetry.retry(() => _client
           .from('users')
           .update({'is_connected': true, 'last_seen': nowUtc.toIso8601String()})
-          .eq('id', user.id);
+          .eq('id', user.id));
+      return true;
+    } catch (e) {
+      print('updateIsOnline failed after retries: $e');
+      return false;
     }
   }
 
-  Future<void> updateIsOffline() async {
+  Future<bool> updateIsOffline() async {
     final user = getCurrentUser();
+    if (user == null) return false;
     final nowUtc = DateTime.now().toUtc();
-    if (user != null) {
-      await _client
+    try {
+      await NetworkRetry.retry(() => _client
           .from('users')
           .update({
             'is_connected': false,
             'last_seen': nowUtc.toIso8601String(),
           })
-          .eq('id', user.id);
+          .eq('id', user.id));
+      return true;
+    } catch (e) {
+      print('updateIsOffline failed after retries: $e');
+      return false;
     }
   }
 }

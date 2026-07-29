@@ -19,7 +19,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
   final GlobalKey<GameChoiceCardState> card1Key = GlobalKey<GameChoiceCardState>();
   final GlobalKey<GameChoiceCardState> card2Key = GlobalKey<GameChoiceCardState>();
   final GlobalKey<GameChoiceCardState> card3Key = GlobalKey<GameChoiceCardState>();
-  final GlobalKey<GameChoiceCardState> card4Key = GlobalKey<GameChoiceCardState>();
   final GlobalKey<GameChoiceCardState> card5Key = GlobalKey<GameChoiceCardState>();
 
   @override
@@ -67,13 +66,20 @@ class _BeloteScreenState extends State<BeloteScreen> {
                   key: card1Key,
                   title: "1 vs 1",
                   onTap: () {
+                    card1Key.currentState?.resetCard();
                     showDialog(
                       context: context,
-                      builder: (_) => GameModePopup(
-                        mode: "1 vs 1",
-                        onClosePopup: () {
-                          card1Key.currentState?.resetCard();
-                        },
+                      builder: (_) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        content: const Text("Prochainement…", textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
+                        actions: [
+                          Center(
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("OK"),
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   },
@@ -81,7 +87,7 @@ class _BeloteScreenState extends State<BeloteScreen> {
                 const SizedBox(width: 20),
                 GameChoiceCard(
                   key: card2Key,
-                  title: "Classique",
+                  title: "2 vs 2",
                   onTap: () {
                     showDialog(
                       context: context,
@@ -89,22 +95,6 @@ class _BeloteScreenState extends State<BeloteScreen> {
                         mode: "Classique",
                         onClosePopup: () {
                           card2Key.currentState?.resetCard();
-                        },
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 20),
-                GameChoiceCard(
-                  key: card3Key,
-                  title: "Tournoi",
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (_) => GameModePopup(
-                        mode: "Tournoi",
-                        onClosePopup: () {
-                          card3Key.currentState?.resetCard();
                         },
                       ),
                     );
@@ -119,16 +109,23 @@ class _BeloteScreenState extends State<BeloteScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GameChoiceCard(
-                  key: card4Key,
-                  title: "En ligne",
+                  key: card3Key,
+                  title: "Tournoi",
                   onTap: () {
+                    card3Key.currentState?.resetCard();
                     showDialog(
                       context: context,
-                      builder: (_) => GameModePopup(
-                        mode: "En ligne",
-                        onClosePopup: () {
-                          card4Key.currentState?.resetCard();
-                        },
+                      builder: (_) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        content: const Text("Prochainement…", textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
+                        actions: [
+                          Center(
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("OK"),
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   },

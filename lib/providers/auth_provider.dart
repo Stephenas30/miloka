@@ -160,6 +160,10 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  Future<void> refreshProfile() async {
+    await _loadUserProfile();
+  }
+
   void clearError() {
     _error = null;
     notifyListeners();

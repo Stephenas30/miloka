@@ -212,7 +212,6 @@ anonKey: 'sb_publishable_Bjf9EbegNic7EV4gY6Efpg_WEOZiRoh',
 ---
 
 ### 10. **Structure des Données Supabase**
-
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
@@ -286,6 +285,67 @@ CREATE TABLE public.game_sessions (
   CONSTRAINT game_sessions_pkey PRIMARY KEY (id),
   CONSTRAINT game_sessions_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(team_id)
 );
+CREATE TABLE public.private_matches (
+  match_code text NOT NULL,
+  team_a_id text NOT NULL,
+  team_a_host_id text NOT NULL,
+  team_a_host_profile jsonb DEFAULT '{}'::jsonb,
+  team_a_guest_id text,
+  team_a_guest_profile jsonb DEFAULT '{}'::jsonb,
+  team_b_id text,
+  team_b_host_id text,
+  team_b_host_profile jsonb DEFAULT '{}'::jsonb,
+  team_b_guest_id text,
+  team_b_guest_profile jsonb DEFAULT '{}'::jsonb,
+  status text DEFAULT 'waiting'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  bets jsonb DEFAULT '{}'::jsonb,
+  accepted_by jsonb DEFAULT '[]'::jsonb,
+  CONSTRAINT private_matches_pkey PRIMARY KEY (match_code),
+  CONSTRAINT private_matches_team_a_id_fkey FOREIGN KEY (team_a_id) REFERENCES public.teams(team_id),
+  CONSTRAINT private_matches_team_b_id_fkey FOREIGN KEY (team_b_id) REFERENCES public.teams(team_id)
+);
+CREATE TABLE public.app_gains (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  match_code text NOT NULL,
+  amount integer NOT NULL,
+  bet integer NOT NULL,
+  winner_team text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT app_gains_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.app_version (
+  id bigint NOT NULL DEFAULT 1 CHECK (id = 1),
+  version text NOT NULL,
+  build_number bigint NOT NULL,
+  force_update boolean DEFAULT true,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT app_version_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.team_invitations (
+  id bigint NOT NULL DEFAULT nextval('team_invitations_id_seq'::regclass),
+  inviter_id uuid NOT NULL,
+  invitee_id uuid NOT NULL,
+  team_id text NOT NULL,
+  inviter_name text NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  game_type text DEFAULT 'belote'::text,
+  CONSTRAINT team_invitations_pkey PRIMARY KEY (id),
+  CONSTRAINT team_invitations_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES public.users(id),
+  CONSTRAINT team_invitations_invitee_id_fkey FOREIGN KEY (invitee_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.ludo_teams (
+  team_id text NOT NULL,
+  host_id text NOT NULL,
+  host_profile jsonb DEFAULT '{}'::jsonb,
+  members jsonb DEFAULT '[]'::jsonb,
+  status text DEFAULT 'waiting'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT ludo_teams_pkey PRIMARY KEY (team_id)
+);
 
 ---
 
@@ -310,6 +370,35 @@ UPDATE amis SET status = 'pending' WHERE status IS NULL;
 -- 4. Rendre la colonne obligatoire avec une valeur par défaut
 ALTER TABLE amis ALTER COLUMN status SET NOT NULL;
 ALTER TABLE amis ALTER COLUMN status SET DEFAULT 'pending';
+```
+
+---
+
+### 12. **Table `transaction_requests` (juillet 2026)**
+
+Ajoutée pour gérer les demandes d'achat et de retrait de jetons.
+
+```sql
+CREATE TABLE public.transaction_requests (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('purchase', 'withdrawal')),
+  amount INTEGER NOT NULL,
+  reference TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.transaction_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read their own requests"
+  ON public.transaction_requests FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create their own requests"
+  ON public.transaction_requests FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
 ```
 
 ---

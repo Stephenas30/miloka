@@ -13,7 +13,6 @@ class ProfilScreen extends StatefulWidget {
 }
 
 class _ProfilScreenState extends State<ProfilScreen> {
-  late String _username = 'Gasy Strem';
   late String _email = 'Gasystrem@gmail.com';
 
   void loadState() async {
