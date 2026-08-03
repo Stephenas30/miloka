@@ -11,6 +11,9 @@ CREATE TABLE users (
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
+  username TEXT UNIQUE,
+  coins INTEGER NOT NULL DEFAULT 0,
+  is_connected BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -209,18 +212,194 @@ anonKey: 'sb_publishable_Bjf9EbegNic7EV4gY6Efpg_WEOZiRoh',
 ---
 
 ### 10. **Structure des Données Supabase**
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
-**Table `users`** :
-```
-id (UUID, PK)
-email (TEXT, UNIQUE)
-full_name (TEXT)
-avatar_url (TEXT)
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+CREATE TABLE public.teams (
+  team_id text NOT NULL,
+  host_id text NOT NULL,
+  host_profile jsonb DEFAULT '{}'::jsonb,
+  guest_id text,
+  guest_profile jsonb DEFAULT '{}'::jsonb,
+  guest_ready boolean DEFAULT false,
+  status text DEFAULT 'waiting'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT teams_pkey PRIMARY KEY (team_id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL,
+  email text NOT NULL UNIQUE,
+  full_name text,
+  avatar_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  username text UNIQUE,
+  coins integer NOT NULL DEFAULT 0,
+  is_connected boolean NOT NULL DEFAULT false,
+  last_seen timestamp without time zone,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.amis (
+  id_ami uuid NOT NULL,
+  id_user uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  send_partie USER-DEFINED NOT NULL DEFAULT 'none'::"Send_request",
+  status text DEFAULT ''::text,
+  CONSTRAINT amis_pkey PRIMARY KEY (id_ami, id_user),
+  CONSTRAINT amis_id_ami_fkey FOREIGN KEY (id_ami) REFERENCES public.users(id),
+  CONSTRAINT amis_id_user_fkey FOREIGN KEY (id_user) REFERENCES public.users(id)
+);
+CREATE TABLE public.games (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  image_url text,
+  name text NOT NULL,
+  nbr_players integer NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT games_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.player_games (
+  game_id uuid NOT NULL,
+  player_id uuid NOT NULL,
+  score integer DEFAULT 0,
+  nbr_wins integer DEFAULT 0,
+  nbr_losses integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  mode USER-DEFINED,
+  CONSTRAINT player_games_pkey PRIMARY KEY (game_id, player_id),
+  CONSTRAINT player_games_game_id_fkey FOREIGN KEY (game_id) REFERENCES public.games(id),
+  CONSTRAINT player_games_player_id_fkey FOREIGN KEY (player_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.game_sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  team_id text NOT NULL,
+  game_type text NOT NULL,
+  mode text NOT NULL,
+  status text NOT NULL DEFAULT 'playing'::text,
+  game_data jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT game_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT game_sessions_team_id_fkey FOREIGN KEY (team_id) REFERENCES public.teams(team_id)
+);
+CREATE TABLE public.private_matches (
+  match_code text NOT NULL,
+  team_a_id text NOT NULL,
+  team_a_host_id text NOT NULL,
+  team_a_host_profile jsonb DEFAULT '{}'::jsonb,
+  team_a_guest_id text,
+  team_a_guest_profile jsonb DEFAULT '{}'::jsonb,
+  team_b_id text,
+  team_b_host_id text,
+  team_b_host_profile jsonb DEFAULT '{}'::jsonb,
+  team_b_guest_id text,
+  team_b_guest_profile jsonb DEFAULT '{}'::jsonb,
+  status text DEFAULT 'waiting'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  bets jsonb DEFAULT '{}'::jsonb,
+  accepted_by jsonb DEFAULT '[]'::jsonb,
+  CONSTRAINT private_matches_pkey PRIMARY KEY (match_code),
+  CONSTRAINT private_matches_team_a_id_fkey FOREIGN KEY (team_a_id) REFERENCES public.teams(team_id),
+  CONSTRAINT private_matches_team_b_id_fkey FOREIGN KEY (team_b_id) REFERENCES public.teams(team_id)
+);
+CREATE TABLE public.app_gains (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  match_code text NOT NULL,
+  amount integer NOT NULL,
+  bet integer NOT NULL,
+  winner_team text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT app_gains_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.app_version (
+  id bigint NOT NULL DEFAULT 1 CHECK (id = 1),
+  version text NOT NULL,
+  build_number bigint NOT NULL,
+  force_update boolean DEFAULT true,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT app_version_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.team_invitations (
+  id bigint NOT NULL DEFAULT nextval('team_invitations_id_seq'::regclass),
+  inviter_id uuid NOT NULL,
+  invitee_id uuid NOT NULL,
+  team_id text NOT NULL,
+  inviter_name text NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  game_type text DEFAULT 'belote'::text,
+  CONSTRAINT team_invitations_pkey PRIMARY KEY (id),
+  CONSTRAINT team_invitations_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES public.users(id),
+  CONSTRAINT team_invitations_invitee_id_fkey FOREIGN KEY (invitee_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.ludo_teams (
+  team_id text NOT NULL,
+  host_id text NOT NULL,
+  host_profile jsonb DEFAULT '{}'::jsonb,
+  members jsonb DEFAULT '[]'::jsonb,
+  status text DEFAULT 'waiting'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT ludo_teams_pkey PRIMARY KEY (team_id)
+);
+
+---
+
+### 11. **Migration : Ajout de la colonne `status` (juillet 2026)**
+
+Si la table `amis` existe déjà sans la colonne `status`, exécute cette commande SQL dans l'éditeur SQL de Supabase :
+
+```sql
+-- 1. Ajouter la colonne (sans default pour que les lignes existantes soient NULL)
+ALTER TABLE amis ADD COLUMN status TEXT;
+
+-- 2. Les amitiés mutuelles (deux lignes réciproques) → 'accepted'
+UPDATE amis SET status = 'accepted'
+WHERE (id_user, id_ami) IN (
+    SELECT a.id_user, a.id_ami FROM amis a
+    INNER JOIN amis b ON a.id_user = b.id_ami AND a.id_ami = b.id_user
+);
+
+-- 3. Les demandes unidirectionnelles (pas encore acceptées) → 'pending'
+UPDATE amis SET status = 'pending' WHERE status IS NULL;
+
+-- 4. Rendre la colonne obligatoire avec une valeur par défaut
+ALTER TABLE amis ALTER COLUMN status SET NOT NULL;
+ALTER TABLE amis ALTER COLUMN status SET DEFAULT 'pending';
 ```
 
-Tu peux ajouter d'autres colonnes selon tes besoins (username, bio, etc.)
+---
+
+### 12. **Table `transaction_requests` (juillet 2026)**
+
+Ajoutée pour gérer les demandes d'achat et de retrait de jetons.
+
+```sql
+CREATE TABLE public.transaction_requests (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('purchase', 'withdrawal')),
+  amount INTEGER NOT NULL,
+  reference TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.transaction_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read their own requests"
+  ON public.transaction_requests FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create their own requests"
+  ON public.transaction_requests FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+```
 
 ---
 

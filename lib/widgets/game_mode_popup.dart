@@ -41,6 +41,12 @@ class _GameModePopupState extends State<GameModePopup> {
 
     try {
       final teamId = await _teamLobbyService.createTeam(currentUser.id, profile);
+      if (teamId == null) {
+        setState(() {
+          errorMessage = 'Erreur réseau : impossible de créer l\'équipe. Vérifie ta connexion.';
+        });
+        return;
+      }
       Navigator.pop(context);
       widget.onClosePopup?.call();
       Navigator.push(
@@ -137,6 +143,7 @@ class _GameModePopupState extends State<GameModePopup> {
               TextFormField(
                 controller: adversaireController,
                 decoration: const InputDecoration(labelText: "ID adversaire"),
+                keyboardType: TextInputType.number,
                 validator: (value) =>
                     value == null || value.isEmpty ? "Champ requis" : null,
               ),
@@ -153,11 +160,13 @@ class _GameModePopupState extends State<GameModePopup> {
         break;
 
       case "Classique":
+      case "2 vs 2":
         content = Column(
           children: [
             TextFormField(
               controller: teamIdController,
               decoration: const InputDecoration(labelText: "ID Équipe"),
+              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 16),
             if (errorMessage != null)
@@ -240,7 +249,7 @@ class _GameModePopupState extends State<GameModePopup> {
             const SizedBox(height: 20),
             Expanded(child: SingleChildScrollView(child: content)),
             const SizedBox(height: 12),
-            if (widget.mode != "Classique")
+            if (widget.mode != "Classique" && widget.mode != "2 vs 2")
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

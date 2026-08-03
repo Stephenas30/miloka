@@ -1,15 +1,33 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:miloka/service/ludo_team_lobby_service.dart';
 import 'package:miloka/service/friends_service.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../game/ludo/ludo_board_layout.dart';
 import '../game/ludo/ludo_engine.dart';
+import '../providers/auth_provider.dart';
+import '../service/ludo_multiplayer_service.dart';
 import '../service/stats_service.dart';
+import '../widgets/friends_dialog.dart';
+import 'home_screen.dart';
+import 'ludo_lobby_screen.dart';
+import 'profile_screen.dart';
+import 'purchase_screen.dart';
 
 class LudoScreen extends StatefulWidget {
-  const LudoScreen({super.key});
+  final bool beginGame;
+  final List<Map<String, dynamic>> playerSubscribe;
+  final bool isHost;
+  final String teamId;
+  const LudoScreen({
+    super.key,
+    this.beginGame = false,
+    this.playerSubscribe = const [],
+    this.isHost = false,
+    this.teamId = '',
+  });
 
   @override
   State<LudoScreen> createState() => _LudoScreenState();
@@ -17,14 +35,40 @@ class LudoScreen extends StatefulWidget {
 
 class _LudoScreenState extends State<LudoScreen>
     with SingleTickerProviderStateMixin {
-
-  final LudoEngine _engine = LudoEngine();
+  late LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
   int _displayDice = 1;
   LudoPawn? _selectedPawn;
   bool _winnerDialogShown = false;
   bool _beginGame = false;
+  bool _aiPlaying = false;
+  bool _diceRolledThisTurn = false;
+  bool _isDraggingDice = false;
+  bool _isSlidingDice = false;
+  bool _isMultiplayer = false;
+  List<LudoHuman> _playerSubscribe = [];
+  String _roomCode = '';
+  String _playerName = '';
+  StreamSubscription<Map<String, dynamic>>? _multiplayerSubscription;
+  final LudoMultiplayerService _multiplayerService = LudoMultiplayerService();
+  final ValueNotifier<List<String>> _participantsNotifier = ValueNotifier([]);
+  bool isHost = true;
+  final Set<LudoColor> _disconnectedColors = {};
+  final ValueNotifier<Set<String>> _readyPlayersNotifier = ValueNotifier({});
+
+  Offset _diceDragOffset = Offset.zero;
+  Offset _slideVelocity = Offset.zero;
+  double _diceSlideAngle = 0;
+  Timer? _slideTimer;
+  final GlobalKey _stackKey = GlobalKey();
+  double _cellSize = 0;
+  Timer? _moveTimer;
+  int? _movingPawnId;
+  LudoColor? _movingPawnColor;
+  List<Offset> _movePath = [];
+  int _moveIndex = 0;
+  dynamic _userProfile;
 
   @override
   void initState() {
@@ -33,9 +77,9 @@ class _LudoScreenState extends State<LudoScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _userProfile = context.read<AuthProvider?>()?.userProfile;
-
+    //_beginGame = widget.beginGame;
     if (widget.beginGame) {
+      //_startGame(LudoColor.yellow);
       _playerSubscribe = widget.playerSubscribe
           .map(
             (player) => LudoHuman(
@@ -43,32 +87,107 @@ class _LudoScreenState extends State<LudoScreen>
               color: _parseColor(player['color']),
               id: player['id'],
               avatar: player['avatar'],
+              bet: (player['bet'] as int?) ?? 0,
             ),
           )
           .toList();
 
       _startMultParticipantGame();
     }
+
+    _userProfile = context.read<AuthProvider?>()?.userProfile;
   }
 
   @override
   void dispose() {
     _aiTimer?.cancel();
+    _moveTimer?.cancel();
+    _slideTimer?.cancel();
+    _multiplayerSubscription?.cancel();
+    if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame) {
+      if (isHost) {
+        _multiplayerService.sendGameEnded(_roomCode);
+      } else if (_engine.players.isNotEmpty) {
+        final player = _engine.players.firstWhere(
+          (p) => p.namePlayer == _playerName,
+          orElse: () => _engine.players.first,
+        );
+        _multiplayerService.sendPlayerLeft(
+          _roomCode,
+          player.namePlayer ?? _playerName,
+          player.color.name,
+        );
+      }
+      _multiplayerService.disposeRoom(_roomCode);
+    } else if (_roomCode.isNotEmpty) {
+      _multiplayerService.disposeRoom(_roomCode);
+    }
+    _participantsNotifier.dispose();
+    _readyPlayersNotifier.dispose();
     _diceController.dispose();
     super.dispose();
   }
 
   void _scheduleAiTurn() {
-    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
-    if (isHumanTurn) return;
-    _aiTimer?.cancel();
-    if (_engine.winner != null || _engine.currentPlayer.isHuman) return;
+    if (_engine.winner != null) return;
+    if (_disconnectedColors.contains(_engine.currentPlayer.color)) {
+      _engine.advancePastDisconnected(_disconnectedColors);
+      setState(() {});
+      if (_isMultiplayer && isHost && _engine.onStateChange != null) {
+        _engine.onStateChange!(_engine.snapshot());
+      }
+      _scheduleAiTurn();
+      return;
+    }
+    if (_engine.currentPlayer.isHuman) return;
+    if (_aiTimer != null && _aiTimer!.isActive) return;
+    if (_aiPlaying) return;
 
     _aiTimer = Timer(const Duration(milliseconds: 1900), () {
       if (!mounted) return;
-      setState(() {
-        _animateDiceRoll(_engine.rollDice());
+      _aiPlaying = true;
+      _aiTimer = null;
+      final value = _engine.rollDice();
+      setState(() {});
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
         _engine.aiPlay();
+        final move = _engine.lastMove;
+
+        if (move != null) {
+          _startPawnMove(
+            move.pawn.color,
+            move.pawn.id,
+            move.fromSteps,
+            move.toSteps,
+            () {
+              if (!mounted) return;
+              setState(() {
+                if (_engine.winner == null) {
+                  if (_engine.extraTurn) {
+                    _engine.scheduleTurnEnd(extraTurn: true);
+                  } else {
+                    _engine.scheduleTurnEnd(extraTurn: false);
+                  }
+                }
+                _aiPlaying = false;
+                _scheduleAiTurn();
+              });
+            },
+          );
+        } else {
+          setState(() {
+            if (_engine.winner == null) {
+              if (_engine.extraTurn) {
+                _engine.scheduleTurnEnd(extraTurn: true);
+              } else {
+                _engine.scheduleTurnEnd(extraTurn: false);
+              }
+            }
+            _aiPlaying = false;
+            _scheduleAiTurn();
+          });
+        }
       });
     });
   }
@@ -87,22 +206,150 @@ class _LudoScreenState extends State<LudoScreen>
     await Future.delayed(const Duration(milliseconds: 420), () {
       if (mounted) setState(() => _displayDice = value);
     });
-
-    _engine.scheduleTurnEnd(extraTurn: value == 6); 
-
-    return Future.value();
   }
 
+  bool get _isMyTurn =>
+      _engine.currentPlayer.isHuman &&
+      _engine.winner == null &&
+      (!_engine.isMultiplayer ||
+          _engine.currentPlayer.id == _userProfile?['id']);
+
   void _onRollDice() {
-    if (_engine.winner != null ||
-        !_engine.currentPlayer.isHuman) {
+    if (!_isMyTurn || _diceRolledThisTurn) {
       return;
     }
-    setState(() {
-      _selectedPawn = null;
-      _animateDiceRoll(_engine.rollDice());
+
+    print('Host? => $isHost');
+    _diceRolledThisTurn = true;
+    final value = _engine.rollDice();
+    setState(() => _selectedPawn = null);
+    // engine now broadcasts state via its `onStateChange` callback in multiplayer
+
+    if (isHost) {
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (_engine.getValidMoves().isEmpty) {
+            _diceRolledThisTurn = false;
+            _engine.scheduleTurnEnd(extraTurn: false);
+            _scheduleAiTurn();
+          }
+        });
+      });
+    } else {
+      _animateDiceRoll(value).then((_) {
+        if (!mounted) return;
+        setState(() {
+          if (_engine.getValidMoves().isEmpty) {
+            _diceRolledThisTurn = false;
+            _engine.scheduleTurnEnd(extraTurn: false);
+            //_scheduleAiTurn();
+          }
+        });
+      });
+    }
+  }
+
+  void _onPawnTap(LudoPawn pawn) {
+    if (!_isMyTurn) return;
+    if (!_diceRolledThisTurn || !_engine.canMovePawn(pawn)) return;
+
+    final fromSteps = pawn.stepsFromStart;
+    final move = _engine.getValidMoves().firstWhere(
+      (m) => m.pawn.id == pawn.id,
+    );
+    final toSteps = move.toSteps;
+
+    final moved = _engine.applyMove(pawn);
+    if (!moved) return;
+
+    _startPawnMove(pawn.color, pawn.id, fromSteps, toSteps, () {
+      if (!mounted) return;
+      setState(() {
+        _selectedPawn = null;
+        _diceRolledThisTurn = false;
+      });
+      if (_engine.winner != null) {
+        return;
+      }
+      if (_engine.extraTurn) {
+        _engine.scheduleTurnEnd(extraTurn: true);
+      } else {
+        _engine.scheduleTurnEnd(extraTurn: false);
+        if (isHost || !_engine.isMultiplayer) _scheduleAiTurn();
+      }
+      // engine will broadcast new state when needed via its callback
     });
-    if (_engine.getValidMoves().isEmpty /* && _engine.diceRolled == false */) {
+  }
+
+  void _handleGameEnded() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a2e),
+        title: const Text(
+          'Partie terminée',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'La partie a été interrompue.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              if (widget.teamId.isNotEmpty) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LudoLobbyScreen(
+                      teamId: widget.teamId,
+                      isHost: widget.isHost,
+                      fromGame: true,
+                    ),
+                  ),
+                );
+              } else {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (route) => route.isFirst,
+                );
+              }
+            },
+            child: const Text('OK', style: TextStyle(color: Colors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handlePlayerLeft(Map<String, dynamic> payload) {
+    final colorName = payload['color']?.toString();
+    final playerName = payload['player']?.toString() ?? 'Un joueur';
+    if (colorName == null) return;
+
+    final color = LudoColor.values.firstWhere(
+      (c) => c.name == colorName,
+      orElse: () => LudoColor.red,
+    );
+
+    setState(() {
+      _disconnectedColors.add(color);
+    });
+
+    _participantsNotifier.value = _participantsNotifier.value
+        .where((name) => name != playerName)
+        .toList();
+
+    if (_disconnectedColors.contains(_engine.currentPlayer.color)) {
+      _engine.advancePastDisconnected(_disconnectedColors);
+      setState(() {});
+      if (_isMultiplayer && isHost && _engine.onStateChange != null) {
+        _engine.onStateChange!(_engine.snapshot());
+      }
       _scheduleAiTurn();
     }
 
@@ -118,15 +365,10 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _quitGame() {
     if (_isMultiplayer && _roomCode.isNotEmpty) {
-      final playerColor =
-          _engine.players.any((p) => p.namePlayer == _playerName)
+      final playerColor = _engine.players.any((p) => p.namePlayer == _playerName)
           ? _engine.players.firstWhere((p) => p.namePlayer == _playerName).color
           : LudoColor.yellow;
-      _multiplayerService.sendPlayerLeft(
-        _roomCode,
-        _playerName,
-        playerColor.name,
-      );
+      _multiplayerService.sendPlayerLeft(_roomCode, _playerName, playerColor.name);
       _multiplayerService.disposeRoom(_roomCode);
       _multiplayerSubscription?.cancel();
       _roomCode = '';
@@ -155,12 +397,109 @@ class _LudoScreenState extends State<LudoScreen>
       onComplete();
       return;
     }
-    if (!_engine.canMovePawn(pawn)) return;
+    _movingPawnId = pawnId;
+    _movingPawnColor = color;
+    _moveIndex = 0;
 
+    _moveTimer?.cancel();
+    _moveTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _moveIndex++;
+      });
+      if (_moveIndex >= _movePath.length) {
+        timer.cancel();
+        _movingPawnId = null;
+        _movingPawnColor = null;
+        _movePath = [];
+        onComplete();
+      }
+    });
+  }
+
+  void _startDiceSlide() {
+    _slideTimer?.cancel();
+    const friction = 0.96;
+    const minVelocity = 20.0;
+
+    final renderBox =
+        _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final stackSize = renderBox.size;
+    final diceSize = 60.0;
+    const bottomPadding = 24.0;
+    final topBound = -stackSize.height + bottomPadding + diceSize;
+    final leftBound = -stackSize.width / 2 + diceSize / 2;
+    final rightBound = stackSize.width / 2 - diceSize / 2;
+
+    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      _slideVelocity *= friction;
+
+      if (_slideVelocity.distance < minVelocity) {
+        timer.cancel();
+        _animateDiceBack();
+        return;
+      }
+
+      setState(() {
+        _diceDragOffset += _slideVelocity * 0.016;
+        _diceSlideAngle += _slideVelocity.distance * 0.0003;
+
+        if (_diceDragOffset.dx < leftBound) {
+          _diceDragOffset = Offset(leftBound, _diceDragOffset.dy);
+          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+        } else if (_diceDragOffset.dx > rightBound) {
+          _diceDragOffset = Offset(rightBound, _diceDragOffset.dy);
+          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+        }
+        if (_diceDragOffset.dy < topBound) {
+          _diceDragOffset = Offset(_diceDragOffset.dx, topBound);
+          _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
+        }
+      });
+    });
+  }
+
+  void _animateDiceBack() {
+    const duration = Duration(milliseconds: 300);
+    final startOffset = _diceDragOffset;
+    final startAngle = _diceSlideAngle;
+    final startTime = DateTime.now();
+
+    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      final elapsed =
+          DateTime.now().difference(startTime).inMilliseconds /
+          duration.inMilliseconds;
+      final t = elapsed.clamp(0.0, 1.0);
+      final easeOut = 1 - (1 - t) * (1 - t);
+
+      setState(() {
+        _diceDragOffset = Offset.lerp(startOffset, Offset.zero, easeOut)!;
+        _diceSlideAngle = startAngle * (1 - easeOut);
+      });
+
+      if (t >= 1) {
+        timer.cancel();
+        setState(() {
+          _isSlidingDice = false;
+          _diceDragOffset = Offset.zero;
+          _diceSlideAngle = 0;
+          _slideVelocity = Offset.zero;
+        });
+        _onRollDice();
+      }
+    });
+  }
+
+  void _startGame(LudoColor color) {
     setState(() {
-      _selectedPawn = pawn;
-      _engine.applyMove(pawn);
-      _selectedPawn = null;
+      _engine = LudoEngine(
+        human: [LudoHuman(name: 'Joueur', color: color)],
+      );
+      _beginGame = true;
     });
     if (!_engine.currentPlayer.isHuman) {
       _scheduleAiTurn();
@@ -194,30 +533,10 @@ class _LudoScreenState extends State<LudoScreen>
     return LudoColor.yellow;
   }
 
-  void _rebuildEngineFromSubscribers() {
-    final humanPlayers = _playerSubscribe;
-
-    _engine = LudoEngine(
-      human: humanPlayers,
-      isMultiplayer: true,
-      roomCode: _roomCode,
-      onStateChange: (snapshot) {
-        if (_roomCode.isNotEmpty) {
-          _multiplayerService.sendState(_roomCode, snapshot.toJson());
-        }
-      },
-    );
-  }
-
   void _startMultParticipantGame() async {
     if (_playerSubscribe.isEmpty) return;
 
     print('Participant => $_playerSubscribe');
-
-    _participantsNotifier.value = _playerSubscribe
-        .map((p) => p.name.toString())
-        .where((name) => name.isNotEmpty)
-        .toList();
 
     await _multiplayerService.joinRoom(
       playerName: _playerSubscribe.first.name,
@@ -226,115 +545,38 @@ class _LudoScreenState extends State<LudoScreen>
 
     setState(() {
       _roomCode = 'ludo_global';
-      _playerName = _userProfile?['username']?.toString() ?? _playerSubscribe.first.name;
-      isHost = false;
+      _playerName = _playerSubscribe.first.name;
+      _engine = LudoEngine(
+        human: _playerSubscribe,
+        isMultiplayer: true,
+        roomCode: 'ludo_global',
+        onStateChange: (snapshot) => _multiplayerService.sendState(
+          'ludo_global',
+          snapshot.toJson(),
+          true,
+        ),
+      );
+      isHost = widget.isHost;
+      _beginGame = true;
     });
+
+    if (!_engine.currentPlayer.isHuman && isHost) {
+      _scheduleAiTurn();
+    }
 
     _multiplayerSubscription = _multiplayerService
         .watchRoom('ludo_global')
         .listen((payload) {
           if (!mounted) return;
-          final type = payload['event']?.toString();
-
-          if (type == 'ludo_presence') {
-            final action = payload['action']?.toString();
-            final playerData = payload['player'] as Map<String, dynamic>?;
-            if (action == 'join' && playerData != null) {
-              final playerName = playerData['name']?.toString() ?? '';
-              final playerColorStr =
-                  playerData['color']?.toString() ?? '';
-              if (playerName.isNotEmpty) {
-                final list = List<String>.from(_participantsNotifier.value);
-                if (!list.contains(playerName)) {
-                  final color = LudoColor.values.firstWhere(
-                    (c) => c.name == playerColorStr,
-                    orElse: () => LudoColor.yellow,
-                  );
-                  setState(() {
-                    _playerSubscribe.add(
-                      LudoHuman(name: playerName, color: color),
-                    );
-                  });
-                  list.add(playerName);
-                }
-                _participantsNotifier.value = list;
-              }
-            }
+          final type = payload['type']?.toString();
+          if (type == 'presence' || type == 'participants' || type == 'start') {
             return;
           }
-          if (type == 'ludo_player_ready') {
-            final playerName = payload['player']?.toString() ?? '';
-            final isReady = payload['ready'] == true;
-            print(payload);
-            if (playerName.isEmpty) return;
-            final updated = Set<String>.from(_readyPlayersNotifier.value);
-            if (isReady) {
-              updated.add(playerName);
-            } else {
-              updated.remove(playerName);
-            }
-            _readyPlayersNotifier.value = updated;
-            return;
-          }
-          if (type == 'ludo_participants') {
-            final participantList = payload['participants'] as List<dynamic>?;
-            if (participantList != null) {
-              final parsed = participantList.map<LudoHuman>((item) {
-                final map = item as Map<String, dynamic>;
-                final colorString = map['color']?.toString() ?? '';
-                final color = LudoColor.values.firstWhere(
-                  (c) => c.name == colorString,
-                  orElse: () => LudoColor.yellow,
-                );
-                return LudoHuman(
-                  name: map['name']?.toString() ?? 'Joueur inconnu',
-                  color: color,
-                );
-              }).toList();
-              setState(() {
-                _playerSubscribe = parsed;
-                _participantsNotifier.value = parsed
-                    .map((e) => e.name.toString())
-                    .where((name) => name.isNotEmpty)
-                    .toList();
-              });
-              if (!_beginGame) _rebuildEngineFromSubscribers();
-            }
-            return;
-          }
-
-          if (type == 'ludo_start') {
-            final participantsFromService =
-                _multiplayerService.getParticipants(_roomCode);
-            if (participantsFromService.isNotEmpty) {
-              final parsed = participantsFromService.map<LudoHuman>((item) {
-                final colorString = item['color']?.toString() ?? '';
-                final color = LudoColor.values.firstWhere(
-                  (c) => c.name == colorString,
-                  orElse: () => LudoColor.yellow,
-                );
-                return LudoHuman(
-                  name: item['name']?.toString() ?? 'Joueur inconnu',
-                  color: color,
-                );
-              }).toList();
-              _playerSubscribe = parsed;
-            }
-            Navigator.of(context).pop();
-            _rebuildEngineFromSubscribers();
-            setState(() {
-              _beginGame = true;
-              _diceRolledThisTurn = false;
-            });
-            if (!_engine.currentPlayer.isHuman) _scheduleAiTurn();
-            return;
-          }
-
-          if (type == 'ludo_game_ended') {
+          if (type == 'game_ended') {
             _handleGameEnded();
             return;
           }
-          if (type == 'ludo_player_left') {
+          if (type == 'player_left') {
             _handlePlayerLeft(payload);
             return;
           }
@@ -346,724 +588,11 @@ class _LudoScreenState extends State<LudoScreen>
               _diceRolledThisTurn = snapshot.diceRolled && _isMyTurn;
               _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
             });
+            if (isHost) {
+              _scheduleAiTurn();
+            }
           }
         });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _showParticipantsListDialog(isHost: false);
-    });
-  }
-
-  Future<void> _startMultiplayerGame({required bool createRoom}) async {
-    final playerHote = _userProfile;
-
-    final playerFriends = await FriendsService().getFriendsSubscribeToGam();
-
-    const friendColors = [LudoColor.blue, LudoColor.green, LudoColor.yellow];
-
-    final List<LudoHuman> players = [
-      LudoHuman(
-        name: playerHote!['username'] ?? 'Player',
-        color: LudoColor.red,
-        id: playerHote['id'],
-        avatar: playerHote['avatar_url'],
-      ),
-      ...playerFriends.take(3).toList().asMap().entries.map((entry) {
-        final i = entry.key;
-        final e = entry.value;
-        return LudoHuman(
-          name: e['username'],
-          color: friendColors[i],
-          id: e['id'],
-          avatar: e['avatar_url'],
-        );
-      }),
-    ];
-
-    setState(() {
-      _playerSubscribe = players;
-    });
-
-    setState(() {
-      _playerName = playerHote['username'] ?? 'Player';
-      _isMultiplayer = true;
-    });
-
-    if (createRoom) {
-      final session = await _multiplayerService.createRoom(
-        playerName: playerHote['username'] ?? 'Player',
-        playerColor: LudoColor.red.name,
-      );
-
-      print('Session => ${session.roomCode}');
-
-      setState(() {
-        _roomCode = session.roomCode;
-        _isRoomReady = true;
-      });
-      // host is already participant (store names for the notifier)
-      _participantsNotifier.value = players
-          .map((elt) => elt.name.toString())
-          .toList();
-
-      // listen for presence/state
-      _multiplayerSubscription = _multiplayerService
-          .watchRoom('ludo_global')
-          .listen((payload) {
-            if (!mounted) return;
-            print('=>  response payload = $payload');
-            final type = payload['event']?.toString();
-            if (type == 'ludo_presence') {
-              final action = payload['action']?.toString();
-              final playerData = payload['player'] as Map<String, dynamic>?;
-              if (action == 'join' && playerData != null) {
-                final playerName = playerData['name']?.toString() ?? '';
-                if (playerName.isNotEmpty) {
-                  final list = List<String>.from(_participantsNotifier.value);
-                  if (!list.contains(playerName)) list.add(playerName);
-                  _participantsNotifier.value = list;
-
-                  final playerColor =
-                      playerData['color']?.toString() ?? 'yellow';
-                  final color = LudoColor.values.firstWhere(
-                    (c) => c.name == playerColor,
-                    orElse: () => LudoColor.yellow,
-                  );
-                  if (!_playerSubscribe.any((p) => p.name == playerName)) {
-                    setState(() {
-                      _playerSubscribe.add(
-                        LudoHuman(name: playerName, color: color),
-                      );
-                    });
-                  }
-                  _multiplayerService.sendParticipants(
-                    _roomCode,
-                    _playerSubscribe
-                        .map(
-                          (p) => {
-                            'name': p.name,
-                            'color': p.color.name,
-                            'id': p.id.toString(),
-                            'avatar': p.avatar.toString(),
-                          },
-                        )
-                        .toList(),
-                  );
-                }
-              }
-              return;
-            }
-            if (type == 'ludo_color_change') {
-              final playerName = payload['player']?.toString() ?? '';
-              final newColorStr = payload['color']?.toString() ?? '';
-              if (playerName.isEmpty || newColorStr.isEmpty) return;
-              final newColor = LudoColor.values.firstWhere(
-                (c) => c.name == newColorStr,
-                orElse: () => LudoColor.yellow,
-              );
-              final index = _playerSubscribe.indexWhere(
-                (p) => p.name == playerName,
-              );
-              if (index == -1) return;
-              final existingIndex = _playerSubscribe.indexWhere(
-                (p) => p.color == newColor && p.name != playerName,
-              );
-              setState(() {
-                if (existingIndex != -1) {
-                  final oldColor = _playerSubscribe[index].color;
-                  _playerSubscribe[existingIndex] = LudoHuman(
-                    name: _playerSubscribe[existingIndex].name,
-                    color: oldColor,
-                    id: _playerSubscribe[existingIndex].id,
-                    avatar: _playerSubscribe[existingIndex].avatar,
-                  );
-                }
-                _playerSubscribe[index] = LudoHuman(
-                  name: _playerSubscribe[index].name,
-                  color: newColor,
-                  id: _playerSubscribe[index].id,
-                  avatar: _playerSubscribe[index].avatar,
-                );
-              });
-              _multiplayerService.sendParticipants(
-                _roomCode,
-                _playerSubscribe
-                    .map(
-                      (p) => {
-                        'name': p.name,
-                        'color': p.color.name,
-                        'id': p.id.toString(),
-                        'avatar': p.avatar.toString(),
-                      },
-                    )
-                    .toList(),
-              );
-              return;
-            }
-            if (type == 'ludo_player_ready') {
-              final playerName = payload['player']?.toString() ?? '';
-              final isReady = payload['ready'] == true;
-              if (playerName.isEmpty) return;
-              final updated = Set<String>.from(_readyPlayersNotifier.value);
-              if (isReady) {
-                updated.add(playerName);
-              } else {
-                updated.remove(playerName);
-              }
-              _readyPlayersNotifier.value = updated;
-              return;
-            }
-            if (type == 'ludo_participants') {
-              final participantList = payload['participants'] as List<dynamic>?;
-              if (participantList != null) {
-                final parsed = participantList.map<LudoHuman>((item) {
-                  final map = item as Map<String, dynamic>;
-                  final colorString = map['color']?.toString() ?? '';
-                  final color = LudoColor.values.firstWhere(
-                    (c) => c.name == colorString,
-                    orElse: () => LudoColor.yellow,
-                  );
-                  return LudoHuman(
-                    name: map['name']?.toString() ?? 'Joueur inconnu',
-                    color: color,
-                  );
-                }).toList();
-                setState(() {
-                  _playerSubscribe = parsed;
-                  _participantsNotifier.value = parsed
-                      .map((e) => e.name.toString())
-                      .where((name) => name.isNotEmpty)
-                      .toList();
-                });
-              }
-              return;
-            }
-
-            if (type == 'ludo_game_ended') {
-              _handleGameEnded();
-              return;
-            }
-            if (type == 'ludo_player_left') {
-              _handlePlayerLeft(payload);
-              return;
-            }
-
-            final snapshot = LudoGameSnapshot.fromJson(payload);
-            if (snapshot.roomCode == session.roomCode) {
-              setState(() {
-                _engine.applySnapshot(snapshot);
-                _beginGame = true;
-                _diceRolledThisTurn = snapshot.diceRolled;
-                _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
-              });
-              if (!_engine.currentPlayer.isHuman) {
-                _scheduleAiTurn();
-              }
-            }
-          });
-
-      // Broadcast participants FIRST so friend's _dataOnChannel is populated
-      _multiplayerService.sendParticipants(
-        session.roomCode,
-        _playerSubscribe
-            .map(
-              (player) => {
-                'name': player.name.toString(),
-                'color': _parseColor(player.color).name,
-                'id': player.id.toString(),
-                'avatar': player.avatar.toString(),
-              },
-            )
-            .toList(),
-      );
-
-      // Then update DB send_partie = 'playing' in parallel
-      await Future.wait(playerFriends.map((subscrib) {
-        return Supabase.instance.client
-            .from('amis')
-            .update({'send_partie': 'playing'})
-            .eq('id_ami', subscrib['id'])
-            .eq('id_user', playerHote['id']);
-      }));
-
-      // show participants and ask host to start
-      final start = await _showParticipantsListDialog(isHost: true);
-
-      _engine = LudoEngine(
-        human: _playerSubscribe,
-        isMultiplayer: true,
-        roomCode: session.roomCode,
-        onStateChange: (snapshot) =>
-            _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-      );
-
-      if (start == true) {
-        _multiplayerService.sendGameStart(session.roomCode);
-        await _multiplayerService.sendState(
-          session.roomCode,
-          _engine.snapshot().toJson(),
-        );
-        setState(() {
-          _beginGame = true;
-        });
-        if (!_engine.currentPlayer.isHuman) _scheduleAiTurn();
-      } else {
-        // host cancelled, reset send_partie = 'none'
-        await Future.wait(playerFriends.map((subscrib) {
-          return Supabase.instance.client
-              .from('amis')
-              .update({'send_partie': 'none'})
-              .eq('id_ami', subscrib['id'])
-              .eq('id_user', playerHote['id']);
-        }));
-        _multiplayerService.disposeRoom(session.roomCode);
-        setState(() {
-          _isMultiplayer = false;
-          _roomCode = '';
-          _isRoomReady = false;
-        });
-      }
-      setState(() {});
-      return;
-    }
-
-    // Join the global platform without asking for a room code
-    isHost = false;
-    final session = await _multiplayerService.joinRoom(
-      playerName: playerHote['username'] ?? 'Player',
-      playerColor: LudoColor.yellow.name,
-    );
-    if (session == null) {
-      setState(() {
-        _isMultiplayer = false;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Impossible de rejoindre la plateforme.')),
-      );
-      return;
-    }
-    setState(() {
-      _roomCode = session.roomCode;
-      _isRoomReady = true;
-      _playerName = playerHote['username'] ?? 'Player';
-      _isMultiplayer = true;
-      _playerSubscribe = [
-        LudoHuman(
-          name: playerHote['username'] ?? 'Player',
-          color: LudoColor.yellow,
-        ),
-      ];
-      _participantsNotifier.value = [playerHote['username'] ?? 'Player'];
-    });
-
-    _engine = LudoEngine(
-      human: [
-        LudoHuman(
-          name: playerHote['username'] ?? 'Player',
-          color: LudoColor.yellow,
-        ),
-      ],
-      isMultiplayer: true,
-      roomCode: session.roomCode,
-      onStateChange: (snapshot) =>
-          _multiplayerService.sendState(session.roomCode, snapshot.toJson()),
-    );
-
-    // listen for presence, participants and state updates BEFORE sending join
-    _multiplayerSubscription = _multiplayerService
-        .watchRoom(session.roomCode)
-        .listen((payload) {
-          if (!mounted) return;
-          final type = payload['event']?.toString();
-          if (type == 'ludo_presence') {
-            final action = payload['action']?.toString();
-            final playerData = payload['player'] as Map<String, dynamic>?;
-            if (action == 'join' && playerData != null) {
-              final playerName = playerData['name']?.toString() ?? '';
-              final playerColorStr =
-                  playerData['color']?.toString() ?? '';
-              if (playerName.isNotEmpty) {
-                final list = List<String>.from(_participantsNotifier.value);
-                if (!list.contains(playerName)) {
-                  final color = LudoColor.values.firstWhere(
-                    (c) => c.name == playerColorStr,
-                    orElse: () => LudoColor.yellow,
-                  );
-                  setState(() {
-                    _playerSubscribe.add(
-                      LudoHuman(name: playerName, color: color),
-                    );
-                  });
-                  list.add(playerName);
-                }
-                _participantsNotifier.value = list;
-              }
-            }
-            return;
-          }
-          if (type == 'ludo_player_ready') {
-            final playerName = payload['player']?.toString() ?? '';
-            final isReady = payload['ready'] == true;
-            if (playerName.isEmpty) return;
-            final updated = Set<String>.from(_readyPlayersNotifier.value);
-            if (isReady) {
-              updated.add(playerName);
-            } else {
-              updated.remove(playerName);
-            }
-            _readyPlayersNotifier.value = updated;
-            return;
-          }
-          if (type == 'ludo_participants') {
-            final participantList = payload['participants'] as List<dynamic>?;
-            if (participantList != null) {
-              final parsed = participantList.map<LudoHuman>((item) {
-                final map = item as Map<String, dynamic>;
-                final colorString = map['color']?.toString() ?? '';
-                final color = LudoColor.values.firstWhere(
-                  (c) => c.name == colorString,
-                  orElse: () => LudoColor.yellow,
-                );
-                return LudoHuman(
-                  name: map['name']?.toString() ?? 'Joueur inconnu',
-                  color: color,
-                );
-              }).toList();
-              setState(() {
-                _playerSubscribe = parsed;
-                _participantsNotifier.value = parsed
-                    .map((e) => e.name.toString())
-                    .where((name) => name.isNotEmpty)
-                    .toList();
-              });
-              if (!_beginGame) _rebuildEngineFromSubscribers();
-            }
-            return;
-          }
-
-          if (type == 'ludo_start') {
-            final participantsFromService = _multiplayerService.getParticipants(
-              _roomCode,
-            );
-            if (participantsFromService.isNotEmpty) {
-              final parsed = participantsFromService.map<LudoHuman>((item) {
-                final colorString = item['color']?.toString() ?? '';
-                final color = LudoColor.values.firstWhere(
-                  (c) => c.name == colorString,
-                  orElse: () => LudoColor.yellow,
-                );
-                return LudoHuman(
-                  name: item['name']?.toString() ?? 'Joueur inconnu',
-                  color: color,
-                );
-              }).toList();
-              _playerSubscribe = parsed;
-            }
-            Navigator.of(context).pop();
-            _rebuildEngineFromSubscribers();
-            setState(() {
-              _beginGame = true;
-              _diceRolledThisTurn = false;
-            });
-            if (!_engine.currentPlayer.isHuman) _scheduleAiTurn();
-            return;
-          }
-
-          if (type == 'ludo_game_ended') {
-            _handleGameEnded();
-            return;
-          }
-          if (type == 'ludo_player_left') {
-            _handlePlayerLeft(payload);
-            return;
-          }
-
-          final snapshot = LudoGameSnapshot.fromJson(payload);
-          if (snapshot.roomCode == session.roomCode) {
-            setState(() {
-              _engine.applySnapshot(snapshot);
-              _beginGame = true;
-              _diceRolledThisTurn = snapshot.diceRolled;
-              _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
-            });
-          }
-        });
-
-    // show waiting dialog for non-host participant
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _showParticipantsListDialog(isHost: false);
-    });
-
-    setState(() {});
-  }
-
-  // Room code dialog removed: joining now uses the global Supabase channel.
-
-  Future<bool?> _showParticipantsListDialog({required bool isHost}) {
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return ValueListenableBuilder<List<String>>(
-          valueListenable: _participantsNotifier,
-          builder: (context, list, _) {
-            while (_playerSubscribe.length < list.length) {
-              final usedColors = _playerSubscribe.map((p) => p.color).toSet();
-              final freeColor = LudoColor.values.firstWhere(
-                (c) => !usedColors.contains(c),
-                orElse: () => LudoColor.yellow,
-              );
-              _playerSubscribe.add(
-                LudoHuman(
-                  name: list[_playerSubscribe.length],
-                  color: freeColor,
-                ),
-              );
-            }
-
-            return ValueListenableBuilder<Set<String>>(
-              valueListenable: _readyPlayersNotifier,
-              builder: (context, readySet, _) {
-                final nonHostCount = list.length - 1;
-                final readyCount = readySet.length;
-                final allReady =
-                    nonHostCount <= 0 || readyCount >= nonHostCount;
-
-                return AlertDialog(
-                  backgroundColor: const Color(0xFF1a1a2e),
-                  title: const Text(
-                    'Participants',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  content: SizedBox(
-                    width: 280,
-                    child: list.length <= 1
-                        ? _FriendsInviteList(
-                            onInvite: (friend) async {
-                              await FriendsService().sendGameRequest(
-                                friend['id'],
-                              );
-                              if (ctx.mounted) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Invitation envoyée à ${friend['username']}',
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                          )
-                        : Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ...List.generate(list.length, (index) {
-                                final participant = _playerSubscribe[index];
-                                final isMe = participant.name == _playerName;
-                                final isPlayerReady = readySet.contains(
-                                  participant.name,
-                                );
-                                final usedColors = _playerSubscribe
-                                    .map((p) => p.color)
-                                    .toSet();
-                                final availableColors = LudoColor.values.where(
-                                  (c) =>
-                                      c == participant.color ||
-                                      !usedColors.contains(c),
-                                );
-
-                                return ListTile(
-                                  leading: const Icon(
-                                    Icons.person,
-                                    color: Colors.white,
-                                  ),
-                                  title: Text(
-                                    list[index],
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (isMe)
-                                        DropdownButton<LudoColor>(
-                                          value: participant.color,
-                                          dropdownColor: const Color(
-                                            0xFF2A2A40,
-                                          ),
-                                          items: availableColors.map((c) {
-                                            return DropdownMenuItem<LudoColor>(
-                                              value: c,
-                                              child: Icon(
-                                                Icons.circle,
-                                                color: LudoBoardLayout
-                                                    .colorValues[c],
-                                              ),
-                                            );
-                                          }).toList(),
-                                          onChanged: (value) {
-                                            if (value == null) return;
-                                            _multiplayerService.sendColorChange(
-                                              _roomCode,
-                                              _playerName,
-                                              value.name,
-                                            );
-                                            final newColor = value;
-                                            final idx = _playerSubscribe
-                                                .indexWhere(
-                                              (p) =>
-                                                  p.name == _playerName,
-                                            );
-                                            if (idx == -1) return;
-                                            final existingIdx =
-                                                _playerSubscribe.indexWhere(
-                                              (p) =>
-                                                  p.color == newColor &&
-                                                  p.name != _playerName,
-                                            );
-                                            if (existingIdx != -1) {
-                                              final oldColor =
-                                                  _playerSubscribe[idx].color;
-                                              _playerSubscribe[existingIdx] =
-                                                  LudoHuman(
-                                                name: _playerSubscribe[
-                                                        existingIdx]
-                                                    .name,
-                                                color: oldColor,
-                                                id: _playerSubscribe[
-                                                        existingIdx]
-                                                    .id,
-                                                avatar: _playerSubscribe[
-                                                        existingIdx]
-                                                    .avatar,
-                                              );
-                                            }
-                                            _playerSubscribe[idx] = LudoHuman(
-                                              name: _playerSubscribe[idx].name,
-                                              color: newColor,
-                                              id: _playerSubscribe[idx].id,
-                                              avatar:
-                                                  _playerSubscribe[idx].avatar,
-                                            );
-                                            _participantsNotifier.value =
-                                                List<String>.from(
-                                              _participantsNotifier.value,
-                                            );
-                                            if (isHost) {
-                                              _multiplayerService
-                                                  .sendParticipants(
-                                                _roomCode,
-                                                _playerSubscribe.map((p) {
-                                                  return {
-                                                    'name': p.name,
-                                                    'color': p.color.name,
-                                                    'id': p.id.toString(),
-                                                    'avatar':
-                                                        p.avatar.toString(),
-                                                  };
-                                                }).toList(),
-                                              );
-                                            }
-                                          },
-                                        )
-                                      else
-                                        Icon(
-                                          Icons.circle,
-                                          color: LudoBoardLayout
-                                              .colorValues[participant.color],
-                                        ),
-                                      if (!isHost && !isMe)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            left: 8,
-                                          ),
-                                          child: Icon(
-                                            isPlayerReady
-                                                ? Icons.check_circle
-                                                : Icons.radio_button_unchecked,
-                                            color: isPlayerReady
-                                                ? Colors.greenAccent
-                                                : Colors.white38,
-                                            size: 20,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  onTap: null,
-                                );
-                              }),
-                              if (isHost)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    '$readyCount / $nonHostCount prêts',
-                                    style: TextStyle(
-                                      color: allReady
-                                          ? Colors.greenAccent
-                                          : Colors.white54,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                  ),
-                  actions: [
-                    if (isHost) ...[
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Annuler'),
-                      ),
-                      ElevatedButton(
-                        onPressed: allReady
-                            ? () => Navigator.pop(ctx, true)
-                            : null,
-                        child: const Text('Démarrer'),
-                      ),
-                    ] else ...[
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: readySet.contains(_playerName)
-                              ? Colors.green
-                              : Colors.grey.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                        onPressed: () {
-                          final newReady = !readySet.contains(_playerName);
-                          _multiplayerService.sendPlayerReady(
-                            _roomCode,
-                            _playerName,
-                            newReady,
-                          );
-                          final updated =
-                              Set<String>.from(_readyPlayersNotifier.value);
-                          if (newReady) {
-                            updated.add(_playerName);
-                          } else {
-                            updated.remove(_playerName);
-                          }
-                          _readyPlayersNotifier.value = updated;
-                        },
-                        child: Text(
-                          !readySet.contains(_playerName) ? '✓ Prêt' : 'Pas prêt',
-                        ),
-                      ),
-                    ],
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
   }
 
   Future<void> _showColorPicker() async {
@@ -1115,10 +644,7 @@ class _LudoScreenState extends State<LudoScreen>
                         height: 76,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [
-                              baseColor,
-                              baseColor.withValues(alpha: 0.6),
-                            ],
+                            colors: [baseColor, baseColor.withValues(alpha: 0.6)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -1318,7 +844,10 @@ class _LudoScreenState extends State<LudoScreen>
                     padding: const EdgeInsets.only(top: 12),
                     child: Text(
                       'Minimum 2 joueurs',
-                      style: TextStyle(color: Colors.white38, fontSize: 12),
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
               ],
@@ -1380,77 +909,310 @@ class _LudoScreenState extends State<LudoScreen>
     );
   }
 
-  void _restartGame() {
-    _aiTimer?.cancel();
-    setState(() {
-      _winnerDialogShown = false;
-      _engine.reset();
-      _displayDice = 1;
-      _selectedPawn = null;
-    });
-  }
 
   Future<void> _finishGameWithStats() async {
     await StatsService().recordGameResult(
       gameName: 'ludo',
-      won: _engine.winner?.isHuman ?? false,
+      won: _engine.winner == _engine.currentPlayer.color,
       context: context,
     );
+  }
+
+  Future<void> _processLudoBetTransfer() async {
+    final anyBet = _playerSubscribe.any((p) => p.bet > 0);
+    if (!anyBet || _engine.winner == null) return;
+
+    final winnerColor = _engine.winner!;
+    final winnerHuman = _playerSubscribe.where((p) => p.color == winnerColor).firstOrNull;
+    if (winnerHuman == null) return;
+
+    final winnerBet = winnerHuman.bet;
+    final loserBets = _playerSubscribe
+        .where((p) => p.color != winnerColor && p.bet > 0 && !(p.id?.startsWith('ai_') ?? false))
+        .toList();
+
+    if (loserBets.isEmpty) return;
+
+    final totalPot = _playerSubscribe
+        .where((p) => p.bet > 0 && !(p.id?.startsWith('ai_') ?? false))
+        .fold(0, (sum, p) => sum + p.bet);
+    final remaining = totalPot - winnerBet;
+    final appShare = remaining ~/ 2;
+    final winnerExtra = remaining - appShare;
+
+    final supabase = Supabase.instance.client;
+
+    if (winnerExtra > 0 && winnerHuman.id != null) {
+      final winnerCoins = await supabase
+          .from('users')
+          .select('coins')
+          .eq('id', winnerHuman.id!)
+          .single();
+      final currentWinnerCoins = (winnerCoins['coins'] as int?) ?? 0;
+      await supabase
+          .from('users')
+          .update({'coins': currentWinnerCoins + winnerBet + winnerExtra})
+          .eq('id', winnerHuman.id!);
+    }
+
+    for (final loser in loserBets) {
+      if (loser.id == null) continue;
+      final loserCoins = await supabase
+          .from('users')
+          .select('coins')
+          .eq('id', loser.id!)
+          .single();
+      final currentLoserCoins = (loserCoins['coins'] as int?) ?? 0;
+      await supabase
+          .from('users')
+          .update({'coins': currentLoserCoins - loser.bet})
+          .eq('id', loser.id!);
+    }
+
+    if (appShare > 0) {
+      await supabase.from('app_gains').insert({
+        'match_code': widget.playerSubscribe.isNotEmpty
+            ? _roomCode
+            : 'ludo_${DateTime.now().millisecondsSinceEpoch}',
+        'amount': appShare,
+        'bet': winnerBet,
+        'winner_team': winnerColor.name,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    }
   }
 
   void _showWinnerDialog() {
     if (_winnerDialogShown) return;
     _winnerDialogShown = true;
+    final winner = _engine.winner;
+    final bool iWon;
+    if (winner == null) {
+      iWon = false;
+    } else if (_engine.isMultiplayer) {
+      iWon = _engine.players.any(
+        (p) => p.isHuman && p.color == winner && p.id == _userProfile?['id'],
+      );
+    } else {
+      iWon = _engine.humanColor.contains(winner);
+    }
+    final winColor = winner != null
+        ? LudoBoardLayout.colorValues[winner]!
+        : Colors.amber;
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text('Partie terminée'),
-        content: Text('${_engine.winner!.label} remporte la victoire !'),
+      builder: (_) {
+        final dialog = Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF1C1C2E),
+                    winColor.withValues(alpha: 0.15),
+                    const Color(0xFF1C1C2E),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: iWon ? const Color(0xFFD4A017) : Colors.white24,
+                  width: 2,
+                ),
+                boxShadow: [
+                  if (iWon)
+                    BoxShadow(
+                      color: const Color(0xFFD4A017).withValues(alpha: 0.3),
+                      blurRadius: 30,
+                      spreadRadius: 4,
+                    ),
+                ],
+              ),
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          const Color(0xFFD4A017).withValues(alpha: 0.3),
+                          const Color(0xFFD4A017).withValues(alpha: 0.0),
+                        ],
+                      ),
+                    ),
+                    child: Icon(
+                      iWon ? Icons.emoji_events : Icons.sentiment_dissatisfied,
+                      color: iWon
+                          ? const Color(0xFFD4A017)
+                          : Colors.white54,
+                      size: 44,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    iWon ? '💰 Victoire !' : '😞 Perdu',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    iWon
+                        ? '${winner!.label} empoche la cagnotte !'
+                        : '${winner!.label} remporte la victoire !',
+                    style: TextStyle(
+                      color: winColor.withValues(alpha: 0.8),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 28),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD4A017),
+                        foregroundColor: const Color(0xFF1C1C2E),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        elevation: 4,
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        if (widget.teamId.isNotEmpty) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => LudoLobbyScreen(
+                                teamId: widget.teamId,
+                                isHost: widget.isHost,
+                                fromGame: true,
+                              ),
+                            ),
+                          );
+                        } else {
+                          Navigator.pop(context);
+                        }
+                      },
+                      child: const Text(
+                        'Retour au lobby',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+
+        if (iWon) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(child: const _ConfettiWidget()),
+              dialog,
+            ],
+          );
+        }
+        return dialog;
+      },
+    );
+  }
+
+  Future<void> _confirmLeaveGame() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1a2e),
+        title: const Text('Quitter la partie ?', style: TextStyle(color: Colors.white)),
+        content: const Text('Êtes-vous sûr de vouloir quitter la partie ?', style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _restartGame();
-            },
-            child: const Text('Rejouer'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler', style: TextStyle(color: Colors.white54)),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('Quitter'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Quitter', style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+
+    if (_isMultiplayer && _roomCode.isNotEmpty) {
+      _multiplayerService.sendGameEnded(_roomCode);
+      _multiplayerService.disposeRoom(_roomCode);
+      _roomCode = '';
+    }
+
+    if (widget.teamId.isNotEmpty) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LudoLobbyScreen(
+            teamId: widget.teamId,
+            isHost: widget.isHost,
+            fromGame: true,
+          ),
+        ),
+      );
+    } else {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (route) => route.isFirst,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    print('Humain => ${_engine.currentPlayer.isHuman}');
-
-
-    if (_engine.winner != null && !_winnerDialogShown) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _finishGameWithStats();
-          _showWinnerDialog();
-        }
-      });
-    } else if (_engine.winner == null && !_engine.currentPlayer.isHuman) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleAiTurn());
-       print('àààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààààà');
+    if (_beginGame) {
+      if (_engine.winner != null && !_winnerDialogShown) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _finishGameWithStats();
+            _processLudoBetTransfer();
+            context.read<AuthProvider?>()?.refreshProfile();
+            _showWinnerDialog();
+          }
+        });
+      }
     }
 
+    //final profileName = context.read<AuthProvider?>()?.userProfile?['username']?.toString();
+
     return Scaffold(
-      floatingActionButtonLocation: FloatingActionButtonLocation.startTop,
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: const Color(0xFF006400),
-        onPressed: () => Navigator.pop(context),
-        child: const Icon(Icons.arrow_back, color: Colors.white),
-      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: _beginGame
+          ? FloatingActionButton(
+              mini: true,
+              backgroundColor: Colors.black.withValues(alpha: 0.6),
+              shape: const CircleBorder(),
+              onPressed: _confirmLeaveGame,
+              child: const Icon(Icons.arrow_back, color: Colors.white70),
+            )
+          : null,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
@@ -1475,19 +1237,19 @@ class _LudoScreenState extends State<LudoScreen>
                         padding: const EdgeInsets.only(bottom: 24),
                         child: GestureDetector(
                           onTap: /* () { */
-                              /* print(
+                            /* print(
                               'verifier => ${_engine.currentPlayer.id == _userProfile['id']}\n ${_playerSubscribe.map((elt) => elt.id).toList()}\n ${_engine.currentPlayer.id}',
                             );
                             print([!_isDraggingDice, !_isSlidingDice, _engine.currentPlayer.isHuman, _engine.winner == null, !_diceRolledThisTurn, _engine.currentPlayer.id ==
                                         _userProfile['id']]); */
-                              !_isDraggingDice &&
-                                  !_isSlidingDice &&
-                                  _isMyTurn &&
-                                  !_diceRolledThisTurn
-                              ? _onRollDice
-                              : null,
-
+                            !_isDraggingDice &&
+                                    !_isSlidingDice &&
+                                    _isMyTurn &&
+                                    !_diceRolledThisTurn
+                                ? _onRollDice
+                                : null,
                           /* }, */
+
                           onPanStart: (_) {
                             _slideTimer?.cancel();
                             setState(() {
@@ -1527,7 +1289,10 @@ class _LudoScreenState extends State<LudoScreen>
                             offset: _diceDragOffset,
                             child: Transform.rotate(
                               angle: _diceSlideAngle,
-                              child: _buildDice(_isMyTurn, _engine),
+                              child: _buildDice(
+                                _isMyTurn,
+                                _engine,
+                              ),
                             ),
                           ),
                         ),
@@ -1539,32 +1304,120 @@ class _LudoScreenState extends State<LudoScreen>
                       right: 12,
                       child: _buildTopBar(),
                     ),
-                    Positioned(
-                      top: 56,
-                      right: 12,
-                      child: GestureDetector(
-                        onTap: _restartGame,
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: const Icon(
-                            Icons.refresh,
-                            color: Color(0xFFD4A017),
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ),
+
                   ],
                 )
               : _buildMain(),
         ),
       ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    final authProvider = context.read<AuthProvider?>();
+    final coins =
+        int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ??
+        0;
+    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
+    final username =
+        authProvider?.userProfile?['username']?.toString() ?? 'Profil';
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => showFriendsDialog(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const CircleAvatar(
+              radius: 14,
+              backgroundColor: Colors.black54,
+              child: Icon(Icons.people_alt, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        Row(
+          spacing: 8,
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null || avatarUrl.isEmpty
+                          ? const Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: 16,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      username,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.monetization_on,
+                      color: Colors.amber,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$coins',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1594,16 +1447,11 @@ class _LudoScreenState extends State<LudoScreen>
               ),
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFFD4A017).withValues(alpha: 0.3),
-                  ),
+                  border: Border.all(color: const Color(0xFFD4A017).withValues(alpha: 0.3)),
                 ),
                 child: const Text(
                   '💰 Tente ta chance',
@@ -1625,7 +1473,26 @@ class _LudoScreenState extends State<LudoScreen>
               }),
               const SizedBox(height: 16),
               _buildGameChip('En ligne', LudoColor.green, Icons.wifi, () async {
-                await _startMultiplayerGame(createRoom: true);
+                final userProfile = context.read<AuthProvider?>()?.userProfile;
+                if (userProfile == null) return;
+                final userId = userProfile['id']?.toString();
+                if (userId == null) return;
+                final teamId = await LudoTeamLobbyService().createTeam(userId, userProfile);
+                if (teamId == null) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Erreur lors de la création du lobby')),
+                    );
+                  }
+                  return;
+                }
+                if (!mounted) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LudoLobbyScreen(teamId: teamId, isHost: true),
+                  ),
+                );
               }),
               /* const SizedBox(height: 16),
               _buildGameChip('Multi', LudoColor.blue, Icons.groups, () async {
@@ -1650,12 +1517,7 @@ class _LudoScreenState extends State<LudoScreen>
     );
   }
 
-  Widget _buildGameChip(
-    String label,
-    LudoColor color,
-    IconData icon,
-    VoidCallback onTap,
-  ) {
+  Widget _buildGameChip(String label, LudoColor color, IconData icon, VoidCallback onTap) {
     final baseColor = LudoBoardLayout.colorValues[color]!;
     return GestureDetector(
       onTap: onTap,
@@ -1732,9 +1594,7 @@ class _LudoScreenState extends State<LudoScreen>
                   height: 28,
                   child: CircularProgressIndicator(
                     strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Color(0xFFD4A017),
-                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4A017)),
                   ),
                 ),
               ),
@@ -1825,10 +1685,7 @@ class _LudoScreenState extends State<LudoScreen>
                 backgroundColor: Colors.white.withValues(alpha: 0.1),
                 foregroundColor: Colors.white54,
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 12,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -1837,9 +1694,7 @@ class _LudoScreenState extends State<LudoScreen>
                 _multiplayerSubscription?.cancel();
                 if (_roomCode.isNotEmpty) {
                   _multiplayerService.sendPlayerLeft(
-                    _roomCode,
-                    _playerName,
-                    LudoColor.yellow.name,
+                    _roomCode, _playerName, LudoColor.yellow.name,
                   );
                   _multiplayerService.disposeRoom(_roomCode);
                 }
@@ -1862,15 +1717,39 @@ class _LudoScreenState extends State<LudoScreen>
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.black.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white10),
             ),
-            child: Text(
-              _engine.message,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-              textAlign: TextAlign.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _engine.currentPlayer.isHuman
+                      ? Icons.person
+                      : Icons.smart_toy,
+                  size: 16,
+                  color: LudoBoardLayout
+                      .colorValues[_engine.currentPlayer.color]!
+                      .withValues(alpha: 0.8),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _engine.message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1882,7 +1761,7 @@ class _LudoScreenState extends State<LudoScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = math.min(constraints.maxWidth, constraints.maxHeight) - 24;
-        final cellSize = size / LudoBoardLayout.gridSize;
+        _cellSize = size / LudoBoardLayout.gridSize;
 
         return SizedBox(
           width: size,
@@ -1891,9 +1770,10 @@ class _LudoScreenState extends State<LudoScreen>
             children: [
               CustomPaint(
                 size: Size(size, size),
-                painter: _LudoBoardPainter(cellSize: cellSize),
+                painter: _LudoBoardPainter(cellSize: _cellSize),
               ),
-              ..._buildPawns(cellSize),
+              ..._buildPlayerInfo(),
+              ..._buildPawns(_cellSize),
             ],
           ),
         );
@@ -1902,31 +1782,37 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   List<Widget> _buildPawns(double cellSize) {
-    final widgets = <Widget>[];
+    final Map<String, List<_PawnRenderInfo>> posGroups = {};
     for (final player in _engine.players) {
       for (final pawn in player.pawns) {
-        final pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+        final isAnimating =
+            _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
+        Offset pos;
+        if (isAnimating && _moveIndex < _movePath.length) {
+          pos = _movePath[_moveIndex];
+        } else {
+          pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+        }
 
         final isSelectable =
-            _engine.currentPlayer.isHuman &&
-            /* _engine.diceRolled && */
-            _engine.canMovePawn(pawn);
+            _isMyTurn &&
+            _diceRolledThisTurn &&
+            _engine.canMovePawn(pawn) &&
+            !isAnimating;
 
         final isSelected =
             _selectedPawn?.id == pawn.id && _selectedPawn?.color == pawn.color;
 
         final key = '${pos.dx.toStringAsFixed(1)}_${pos.dy.toStringAsFixed(1)}';
         posGroups.putIfAbsent(key, () => []);
-        posGroups[key]!.add(
-          _PawnRenderInfo(
-            pawn: pawn,
-            pos: pos,
-            isSelectable: isSelectable,
-            isSelected: isSelected,
-            isAnimating: isAnimating,
-            playerColor: player.color,
-          ),
-        );
+        posGroups[key]!.add(_PawnRenderInfo(
+          pawn: pawn,
+          pos: pos,
+          isSelectable: isSelectable,
+          isSelected: isSelected,
+          isAnimating: isAnimating,
+          playerColor: player.color,
+        ));
       }
     }
 
@@ -1939,8 +1825,7 @@ class _LudoScreenState extends State<LudoScreen>
         if (count > 1 && !info.isAnimating) {
           final angle = (2 * math.pi * i / count) - math.pi / 2;
           final offset = cellSize * 0.18;
-          renderPos =
-              info.pos +
+          renderPos = info.pos +
               Offset(math.cos(angle) * offset, math.sin(angle) * offset);
         } else {
           renderPos = info.pos;
@@ -1949,26 +1834,36 @@ class _LudoScreenState extends State<LudoScreen>
         final pawnColor = LudoBoardLayout.colorValues[info.playerColor]!;
         widgets.add(
           Positioned(
-            left: pos.dx - cellSize * 0.32,
-            top: pos.dy - cellSize * 0.32,
+            left: renderPos.dx - cellSize * 0.32,
+            top: renderPos.dy - cellSize * 0.32,
             child: GestureDetector(
-              onTap: isSelectable ? () => _onPawnTap(pawn) : null,
+              onTap: info.isSelectable ? () => _onPawnTap(info.pawn) : null,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 width: cellSize * 0.64,
                 height: cellSize * 0.64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: LudoBoardLayout.colorValues[pawn.color],
+                  gradient: LinearGradient(
+                    colors: [pawnColor, pawnColor.withValues(alpha: 0.7)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   border: Border.all(
-                    color: isSelected
+                    color: info.isSelected
                         ? Colors.white
-                        : isSelectable
-                        ? Colors.amber
+                        : info.isSelectable
+                        ? const Color(0xFFD4A017)
                         : Colors.black87,
-                    width: isSelected || isSelectable ? 3 : 1.5,
+                    width: info.isSelected || info.isSelectable ? 3 : 1.5,
                   ),
                   boxShadow: [
+                    if (info.isSelectable)
+                      BoxShadow(
+                        color: const Color(0xFFD4A017).withValues(alpha: 0.5),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.35),
                       blurRadius: 4,
@@ -1976,9 +1871,18 @@ class _LudoScreenState extends State<LudoScreen>
                     ),
                   ],
                 ),
-                child: pawn.finished
-                    ? const Icon(Icons.star, color: Colors.white, size: 14)
-                    : null,
+                child: Center(
+                  child: info.pawn.finished
+                      ? const Icon(Icons.star, color: Colors.white, size: 12)
+                      : Container(
+                          width: cellSize * 0.2,
+                          height: cellSize * 0.2,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                ),
               ),
             ),
           ),
@@ -1988,54 +1892,66 @@ class _LudoScreenState extends State<LudoScreen>
     return widgets;
   }
 
-  Widget _buildControls() {
-    final isHumanTurn = _engine.currentPlayer.isHuman && _engine.winner == null;
+  List<Widget> _buildPlayerInfo() {
+    return _engine.players.map((player) {
+      final color = player.color;
+      final isHuman = player.isHuman;
 
-    //t('==> ${_engine.currentPlayerIndex}');
-    //print(isHumanTurn);
-    //print(!_engine.diceRolled);
-    //print('/n/n');
+      final matchingPlayer = _playerSubscribe.firstWhere(
+        (p) => p.color == color,
+        orElse: () => LudoHuman(name: player.namePlayer ?? color.label, color: color),
+      );
 
-    final canRoll = isHumanTurn /* && !_engine.diceRolled */;
+      final displayName = isHuman ? matchingPlayer.name : 'IA ${color.label}';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _playerIndicator(LudoColor.red, true),
-          _playerIndicator(LudoColor.green, false),
-          _buildDice(canRoll),
-          _playerIndicator(LudoColor.yellow, false),
-          _playerIndicator(LudoColor.blue, false),
-        ],
-      ),
-    );
-  }
+      Widget avatar;
+      if (isHuman &&
+          matchingPlayer.avatar != null &&
+          matchingPlayer.avatar!.isNotEmpty) {
+        avatar = CircleAvatar(
+          radius: 8,
+          backgroundImage: NetworkImage(matchingPlayer.avatar!),
+        );
+      } else if (isHuman) {
+        avatar = const Icon(Icons.person, color: Colors.white, size: 14);
+      } else {
+        avatar = const Icon(Icons.smart_toy, color: Colors.white, size: 14);
+      }
 
-  Widget _playerIndicator(LudoColor color, bool isHuman) {
-    final active = _engine.currentPlayer.color == color;
-    return Column(
-      children: [
-        Container(
-          width: 28,
-          height: 28,
+      return Positioned(
+        left: color == LudoColor.green || color == LudoColor.red ? 4 : null,
+        right: color == LudoColor.yellow || color == LudoColor.blue ? 4 : null,
+        top: color == LudoColor.green || color == LudoColor.yellow ? 4 : null,
+        bottom: color == LudoColor.red || color == LudoColor.blue ? 4 : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
           decoration: BoxDecoration(
-            color: LudoBoardLayout.colorValues[color],
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: active ? Colors.white : Colors.transparent,
-              width: 3,
-            ),
+            color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white, width: 1.5),
           ),
-          child: isHuman
-              ? const Icon(Icons.person, size: 16, color: Colors.white)
-              : null,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              avatar,
+              if (displayName.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Text(
+                  displayName,
+                  style: TextStyle(
+                    color: color == LudoColor.yellow
+                        ? Colors.black87
+                        : Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-        if (active)
-          const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
-      ],
-    );
+      );
+    }).toList();
   }
 
   Widget _buildDice(bool canRoll, LudoEngine engine) {
@@ -2058,7 +1974,7 @@ class _LudoScreenState extends State<LudoScreen>
                 width: 3,
               ),
               boxShadow: [
-                BoxShadow(
+                  BoxShadow(
                   color: Colors.black.withValues(alpha: 0.25),
                   blurRadius: 6,
                   offset: const Offset(2, 3),
@@ -2088,7 +2004,7 @@ class _ConfettiWidgetState extends State<_ConfettiWidget>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   final _particles = List<_ConfettiParticle>.generate(
-    60,
+    80,
     (_) => _ConfettiParticle(),
   );
 
@@ -2097,15 +2013,103 @@ class _ConfettiWidgetState extends State<_ConfettiWidget>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 4),
+      duration: const Duration(seconds: 6),
     )..repeat();
   }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          size: Size.infinite,
+          painter: _ConfettiPainter(_particles, _controller.value),
+        );
+      },
+    );
+  }
+}
+
+class _ConfettiParticle {
+  final double startOffset = math.Random().nextDouble();
+  final double x = math.Random().nextDouble();
+  final double speed = 0.12 + math.Random().nextDouble() * 0.28;
+  final double size = 3 + math.Random().nextDouble() * 5;
+  final Color color =
+      Colors.primaries[math.Random().nextInt(Colors.primaries.length)];
+  final double rotation = math.Random().nextDouble() * 6.28;
+  final double rotationSpeed = (math.Random().nextDouble() - 0.5) * 8;
+}
+
+class _ConfettiPainter extends CustomPainter {
+  final List<_ConfettiParticle> particles;
+  final double progress;
+
+  _ConfettiPainter(this.particles, this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width.isInfinite || size.height.isInfinite) return;
+
+    for (final p in particles) {
+      final t = (progress + p.startOffset) % 1.0;
+      final y = -0.15 + t * 1.3;
+      if (y < -0.1 || y > 1.1) continue;
+      final x = p.x + math.sin(t * 8 + p.x * 10) * 0.025;
+
+      canvas.save();
+      canvas.translate(x * size.width, y * size.height);
+      canvas.rotate(p.rotation + t * p.rotationSpeed);
+
+      final alpha = (1 - y.clamp(0, 1)) * 0.85;
+      final paint = Paint()
+        ..color = p.color.withValues(alpha: alpha);
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: p.size,
+          height: p.size * 0.6,
+        ),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) => true;
+}
+
+class _PawnRenderInfo {
+  final LudoPawn pawn;
+  final Offset pos;
+  final bool isSelectable;
+  final bool isSelected;
+  final bool isAnimating;
+  final LudoColor playerColor;
+
+  const _PawnRenderInfo({
+    required this.pawn,
+    required this.pos,
+    required this.isSelectable,
+    required this.isSelected,
+    required this.isAnimating,
+    required this.playerColor,
+  });
 }
 
 class _DiceFace extends StatelessWidget {
   final int value;
+  final bool dark;
 
-  const _DiceFace({required this.value});
+  const _DiceFace({required this.value, this.dark = false});
 
   @override
   Widget build(BuildContext context) {
@@ -2145,14 +2149,14 @@ class _DiceFace extends StatelessWidget {
             return Positioned(
               left: p.dx * w - 5,
               top: p.dy * h - 5,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: dark ? Colors.white54 : Colors.black87,
-                  shape: BoxShape.circle,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: dark ? Colors.white54 : Colors.black87,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
             );
           }).toList(),
         );
@@ -2226,9 +2230,10 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
             leading: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white24,
-              backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                  ? NetworkImage(avatarUrl)
-                  : null,
+              backgroundImage:
+                  avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
               child: avatarUrl == null || avatarUrl.isEmpty
                   ? const Icon(Icons.person, color: Colors.white)
                   : null,
@@ -2242,7 +2247,9 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
                 Icons.person_add,
                 color: isOnline ? Colors.amber : Colors.white24,
               ),
-              onPressed: isOnline ? () => widget.onInvite(f) : null,
+              onPressed: isOnline
+                  ? () => widget.onInvite(f)
+                  : null,
             ),
           );
         }),
@@ -2260,14 +2267,21 @@ class _LudoBoardPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint();
 
-    // Fond blanc central
-    paint.color = Colors.white;
-    canvas.drawRect(
-      Rect.fromLTWH(6 * cellSize, 6 * cellSize, 3 * cellSize, 3 * cellSize),
+    // Fond sombre du plateau pour vibe casino
+    paint.color = const Color(0xFF1C1C2E);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+
+    // Fond central plus clair
+    paint.color = const Color(0xFF2A2A40);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(6 * cellSize, 6 * cellSize, 3 * cellSize, 3 * cellSize),
+        Radius.circular(cellSize * 0.2),
+      ),
       paint,
     );
 
-    // Bases colorées
+    // Bases colorées avec dégradé
     _drawBase(canvas, LudoColor.red, 9, 0);
     _drawBase(canvas, LudoColor.green, 0, 0);
     _drawBase(canvas, LudoColor.yellow, 0, 9);
@@ -2283,12 +2297,14 @@ class _LudoBoardPainter extends CustomPainter {
     for (var i = 0; i < LudoBoardLayout.pathCoords.length; i++) {
       final c = LudoBoardLayout.pathCoords[i];
       final isSafe = LudoEngine.safeTrackIndices.contains(i);
-      paint.color = isSafe ? const Color(0xFF3A3A55) : const Color(0xFF2A2A40);
+      paint.color = isSafe
+          ? const Color(0xFF3A3A55)
+          : const Color(0xFF2A2A40);
       canvas.drawRect(
         Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
         paint,
       );
-      paint.color = Colors.black26;
+      paint.color = const Color(0xFF4A4A65);
       paint.style = PaintingStyle.stroke;
       paint.strokeWidth = 0.5;
       canvas.drawRect(
@@ -2298,10 +2314,16 @@ class _LudoBoardPainter extends CustomPainter {
       paint.style = PaintingStyle.fill;
 
       if (isSafe) {
-        paint.color = Colors.black38;
+        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.6);
         canvas.drawCircle(
           Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
-          cellSize * 0.12,
+          cellSize * 0.14,
+          paint,
+        );
+        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.2);
+        canvas.drawCircle(
+          Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
+          cellSize * 0.28,
           paint,
         );
       }
@@ -2312,30 +2334,22 @@ class _LudoBoardPainter extends CustomPainter {
   }
 
   void _drawBase(Canvas canvas, LudoColor color, int row, int col) {
+    final baseColor = LudoBoardLayout.colorValues[color]!;
     final paint = Paint()
-      ..shader =
-          LinearGradient(
-            colors: [
-              baseColor.withValues(alpha: 0.7),
-              baseColor.withValues(alpha: 0.35),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(
-            Rect.fromLTWH(
-              col * cellSize,
-              row * cellSize,
-              6 * cellSize,
-              6 * cellSize,
-            ),
-          );
+      ..shader = LinearGradient(
+        colors: [baseColor.withValues(alpha: 0.7), baseColor.withValues(alpha: 0.35)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromLTWH(
+        col * cellSize,
+        row * cellSize,
+        6 * cellSize,
+        6 * cellSize,
+      ));
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
-          col * cellSize,
-          row * cellSize,
-          6 * cellSize,
-          6 * cellSize,
+          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
         ),
         Radius.circular(cellSize * 0.3),
       ),
@@ -2350,10 +2364,7 @@ class _LudoBoardPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
-          col * cellSize,
-          row * cellSize,
-          6 * cellSize,
-          6 * cellSize,
+          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
         ),
         Radius.circular(cellSize * 0.3),
       ),
@@ -2367,15 +2378,23 @@ class _LudoBoardPainter extends CustomPainter {
     for (final coords in LudoBoardLayout.baseCoords[color]!) {
       canvas.drawCircle(
         Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
-        cellSize * 0.35,
+        cellSize * 0.32,
         paint,
       );
+      paint.color = Colors.white.withValues(alpha: 0.1);
+      canvas.drawCircle(
+        Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
+        cellSize * 0.38,
+        paint,
+      );
+      paint.color = Colors.white.withValues(alpha: 0.25);
     }
   }
 
   void _drawHomeStretch(Canvas canvas, LudoColor color) {
     final baseColor = LudoBoardLayout.colorValues[color]!;
-    final paint = Paint()..color = baseColor.withValues(alpha: 0.3);
+    final paint = Paint()
+      ..color = baseColor.withValues(alpha: 0.3);
     for (final c in LudoBoardLayout.homeStretchCoords[color]!) {
       canvas.drawRect(
         Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
@@ -2395,7 +2414,7 @@ class _LudoBoardPainter extends CustomPainter {
     ];
 
     for (var i = 0; i < 4; i++) {
-      final paint = Paint()..color = colors[i];
+      final paint = Paint()..color = colors[i].withValues(alpha: 0.7);
       final path = Path();
       final angle = -math.pi / 4 + i * math.pi / 2;
       path.moveTo(center.dx, center.dy);
@@ -2409,7 +2428,8 @@ class _LudoBoardPainter extends CustomPainter {
       canvas.drawPath(path, paint);
     }
 
-    final paint = Paint()..color = Colors.white.withValues(alpha: 0.1);
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.1);
     canvas.drawCircle(center, cellSize * 0.8, paint);
     paint.color = const Color(0xFFD4A017).withValues(alpha: 0.3);
     canvas.drawCircle(center, cellSize * 0.5, paint);

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../utils/retry_util.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -22,9 +23,10 @@ class SupabaseService {
 
     _client = Supabase.instance.client;
 
-    _googleSignIn = GoogleSignIn(
-      serverClientId: '523098863689-htmlr2jk0obqgcvp6tvekklnlv70fo4f.apps.googleusercontent.com',
-      forceCodeForRefreshToken: true,
+    _googleSignIn = GoogleSignIn.instance;
+    await _googleSignIn.initialize(
+      serverClientId:
+          '523098863689-htmlr2jk0obqgcvp6tvekklnlv70fo4f.apps.googleusercontent.com',
     );
   }
 
@@ -34,23 +36,18 @@ class SupabaseService {
   // Authentification Google
   Future<AuthResponse> signInWithGoogle() async {
     try {
-      final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        throw Exception('Google Sign-In annulé');
-      }
+      final googleUser = await _googleSignIn.authenticate();
 
-      final googleAuth = await googleUser.authentication;
-      final accessToken = googleAuth.accessToken;
+      final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
 
-      if (accessToken == null || idToken == null) {
-        throw Exception('Tokens Google introuvables');
+      if (idToken == null) {
+        throw Exception('ID token Google introuvable');
       }
 
       final response = await _client.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
-        accessToken: accessToken,
       );
 
       // Créer ou mettre à jour le profil utilisateur
@@ -65,27 +62,32 @@ class SupabaseService {
   // Créer ou mettre à jour le profil utilisateur
   Future<void> _createOrUpdateUserProfile(User user) async {
     try {
-      final googleUser = await _googleSignIn.signInSilently();
+      final googleUser = await _googleSignIn.attemptLightweightAuthentication();
       final existingProfile = await getUserProfile(user.id);
 
       final profileData = {
         'id': user.id,
         'email': user.email,
-        'full_name': googleUser?.displayName ?? user.userMetadata?['name'] ?? existingProfile?['full_name'] ?? '',
-        'username': existingProfile?['username'] ??
+        'full_name':
+            googleUser?.displayName ??
+            user.userMetadata?['name'] ??
+            existingProfile?['full_name'] ??
+            '',
+        'username':
+            existingProfile?['username'] ??
             (googleUser?.displayName ?? user.userMetadata?['name'] ?? '')
                 .toString()
                 .replaceAll(' ', '')
                 .toLowerCase(),
-        'avatar_url': existingProfile?['avatar_url'] ?? googleUser?.photoUrl ?? user.userMetadata?['picture'] ?? '',
+        'avatar_url':
+            existingProfile?['avatar_url'] ??
+            googleUser?.photoUrl ??
+            user.userMetadata?['picture'] ??
+            '',
         'coins': existingProfile?['coins'] ?? 0,
-        'belote_played': existingProfile?['belote_played'] ?? 0,
-        'belote_wins': existingProfile?['belote_wins'] ?? 0,
-        'belote_losses': existingProfile?['belote_losses'] ?? 0,
-        'ludo_played': existingProfile?['ludo_played'] ?? 0,
-        'ludo_wins': existingProfile?['ludo_wins'] ?? 0,
-        'ludo_losses': existingProfile?['ludo_losses'] ?? 0,
-        'created_at': existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
+        /* 'is_connected': existingProfile?['is_connected'] ?? false, */
+        'created_at':
+            existingProfile?['created_at'] ?? DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
 
@@ -106,16 +108,18 @@ class SupabaseService {
       final contentType = extension == 'png'
           ? 'image/png'
           : extension == 'jpg' || extension == 'jpeg'
-              ? 'image/jpeg'
-              : 'application/octet-stream';
+          ? 'image/jpeg'
+          : 'application/octet-stream';
       final fileName = '$userId/avatar.$extension';
       final bytes = await file.readAsBytes();
 
-      await _client.storage.from('avatars').uploadBinary(
-        fileName,
-        bytes,
-        fileOptions: FileOptions(contentType: contentType, upsert: true),
-      );
+      await _client.storage
+          .from('avatars')
+          .uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(contentType: contentType, upsert: true),
+          );
 
       return _client.storage.from('avatars').getPublicUrl(fileName);
     } catch (e) {
@@ -161,5 +165,40 @@ class SupabaseService {
   // Stream des changements d'authentification
   Stream<AuthState> authStateChanges() {
     return _client.auth.onAuthStateChange;
+  }
+
+  Future<bool> updateIsOnline() async {
+    final user = getCurrentUser();
+    if (user == null) return false;
+    final nowUtc = DateTime.now().toUtc();
+    try {
+      await NetworkRetry.retry(() => _client
+          .from('users')
+          .update({'is_connected': true, 'last_seen': nowUtc.toIso8601String()})
+          .eq('id', user.id));
+      return true;
+    } catch (e) {
+      print('updateIsOnline failed after retries: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateIsOffline() async {
+    final user = getCurrentUser();
+    if (user == null) return false;
+    final nowUtc = DateTime.now().toUtc();
+    try {
+      await NetworkRetry.retry(() => _client
+          .from('users')
+          .update({
+            'is_connected': false,
+            'last_seen': nowUtc.toIso8601String(),
+          })
+          .eq('id', user.id));
+      return true;
+    } catch (e) {
+      print('updateIsOffline failed after retries: $e');
+      return false;
+    }
   }
 }

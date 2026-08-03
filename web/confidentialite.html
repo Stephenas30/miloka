@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Politique de confidentialité - Miloka">
+  <link rel="icon" type="image/png" href="icon.png"/>
+  <title>Politique de confidentialité - Miloka</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;600;700&display=swap');
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #080816;
+      color: #ffffff;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+    .bg {
+      position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0;
+    }
+    .bg .orb {
+      position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15;
+    }
+    .bg .orb:nth-child(1) {
+      width: 500px; height: 500px; background: #006400; top: -10%; left: -5%;
+      animation: float1 20s ease-in-out infinite;
+    }
+    .bg .orb:nth-child(2) {
+      width: 400px; height: 400px; background: #FFD700; bottom: -5%; right: -5%;
+      animation: float2 25s ease-in-out infinite;
+    }
+    @keyframes float1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(80px,60px); } }
+    @keyframes float2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-60px,-80px); } }
+    .content { position: relative; z-index: 1; max-width: 800px; margin: 0 auto; padding: 48px 24px; }
+    nav {
+      display: flex; justify-content: space-between; align-items: center;
+      max-width: 1200px; margin: 0 auto; padding: 20px 40px;
+    }
+    nav a {
+      display: flex; align-items: center; gap: 12px;
+      font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 900;
+      color: #fff; text-decoration: none;
+    }
+    nav a span {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    nav a img { width: 40px; height: 40px; border-radius: 10px; }
+    nav .back { color: rgba(255,255,255,0.6); text-decoration: none; font-size: 14px; transition: color 0.3s; }
+    nav .back:hover { color: #FFD700; }
+    h1 {
+      font-family: 'Playfair Display', serif; font-size: 40px; margin-bottom: 8px;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .updated { color: rgba(255,255,255,0.4); font-size: 12px; margin-bottom: 32px; }
+    h2 { font-size: 18px; font-weight: 600; color: #FFD700; margin: 28px 0 10px; }
+    p { color: rgba(255,255,255,0.7); font-size: 15px; line-height: 1.8; margin-bottom: 12px; }
+    ul { color: rgba(255,255,255,0.7); font-size: 15px; line-height: 1.8; padding-left: 20px; margin-bottom: 12px; }
+    ul li { margin-bottom: 4px; }
+    footer { text-align: center; padding: 32px 20px; color: rgba(255,255,255,0.3); font-size: 12px; }
+    @media (max-width: 768px) {
+      nav { padding: 16px 20px; }
+      h1 { font-size: 28px; }
+      .content { padding: 24px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg">
+    <div class="orb"></div>
+    <div class="orb"></div>
+  </div>
+  <nav>
+    <a href="index.html">
+      <img src="icons/logo.png" alt="Miloka">
+      <span>Miloka</span>
+    </a>
+    <a href="index.html" class="back">&larr; Retour</a>
+  </nav>
+  <div class="content">
+    <h1>Politique de confidentialité</h1>
+    <p class="updated">Dernière mise à jour : 8 juillet 2026</p>
+
+    <h2>1. Collecte des informations</h2>
+    <p>Nous collectons les informations suivantes lorsque vous utilisez Miloka :</p>
+    <ul>
+      <li>Informations de compte : nom d'utilisateur, adresse e-mail et photo de profil</li>
+      <li>Données de jeu : scores, statistiques, progression et historique des parties</li>
+      <li>Données techniques : adresse IP, type d'appareil, système d'exploitation et version du navigateur</li>
+    </ul>
+
+    <h2>2. Utilisation des données</h2>
+    <p>Vos données sont utilisées pour :</p>
+    <ul>
+      <li>Fournir et améliorer nos services de jeux</li>
+      <li>Personnaliser votre expérience de jeu</li>
+      <li>Gérer les classements et les statistiques</li>
+      <li>Assurer la sécurité et prévenir la fraude</li>
+      <li>Vous contacter concernant votre compte</li>
+    </ul>
+
+    <h2>3. Partage des données</h2>
+    <p>Nous ne vendons pas vos données personnelles. Vos informations peuvent être partagées avec :</p>
+    <ul>
+      <li>Nos prestataires de services techniques (hébergement, bases de données)</li>
+      <li>Les autorités compétentes si requis par la loi</li>
+    </ul>
+
+    <h2>4. Sécurité</h2>
+    <p>Nous mettons en œuvre des mesures de sécurité techniques et organisationnelles appropriées pour protéger vos données contre tout accès non autorisé, modification, divulgation ou destruction.</p>
+
+    <h2>5. Vos droits</h2>
+    <p>Conformément au RGPD, vous disposez des droits suivants :</p>
+    <ul>
+      <li>Droit d'accès, de rectification et d'effacement de vos données</li>
+      <li>Droit à la limitation du traitement</li>
+      <li>Droit à la portabilité des données</li>
+      <li>Droit d'opposition au traitement</li>
+    </ul>
+    <p>Pour exercer vos droits, contactez-nous à l'adresse indiquée dans les mentions légales.</p>
+
+    <h2>6. Cookies</h2>
+    <p>Nous utilisons des cookies essentiels au fonctionnement de l'application. Aucun cookie publicitaire ou de traçage tiers n'est utilisé sans votre consentement explicite.</p>
+  </div>
+  <footer>&copy; 2026 Miloka. Tous droits réservés.</footer>
+</body>
+</html>

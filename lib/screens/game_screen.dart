@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../game/belote_game_logic.dart';
@@ -8,6 +10,7 @@ import '../game/played_card.dart';
 import '../models/card_model.dart';
 import '../widgets/call_popup.dart';
 import '../service/stats_service.dart';
+import '../service/game_channel_service.dart';
 
 class HandHistoryEntry {
   final CallOption contractCall;
@@ -26,7 +29,19 @@ class HandHistoryEntry {
 }
 
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key});
+  final Set<String> humanPlayers;
+  final String? teamId;
+  final bool isHost;
+  final Map<String, String> playerNames;
+  final Map<String, String> playerAvatars;
+  const GameScreen({
+    super.key,
+    this.humanPlayers = const {'Sud'},
+    this.teamId,
+    this.isHost = true,
+    this.playerNames = const {},
+    this.playerAvatars = const {},
+  });
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -35,6 +50,9 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen>
   with SingleTickerProviderStateMixin {
   late BeloteGameLogic gameLogic;
+
+  bool get _isGuestNetworked => widget.teamId != null && !widget.isHost;
+  StreamSubscription<Map<String, dynamic>>? _networkSubscription;
 
   bool showCallBubble = false;
   String callBubblePlayer = "";
@@ -53,14 +71,497 @@ class _GameScreenState extends State<GameScreen>
 
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
+  CardModel? _draggingCard;
+  double _dragX = 0;
+  double _dragY = 0;
+  final GlobalKey _dragStackKey = GlobalKey();
+
+  bool _hostReady = false;
+  bool _guestReady = false;
+  Timer? _autoCloseTimer;
+
+  bool _isHuman(String player) => widget.humanPlayers.contains(player);
+
+  bool _isLocalPlayer(String player) {
+    if (widget.teamId == null) return _isHuman(player);
+    return widget.isHost ? player == 'Sud' : player == 'Nord';
+  }
+
+  bool _initReceived = false;
+  Timer? _requestInitTimer;
+  bool _isPlayingCard = false;
+  Completer<CallOption>? _pendingBidCompleter;
+  Completer<String?>? _pendingCounterCompleter;
+  Completer<String?>? _pendingSurCounterCompleter;
+
+  bool _guestDealing = false;
+  Timer? _guestDealTimer;
+  Timer? _inactivityTimer;
+  bool _isWarningShown = false;
+
   @override
   void initState() {
     super.initState();
     gameLogic = BeloteGameLogic(players: players);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _dealCards();
+    if (widget.teamId != null) {
+      _setupNetwork();
+    } else {
+      Future.delayed(Duration.zero, () => _dealCards());
+    }
+  }
+
+  void _startAutoCloseTimer() {
+    _autoCloseTimer?.cancel();
+    _autoCloseTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      if (overallWinner != null) return;
+      if (widget.isHost) {
+        _hostReady = true;
+        if (_guestReady || widget.teamId == null) {
+          _hostReady = false;
+          _guestReady = false;
+          _applyLastHandAndNext();
+        } else {
+          setState(() {});
+        }
+      } else {
+        GameChannelService().send('player_ready', {});
+        setState(() {
+          gameLogic.waitingForNextHand = false;
+        });
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _networkSubscription?.cancel();
+    _requestInitTimer?.cancel();
+    _guestDealTimer?.cancel();
+    _autoCloseTimer?.cancel();
+    _inactivityTimer?.cancel();
+    if (widget.teamId != null) {
+      GameChannelService().disconnect();
+    }
+    super.dispose();
+  }
+
+  Future<void> _setupNetwork() async {
+    final channel = GameChannelService();
+    try {
+      await channel.connect(widget.teamId!);
+    } catch (e) {
+      print('[${widget.teamId}] ⚠️ _setupNetwork failed: $e');
+      if (widget.isHost && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Connexion au serveur impossible. La partie continue en local.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        _dealCards();
+      }
+      return;
+    }
+    _networkSubscription = channel.events.listen(_handleNetworkEvent);
+    print('[${widget.teamId}] _setupNetwork role=${widget.isHost ? "HOTE" : "INVITÉ"}');
+
+    if (widget.isHost) {
+      Future.delayed(Duration.zero, () => _dealCards());
+    } else {
+      _requestInitTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (!_initReceived) {
+          channel.send('request_init', {});
+        }
+      });
+    }
+  }
+
+  void _handleNetworkEvent(Map<String, dynamic> event) {
+    final action = event['action'] as String?;
+    if (action == null) { print('[${widget.teamId}] ⚠️ event with no action'); return; }
+
+    if (widget.isHost) {
+      print('[${widget.teamId}] 📥 HOST event action=$action');
+      switch (action) {
+        case 'request_init':
+          _handleGuestRequestInit();
+        case 'bid':
+          _handleGuestBid(event);
+        case 'play_card':
+          _handleGuestPlay(event);
+        case 'player_ready':
+          setState(() => _guestReady = true);
+          if (_hostReady) {
+            _autoCloseTimer?.cancel();
+            _hostReady = false;
+            _guestReady = false;
+            _applyLastHandAndNext();
+          }
+        case 'guest_bid':
+          if (_pendingBidCompleter != null) {
+            final callName = event['call'] as String? ?? 'pass';
+            print('[${widget.teamId}] ✅ guest_bid received call=$callName, completing completer');
+            _pendingBidCompleter!.complete(CallOption.values.byName(callName));
+          } else {
+            print('[${widget.teamId}] ⚠️ guest_bid but no pending completer');
+          }
+        case 'counter_response':
+          if (_pendingCounterCompleter != null) {
+            print('[${widget.teamId}] ✅ counter_response received');
+            _pendingCounterCompleter!.complete(event['choice'] as String?);
+            _pendingCounterCompleter = null;
+          }
+        case 'sur_counter_response':
+          if (_pendingSurCounterCompleter != null) {
+            print('[${widget.teamId}] ✅ sur_counter_response received');
+            _pendingSurCounterCompleter!.complete(event['choice'] as String?);
+            _pendingSurCounterCompleter = null;
+          }
+      }
+    } else {
+      print('[${widget.teamId}] 📥 GUEST event action=$action');
+      switch (action) {
+        case 'init_game':
+          _handleGuestInit(event);
+        case 'bid_made':
+          _handleGuestBidMade(event);
+        case 'card_played':
+          _handleGuestCardPlayed(event);
+        case 'trick_resolved':
+          _handleGuestTrickResolved(event);
+        case 'hand_finished':
+          _handleGuestHandFinished(event);
+        case 'game_over':
+          _handleGuestGameOver(event);
+        case 'bid_request':
+          _handleBidRequest(event);
+        case 'counter_request':
+          _handleCounterRequest(event);
+        case 'sur_counter_request':
+          _handleSurCounterRequest(event);
+        case 'dealing':
+          _handleGuestDealing(event);
+        case 'forfeit':
+          _handleGuestForfeit(event);
+      }
+    }
+  }
+
+  Map<String, dynamic>? _lastInitGameData;
+
+  void _handleGuestRequestInit() {
+    print('[${widget.teamId}] _handleGuestRequestInit lastInit=${_lastInitGameData != null}');
+    if (_lastInitGameData != null) {
+      GameChannelService().send('init_game', _lastInitGameData!);
+    }
+  }
+
+  void _handleGuestInit(Map<String, dynamic> event) {
+    _initReceived = true;
+    _requestInitTimer?.cancel();
+    final contractWinner = event['contract_winner'] as String? ?? 'Nord';
+    final starterPlayer = event['starter'] as String? ?? contractWinner;
+    print('[${widget.teamId}] _handleGuestInit winner=$contractWinner starter=$starterPlayer');
+    final handData = event['hand'] as List? ?? [];
+    gameLogic.aiHands[0] = handData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+    final estData = event['est_hand'] as List? ?? [];
+    gameLogic.aiHands[1] = estData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+    final ouestData = event['ouest_hand'] as List? ?? [];
+    gameLogic.aiHands[2] = ouestData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+    final sudData = event['sud_hand'] as List? ?? [];
+    gameLogic.playerHand = sudData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+    gameLogic.starterIndex = gameLogic.players.indexOf(starterPlayer);
+    gameLogic.gameStarted = true;
+    gameLogic.biddingFinished = true;
+    _autoCloseTimer?.cancel();
+    gameLogic.waitingForNextHand = false;
+    gameLogic.callSystem.contractCall = CallOption.values.byName(event['contract_call'] as String);
+    gameLogic.callSystem.contractWinner = contractWinner;
+    setState(() {});
+    _animateGuestDeal();
+    _startGame();
+  }
+
+  void _animateGuestDeal() {
+    _guestDealTimer?.cancel();
+    setState(() => _guestDealing = true);
+    _guestDealTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _guestDealing = false);
+    });
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (_isWarningShown) {
+      _isWarningShown = false;
+      Navigator.of(context).pop();
+    }
+    if (!gameLogic.gameStarted || gameLogic.gameOver) return;
+    final current = gameLogic.callSystem.currentPlayer;
+    if (!_isHuman(current)) return;
+    _inactivityTimer = Timer(const Duration(seconds: 60), () {
+      if (!mounted || gameLogic.gameOver || !gameLogic.gameStarted) return;
+      if (gameLogic.callSystem.currentPlayer != current) return;
+      if (_isHuman(current)) {
+        _inactivityTimer = null;
+        if (widget.teamId != null) {
+          GameChannelService().send('forfeit', {'player': current});
+        }
+        setState(() {
+          gameLogic.gameOver = true;
+          gameLogic.gameStarted = false;
+          overallWinner = current == 'Sud' || current == 'Nord' ? 'EO' : 'NS';
+        });
+      }
+    });
+    Timer(const Duration(seconds: 50), () {
+      _showForfeitWarning(current);
+    });
+  }
+
+  void _showForfeitWarning(String current) {
+    if (!mounted || gameLogic.gameOver || !gameLogic.gameStarted) return;
+    if (gameLogic.callSystem.currentPlayer != current) return;
+    if (!_isHuman(current)) return;
+    _isWarningShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: false,
+      builder: (_) => const _ForfeitWarningDialog(),
+    ).whenComplete(() {
+      _isWarningShown = false;
+    });
+  }
+
+  void _handleGuestForfeit(Map<String, dynamic> event) {
+    final player = event['player'] as String? ?? '';
+    if (player.isEmpty) return;
+    _inactivityTimer?.cancel();
+    setState(() {
+      gameLogic.gameOver = true;
+      gameLogic.gameStarted = false;
+      overallWinner = player == 'Sud' || player == 'Nord' ? 'EO' : 'NS';
+    });
+  }
+
+  void _handleGuestDealing(Map<String, dynamic> event) {
+    final dealType = event['deal_type'] as String? ?? 'initial';
+    final duration = dealType == 'initial' ? 10500 : 3000;
+    final handData = event['hand'] as List? ?? [];
+    if (handData.isNotEmpty) {
+      gameLogic.aiHands[0] = handData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+      final estData = event['est_hand'] as List? ?? [];
+      gameLogic.aiHands[1] = estData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+      final ouestData = event['ouest_hand'] as List? ?? [];
+      gameLogic.aiHands[2] = ouestData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+      final sudData = event['sud_hand'] as List? ?? [];
+      gameLogic.playerHand = sudData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
+    }
+    _guestDealTimer?.cancel();
+    setState(() => _guestDealing = true);
+    _guestDealTimer = Timer(Duration(milliseconds: duration), () {
+      if (mounted) setState(() => _guestDealing = false);
+    });
+  }
+
+  void _handleGuestBidMade(Map<String, dynamic> event) {
+    final player = event['player'] as String? ?? '';
+    final callName = event['call'] as String? ?? 'pass';
+    final option = CallOption.values.byName(callName);
+    gameLogic.callSystem.makeCall(option);
+    _showCallBubble(player, option);
+    setState(() {});
+  }
+
+  void _handleBidRequest(Map<String, dynamic> event) {
+    if (!mounted) { print('[${widget.teamId}] ⚠️ _handleBidRequest not mounted'); return; }
+    final current = event['player'] as String? ?? 'Nord';
+    final callsStr = (event['available_calls'] as List?)?.cast<String>() ?? [];
+    final availableCalls = callsStr.map((s) => CallOption.values.byName(s)).toList();
+    print('[${widget.teamId}] _handleBidRequest player=$current calls=${availableCalls.map((c) => c.name).join(",")}');
+
+    _setHandsFromEvent(event);
+    setState(() => gameLogic.waitingForNextHand = false);
+
+    _animateGuestDeal();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) { print('[${widget.teamId}] ⚠️ _handleBidRequest postFrame not mounted'); return; }
+      print('[${widget.teamId}] _handleBidRequest showing CallPopup');
+      showDialog(
+        context: context,
+        builder: (_) => CallPopup(
+          playerName: current,
+          availableCalls: availableCalls,
+          timeoutSeconds: 10,
+          onCall: (option) {
+            print('[${widget.teamId}] guest_bid selected=${option.name}');
+            GameChannelService().send('guest_bid', {'call': option.name});
+          },
+        ),
+      );
+    });
+  }
+
+  void _handleGuestCardPlayed(Map<String, dynamic> event) {
+    final player = event['player'] as String? ?? '';
+    final cardData = event['card'] as Map<String, dynamic>?;
+    if (cardData == null) return;
+    final card = CardModel.fromMap(cardData);
+    final hand = _handFor(player);
+    hand.removeWhere((c) => c.suit == card.suit && c.rank == card.rank);
+    setState(() {
+      gameLogic.currentTrick.add(PlayedCard(player, card));
+      gameLogic.callSystem.setCurrentPlayer(event['next_player'] as String? ?? _nextPlayer(player));
+    });
+  }
+
+  void _handleGuestTrickResolved(Map<String, dynamic> event) {
+    final winner = event['winner'] as String? ?? 'Nord';
+    final tricksPlayed = (event['tricks_played'] as num?)?.toInt() ?? gameLogic.tricksPlayed + 1;
+    setState(() {
+      gameLogic.currentTrick = [];
+      gameLogic.tricksPlayed = tricksPlayed;
+      final ns = (event['team_points_ns'] as num?)?.toInt() ?? 0;
+      final eo = (event['team_points_eo'] as num?)?.toInt() ?? 0;
+      gameLogic.teamPoints = {'NS': ns, 'EO': eo};
+      gameLogic.callSystem.setCurrentPlayer(winner);
+    });
+    if (tricksPlayed >= 8) {
+      gameLogic.lastHandDelta = {
+        'NS': (event['delta_ns'] as num?)?.toInt() ?? 0,
+        'EO': (event['delta_eo'] as num?)?.toInt() ?? 0,
+      };
+      gameLogic.gameOver = true;
+      gameLogic.gameStarted = false;
+      setState(() => gameLogic.waitingForNextHand = true);
+      _startAutoCloseTimer();
+    }
+    if (!gameLogic.gameOver) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  void _handleGuestHandFinished(Map<String, dynamic> event) {
+    final starterIndex = (event['starter_index'] as num?)?.toInt() ?? 0;
+    setState(() {
+      gameLogic.gameOver = true;
+      gameLogic.gameStarted = false;
+      gameLogic.lastHandDelta = {
+        'NS': (event['delta_ns'] as num?)?.toInt() ?? 0,
+        'EO': (event['delta_eo'] as num?)?.toInt() ?? 0,
+      };
+      gameLogic.gameScore = {
+        'NS': (event['score_ns'] as num?)?.toInt() ?? 0,
+        'EO': (event['score_eo'] as num?)?.toInt() ?? 0,
+      };
+      gameLogic.playerHand.clear();
+      gameLogic.aiHands = [[], [], []];
+      gameLogic.deck = Deck();
+      gameLogic.currentTrick = [];
+      gameLogic.tricksPlayed = 0;
+      gameLogic.teamPoints = {'NS': 0, 'EO': 0};
+      gameLogic.starterIndex = starterIndex;
+      gameLogic.order = [for (int i = 0; i < gameLogic.players.length; i++) gameLogic.players[(starterIndex + i) % gameLogic.players.length]];
+      gameLogic.callSystem = CallSystem(gameLogic.players, initialIndex: starterIndex, playerTeams: {
+        for (final p in gameLogic.players) p: BeloteRules.teamOf(p),
+      });
+      gameLogic.biddingFinished = false;
+    });
+  }
+
+  void _handleGuestGameOver(Map<String, dynamic> event) {
+    _autoCloseTimer?.cancel();
+    setState(() {
+      overallWinner = event['winner'] as String?;
+    });
+  }
+
+  Future<void> _handleGuestBid(Map<String, dynamic> event) async {
+    final optionStr = event['call'] as String?;
+    if (optionStr == null) return;
+    final option = CallOption.values.byName(optionStr);
+    gameLogic.callSystem.makeCall(option);
+    final player = event['player'] as String? ?? 'Nord';
+    _showCallBubble(player, option);
+
+    if (BeloteRules.isContractProposal(option)) {
+      await _processCounterAfterBid();
+    } else {
+      gameLogic.callSystem.setCurrentPlayer(gameLogic.callSystem.contractWinner ?? player);
+    }
+
+    if (!gameLogic.callSystem.isFinished()) {
+      _showCallPopup();
+    } else {
+      _finishBidding();
+    }
+  }
+
+  void _handleGuestPlay(Map<String, dynamic> event) {
+    final cardData = event['card'] as Map<String, dynamic>?;
+    if (cardData == null) { print('[${widget.teamId}] ⚠️ _handleGuestPlay cardData null'); return; }
+    final card = CardModel.fromMap(cardData);
+    final player = event['player'] as String? ?? 'Nord';
+    final hand = _handFor(player);
+    final contains = hand.contains(card);
+    print('[${widget.teamId}] _handleGuestPlay player=$player card=${card.suit.name}-${card.rank.name} handSize=${hand.length} contains=$contains');
+    if (contains) {
+      _playCardFromNetwork(player, card);
+    } else {
+      print('[${widget.teamId}] ⚠️ _handleGuestPlay: card not in hand. Hand: ${hand.map((c) => "${c.suit.name}-${c.rank.name}").join(", ")}');
+    }
+  }
+
+  Future<void> _playCardFromNetwork(String player, CardModel card) async {
+    if (_isPlayingCard) return;
+    _isPlayingCard = true;
+    final hand = _handFor(player);
+    setState(() {
+      hand.remove(card);
+      animatingPlayCard = card;
+      animatingPlayPlayer = player;
+      playCardAtCenter = false;
+    });
+    await Future.delayed(const Duration(milliseconds: 20));
+    setState(() => playCardAtCenter = true);
+    await Future.delayed(playAnimationDuration + const Duration(milliseconds: 50));
+    setState(() {
+      gameLogic.currentTrick.add(PlayedCard(player, card));
+      animatingPlayCard = null;
+      animatingPlayPlayer = null;
+      playCardAtCenter = false;
+    });
+
+    if (widget.teamId != null && widget.isHost) {
+      GameChannelService().send('card_played', {
+        'player': player,
+        'card': card.toMap(),
+        'next_player': _nextPlayer(player),
+      });
+    }
+
+    if (gameLogic.currentTrick.length >= 4) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      _resolveTrick();
+    } else {
+      final next = _nextPlayer(player);
+      gameLogic.callSystem.setCurrentPlayer(next);
+      if (widget.teamId != null && !widget.isHost) {
+        // guest waits for host broadcast
+      } else if (!_isHuman(next)) {
+        await Future.delayed(const Duration(milliseconds: 700));
+        Future.delayed(Duration.zero, () => _playAITurn());
+      }
+    }
+    _isPlayingCard = false;
+    _resetInactivityTimer();
   }
 
   /// Distribution animée : 3 cartes chacun puis 2 cartes chacun
@@ -79,7 +580,18 @@ class _GameScreenState extends State<GameScreen>
       }
     }
 
-    // Quand la distribution est terminée → lancer le popup d’appel
+    if (widget.teamId != null && widget.isHost) {
+      GameChannelService().send('dealing', {
+        'order': gameLogic.order,
+        'deal_type': 'initial',
+        'hand': gameLogic.aiHands[0].map((c) => c.toMap()).toList(),
+        'est_hand': gameLogic.aiHands[1].map((c) => c.toMap()).toList(),
+        'ouest_hand': gameLogic.aiHands[2].map((c) => c.toMap()).toList(),
+        'sud_hand': gameLogic.playerHand.map((c) => c.toMap()).toList(),
+      });
+    }
+
+    // Quand la distribution est terminée → lancer le popup d'appel
     await _showCallPopup();
   }
 
@@ -213,13 +725,14 @@ class _GameScreenState extends State<GameScreen>
 
   void _startGame() {
     if (gameLogic.callSystem.contractWinner != null) {
-      print("🎬 Début de la manche. Preneur : ${gameLogic.callSystem.contractWinner}");
-      gameLogic.callSystem.setCurrentPlayer(gameLogic.callSystem.contractWinner!);
+      print('[${widget.teamId}] 🎬 Début. Preneur : ${gameLogic.callSystem.contractWinner}');
+      gameLogic.callSystem.setCurrentPlayer(gameLogic.players[gameLogic.starterIndex]);
       setState(() {
         gameLogic.gameStarted = true;
         gameLogic.gameOver = false;
       });
-      print("👉 Premier joueur de la manche : ${gameLogic.callSystem.currentPlayer}");
+      print('[${widget.teamId}] 👉 Premier joueur : ${gameLogic.callSystem.currentPlayer} (starter=${gameLogic.players[gameLogic.starterIndex]})');
+      _resetInactivityTimer();
     }
   }
 
@@ -233,9 +746,25 @@ class _GameScreenState extends State<GameScreen>
         gameLogic.lastHandDelta = gameLogic.computeHandScores();
         _registerLastHandHistory();
         gameLogic.waitingForNextHand = true;
+        _startAutoCloseTimer();
       }
     });
-    if (!gameLogic.gameOver && gameLogic.callSystem.currentPlayer != 'Sud') {
+
+    if (widget.teamId != null && widget.isHost) {
+      final payload = <String, dynamic>{
+        'winner': gameLogic.callSystem.currentPlayer,
+        'tricks_played': gameLogic.tricksPlayed,
+        'team_points_ns': gameLogic.teamPoints['NS'],
+        'team_points_eo': gameLogic.teamPoints['EO'],
+      };
+      if (gameLogic.tricksPlayed >= 8) {
+        payload['delta_ns'] = gameLogic.lastHandDelta['NS'];
+        payload['delta_eo'] = gameLogic.lastHandDelta['EO'];
+      }
+      GameChannelService().send('trick_resolved', payload);
+    }
+
+    if (!gameLogic.gameOver && !_isHuman(gameLogic.callSystem.currentPlayer)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _playAITurn();
       });
@@ -244,12 +773,15 @@ class _GameScreenState extends State<GameScreen>
 
   void _applyLastHandAndNext() {
     bool shouldStartNextHand = true;
+    final isGameOver = gameLogic.gameScore['NS']! + (gameLogic.lastHandDelta['NS'] ?? 0) >= 150 ||
+                        gameLogic.gameScore['EO']! + (gameLogic.lastHandDelta['EO'] ?? 0) >= 150;
 
+    _autoCloseTimer?.cancel();
     setState(() {
       gameLogic.gameScore['NS'] = gameLogic.gameScore['NS']! + (gameLogic.lastHandDelta['NS'] ?? 0);
       gameLogic.gameScore['EO'] = gameLogic.gameScore['EO']! + (gameLogic.lastHandDelta['EO'] ?? 0);
 
-      if (gameLogic.gameScore['NS']! >= 150 || gameLogic.gameScore['EO']! >= 150) {
+      if (isGameOver) {
         overallWinner = gameLogic.gameScore['NS']! >= 150 ? 'NS' : 'EO';
         gameLogic.waitingForNextHand = false;
         shouldStartNextHand = false;
@@ -267,20 +799,38 @@ class _GameScreenState extends State<GameScreen>
         gameLogic.deck.shuffle();
         gameLogic.starterIndex = (gameLogic.starterIndex + 1) % players.length;
         gameLogic.order = [for (int i = 0; i < players.length; i++) players[(gameLogic.starterIndex + i) % players.length]];
-        gameLogic.callSystem = CallSystem(players, initialIndex: gameLogic.starterIndex);
+        gameLogic.callSystem = CallSystem(players, initialIndex: gameLogic.starterIndex, playerTeams: {
+          for (final p in players) p: BeloteRules.teamOf(p),
+        });
         gameLogic.biddingFinished = false;
         gameLogic.gameOver = false;
       }
     });
 
+    if (widget.teamId != null && widget.isHost) {
+      if (isGameOver) {
+        GameChannelService().send('game_over', {
+          'winner': overallWinner,
+        });
+      } else {
+        GameChannelService().send('hand_finished', {
+          'delta_ns': gameLogic.lastHandDelta['NS'],
+          'delta_eo': gameLogic.lastHandDelta['EO'],
+          'score_ns': gameLogic.gameScore['NS'],
+          'score_eo': gameLogic.gameScore['EO'],
+          'starter_index': gameLogic.starterIndex,
+        });
+      }
+    }
+
     if (shouldStartNextHand) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _dealCards();
-      });
+      Future.delayed(Duration.zero, () => _dealCards());
     }
   }
 
   Future<void> _playCard(String player, CardModel card) async {
+    if (_isPlayingCard) return;
+    _isPlayingCard = true;
     print('🃏 $player joue ${card.assetPath}');
     final hand = _handFor(player);
     setState(() {
@@ -296,12 +846,35 @@ class _GameScreenState extends State<GameScreen>
     });
     await Future.delayed(playAnimationDuration + const Duration(milliseconds: 50));
 
+    if (widget.teamId != null && !widget.isHost) {
+      // Guest : envoie au host, ne fait rien d'autre (host broadcast card_played)
+      setState(() {
+        animatingPlayCard = null;
+        animatingPlayPlayer = null;
+        playCardAtCenter = false;
+      });
+      GameChannelService().send('play_card', {
+        'player': player,
+        'card': card.toMap(),
+      });
+      _isPlayingCard = false;
+      return;
+    }
+
     setState(() {
       gameLogic.currentTrick.add(PlayedCard(player, card));
       animatingPlayCard = null;
       animatingPlayPlayer = null;
       playCardAtCenter = false;
     });
+
+    if (widget.teamId != null && widget.isHost) {
+      GameChannelService().send('card_played', {
+        'player': player,
+        'card': card.toMap(),
+        'next_player': _nextPlayer(player),
+      });
+    }
 
     if (gameLogic.currentTrick.length >= 4) {
       await Future.delayed(const Duration(milliseconds: 400));
@@ -310,11 +883,14 @@ class _GameScreenState extends State<GameScreen>
       final next = _nextPlayer(player);
       print('➡️ Prochain joueur : $next');
       gameLogic.callSystem.setCurrentPlayer(next);
-      if (next != 'Sud') {
+      if (!_isHuman(next)) {
         await Future.delayed(const Duration(milliseconds: 700));
-        await _playAITurn();
+        _isPlayingCard = false;
+        _playAITurn();
       }
     }
+    _isPlayingCard = false;
+    _resetInactivityTimer();
   }
 
   CardModel _chooseAICard(String player) {
@@ -358,9 +934,8 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
     final current = gameLogic.callSystem.currentPlayer;
-    print('🤖 Tour IA : $current');
-    if (current == 'Sud') {
-      print("⛔ C'est le tour de Sud, l'IA s'arrête.");
+    if (_isHuman(current)) {
+      print("⛔ $current est humain, l'IA s'arrête.");
       return;
     }
     if (_handFor(current).isEmpty) {
@@ -371,12 +946,47 @@ class _GameScreenState extends State<GameScreen>
     await _playCard(current, card);
   }
 
-  bool _canPlayCard(CardModel card) {
-    return gameLogic.canPlayCard(card);
+  bool _canPlayCard(CardModel card, {String player = 'Sud'}) {
+    return gameLogic.canPlayCard(card, player: player);
+  }
+
+  void _onDragStart(CardModel card, String playerName, LongPressStartDetails details) {
+    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final local = box.globalToLocal(details.globalPosition);
+    setState(() {
+      _draggingCard = card;
+      _dragX = local.dx;
+      _dragY = local.dy;
+    });
+  }
+
+  void _onDragUpdate(LongPressMoveUpdateDetails details) {
+    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final local = box.globalToLocal(details.globalPosition);
+    setState(() {
+      _dragX = local.dx;
+      _dragY = local.dy;
+    });
+  }
+
+  void _onDragEnd(CardModel card, String playerName) {
+    if (!_canPlayCard(card, player: playerName)) {
+      setState(() => _draggingCard = null);
+      return;
+    }
+    final screenHeight = MediaQuery.of(context).size.height;
+    if (_dragY < screenHeight * 0.5) {
+      final playCard = card;
+      setState(() => _draggingCard = null);
+      _playCard(playerName, playCard);
+    } else {
+      setState(() => _draggingCard = null);
+    }
   }
 
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
-    final legal = playerName == "Sud" ? _legalCards("Sud") : [];
     const cardWidth = 80.0;
     const cardHeight = 100.0;
     const overlap = 36.0;
@@ -397,8 +1007,17 @@ class _GameScreenState extends State<GameScreen>
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
                   child: GestureDetector(
-                    onTap: playerName == "Sud" && _canPlayCard(cards[i])
-                        ? () => _playCard("Sud", cards[i])
+                    onTap: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
+                        ? () => _playCard(playerName, cards[i])
+                        : null,
+                    onLongPressStart: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
+                        ? (d) => _onDragStart(cards[i], playerName, d)
+                        : null,
+                    onLongPressMoveUpdate: _isHuman(playerName)
+                        ? _onDragUpdate
+                        : null,
+                    onLongPressEnd: _isHuman(playerName) && _draggingCard != null
+                        ? (_) => _onDragEnd(cards[i], playerName)
                         : null,
                     child: SvgPicture.asset(
                       cards[i].assetPath,
@@ -427,6 +1046,34 @@ class _GameScreenState extends State<GameScreen>
         player: _playedCardFor(player),
     };
 
+    if (widget.teamId != null && !widget.isHost) {
+      return SizedBox(
+        height: 200,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Align(
+              alignment: const Alignment(0, -0.45),
+              child: _buildTrickCard(playedMap['Sud']),
+            ),
+            Align(
+              alignment: const Alignment(0.33, -0.05),
+              child: _buildTrickCard(playedMap['Ouest']),
+            ),
+            Align(
+              alignment: const Alignment(-0.33, -0.05),
+              child: _buildTrickCard(playedMap['Est']),
+            ),
+            Align(
+              alignment: const Alignment(0, 0.45),
+              child: _buildTrickCard(playedMap['Nord']),
+            ),
+          ],
+        ),
+      );
+    }
+
     return SizedBox(
       height: 200,
       child: Stack(
@@ -434,20 +1081,19 @@ class _GameScreenState extends State<GameScreen>
         clipBehavior: Clip.none,
         children: [
           Align(
-            alignment: const Alignment(0, -0.58),
+            alignment: const Alignment(0, -0.45),
             child: _buildTrickCard(playedMap['Nord']),
           ),
-          // Est et Ouest rapprochés du centre
           Align(
-            alignment: const Alignment(0.38, -0.05),
+            alignment: const Alignment(0.33, -0.05),
             child: _buildTrickCard(playedMap['Est']),
           ),
           Align(
-            alignment: const Alignment(-0.38, -0.05),
+            alignment: const Alignment(-0.33, -0.05),
             child: _buildTrickCard(playedMap['Ouest']),
           ),
           Align(
-            alignment: const Alignment(0, 0.6),
+            alignment: const Alignment(0, 0.45),
             child: _buildTrickCard(playedMap['Sud']),
           ),
         ],
@@ -458,8 +1104,8 @@ class _GameScreenState extends State<GameScreen>
   Widget _buildTrickCard(PlayedCard? playedCard) {
     if (playedCard == null) {
       return Container(
-        width: 50,
-        height: 64,
+        width: 60,
+        height: 76,
         decoration: BoxDecoration(
           color: Colors.white12,
           borderRadius: BorderRadius.circular(8),
@@ -468,16 +1114,18 @@ class _GameScreenState extends State<GameScreen>
     }
     return SvgPicture.asset(
       playedCard.card.assetPath,
-      width: 42,
-      height: 54,
+      width: 60,
+      height: 76,
     );
   }
 
   Future<void> _showCallBubble(String player, CallOption option) async {
+    final label = '${_displayName(player)} : ${_callOptionLabel(option)}';
+    print('[${widget.teamId}] 📢 $label');
     setState(() {
       showCallBubble = true;
       callBubblePlayer = player;
-      callBubbleText = _callOptionLabel(option);
+      callBubbleText = label;
     });
 
     await Future.delayed(const Duration(seconds: 1));
@@ -496,6 +1144,17 @@ class _GameScreenState extends State<GameScreen>
         });
       });
     }
+
+    if (widget.teamId != null && widget.isHost) {
+      GameChannelService().send('dealing', {
+        'order': gameLogic.order,
+        'deal_type': 'final',
+        'hand': gameLogic.aiHands[0].map((c) => c.toMap()).toList(),
+        'est_hand': gameLogic.aiHands[1].map((c) => c.toMap()).toList(),
+        'ouest_hand': gameLogic.aiHands[2].map((c) => c.toMap()).toList(),
+        'sud_hand': gameLogic.playerHand.map((c) => c.toMap()).toList(),
+      });
+    }
   }
 
   Future<void> _finishBidding() async {
@@ -505,26 +1164,97 @@ class _GameScreenState extends State<GameScreen>
     final sorted = gameLogic.sortedSouthHand(gameLogic.callSystem.contractCall);
     setState(() {
       gameLogic.playerHand = sorted;
+      if (_isHuman('Nord')) {
+        gameLogic.aiHands[0] = BeloteRules.sortSouthHand(gameLogic.aiHands[0], gameLogic.callSystem.contractCall);
+      }
       gameLogic.winningPlayer = gameLogic.callSystem.contractWinner;
     });
 
+    if (widget.teamId != null && widget.isHost) {
+      final initData = {
+        'your_player': 'Nord',
+        'host_player': 'Sud',
+        'hand': gameLogic.aiHands[0].map((c) => c.toMap()).toList(),
+        'est_hand': gameLogic.aiHands[1].map((c) => c.toMap()).toList(),
+        'ouest_hand': gameLogic.aiHands[2].map((c) => c.toMap()).toList(),
+        'sud_hand': gameLogic.playerHand.map((c) => c.toMap()).toList(),
+        'contract_call': gameLogic.callSystem.contractCall?.name,
+        'contract_winner': gameLogic.callSystem.contractWinner,
+        'starter': gameLogic.players[gameLogic.starterIndex],
+      };
+      _lastInitGameData = initData;
+      print('[${widget.teamId}] envoi init_game winner=${gameLogic.callSystem.contractWinner}');
+      await GameChannelService().send('init_game', initData);
+    }
+
     _startGame();
-    if (gameLogic.callSystem.currentPlayer != 'Sud') {
+    if (!_isHuman(gameLogic.callSystem.currentPlayer)) {
       print('⏳ IA doit commencer la manche.');
       Future.delayed(Duration.zero, () => _playAITurn());
     } else {
-      print('🎮 Sud commence la manche.');
+      print('🎮 ${gameLogic.callSystem.currentPlayer} commence la manche.');
     }
   }
 
   Future<void> _showCallPopup() async {
     final current = gameLogic.callSystem.currentPlayer;
     gameLogic.starterPlayer ??= current;
+    print('[${widget.teamId}] _showCallPopup current=$current local=${_isLocalPlayer(current)} human=${_isHuman(current)}');
 
-    if (current != 'Sud') {
-      final option = gameLogic.bestCallForPlayer(current);
-      await gameLogic.callSystem.makeCall(option);
+    if (widget.teamId != null && _isHuman(current) && !_isLocalPlayer(current)) {
+      GameChannelService().send('bid_request', {
+        'player': current,
+        'available_calls': gameLogic.callSystem.availableCalls.map((c) => c.name).toList(),
+        'hand': gameLogic.handFor(current).map((c) => c.toMap()).toList(),
+        'est_hand': gameLogic.aiHands[1].map((c) => c.toMap()).toList(),
+        'ouest_hand': gameLogic.aiHands[2].map((c) => c.toMap()).toList(),
+        'sud_hand': gameLogic.playerHand.map((c) => c.toMap()).toList(),
+      });
+      _pendingBidCompleter = Completer<CallOption>();
+      CallOption option;
+      try {
+        option = await _pendingBidCompleter!.future.timeout(const Duration(seconds: 15));
+      } catch (_) {
+        print('[${widget.teamId}] ⏰ Bid timeout for $current, forcing pass');
+        option = CallOption.pass;
+      }
+      _pendingBidCompleter = null;
+      gameLogic.callSystem.makeCall(option);
       await _showCallBubble(current, option);
+
+      if (_isContractProposal(option)) {
+        await _processCounterAfterBid();
+      }
+
+      if (widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': current,
+          'call': option.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
+
+      if (!gameLogic.callSystem.isFinished()) {
+        await _showCallPopup();
+      } else {
+        await _finishBidding();
+      }
+    } else if (!_isHuman(current)) {
+      final option = gameLogic.bestCallForPlayer(current);
+      gameLogic.callSystem.makeCall(option);
+      await _showCallBubble(current, option);
+
+      if (_isContractProposal(option)) {
+        await _processCounterAfterBid();
+      }
+
+      if (widget.teamId != null && widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': current,
+          'call': option.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
 
       if (!gameLogic.callSystem.isFinished()) {
         await _showCallPopup();
@@ -537,9 +1267,23 @@ class _GameScreenState extends State<GameScreen>
         builder: (_) => CallPopup(
           playerName: current,
           availableCalls: gameLogic.callSystem.availableCalls,
+          timeoutSeconds: 10,
           onCall: (option) async {
-            await gameLogic.callSystem.makeCall(option);
+            gameLogic.callSystem.makeCall(option);
             await _showCallBubble(current, option);
+
+            if (_isContractProposal(option)) {
+              await _processCounterAfterBid();
+            }
+
+            if (widget.teamId != null && widget.isHost) {
+              GameChannelService().send('bid_made', {
+                'player': current,
+                'call': option.name,
+                'next_player': gameLogic.callSystem.currentPlayer,
+              });
+            }
+
             if (!gameLogic.callSystem.isFinished()) {
               await _showCallPopup();
             } else {
@@ -551,9 +1295,215 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  bool _isContractProposal(CallOption option) {
+    return BeloteRules.isContractProposal(option);
+  }
+
+  Future<void> _processCounterAfterBid() async {
+    final counterCalled = await _handleCounterWindow();
+    if (counterCalled) {
+      await _handleSurCounterWindow();
+    }
+  }
+
+  Future<bool> _handleCounterWindow() async {
+    final currentPlayer = gameLogic.callSystem.currentPlayer;
+
+    if (!_isHuman(currentPlayer)) return false;
+
+    if (widget.teamId != null && !_isLocalPlayer(currentPlayer)) {
+      return _handleTeamCounterWindow(currentPlayer, 'counter', 'Contrer ?', 5, CallOption.x2);
+    }
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _TimerChoiceDialog(
+        title: '${_displayName(currentPlayer)} : Contrer ?',
+        seconds: 5,
+        options: const ['x2', 'Passer'],
+      ),
+    );
+
+    if (result == 'x2') {
+      gameLogic.callSystem.makeCall(CallOption.x2);
+      if (widget.teamId != null && widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': currentPlayer,
+          'call': CallOption.x2.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
+      await _showCallBubble(currentPlayer, CallOption.x2);
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> _handleSurCounterWindow() async {
+    final currentPlayer = gameLogic.callSystem.currentPlayer;
+
+    if (!_isHuman(currentPlayer)) return false;
+
+    if (widget.teamId != null && !_isLocalPlayer(currentPlayer)) {
+      return _handleTeamCounterWindow(currentPlayer, 'sur_counter', 'Sur-contrer ?', 10, CallOption.x4);
+    }
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _TimerChoiceDialog(
+        title: '${_displayName(currentPlayer)} : Sur-contrer ?',
+        seconds: 10,
+        options: const ['x4', 'Passer'],
+      ),
+    );
+
+    if (result == 'x4') {
+      gameLogic.callSystem.makeCall(CallOption.x4);
+      if (widget.teamId != null && widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': currentPlayer,
+          'call': CallOption.x4.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
+      await _showCallBubble(currentPlayer, CallOption.x4);
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> _handleTeamCounterWindow(String player, String type, String title, int seconds, CallOption counterOption) async {
+    final completer = Completer<String?>();
+    final action = type == 'sur_counter' ? 'sur_counter_request' : 'counter_request';
+    if (type == 'sur_counter') {
+      _pendingSurCounterCompleter = completer;
+    } else {
+      _pendingCounterCompleter = completer;
+    }
+    GameChannelService().send(action, {
+      'player': player,
+      'seconds': seconds,
+      'hand': gameLogic.handFor(player).map((c) => c.toMap()).toList(),
+      'est_hand': gameLogic.aiHands[1].map((c) => c.toMap()).toList(),
+      'ouest_hand': gameLogic.aiHands[2].map((c) => c.toMap()).toList(),
+      'sud_hand': gameLogic.playerHand.map((c) => c.toMap()).toList(),
+    });
+
+    final localResult = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _TimerChoiceDialog(
+        title: '$title (${_displayName(player)})',
+        seconds: seconds,
+        options: type == 'sur_counter' ? const ['x4', 'Passer'] : const ['x2', 'Passer'],
+      ),
+    );
+
+    if (localResult == counterOption.name) {
+      _pendingCounterCompleter = null;
+      _pendingSurCounterCompleter = null;
+      gameLogic.callSystem.makeCall(counterOption);
+      if (widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': player,
+          'call': counterOption.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
+      await _showCallBubble(player, counterOption);
+      return true;
+    }
+
+    String? guestResult;
+    try {
+      guestResult = await completer.future.timeout(const Duration(seconds: 15));
+    } catch (_) {
+      guestResult = null;
+    }
+    if (type == 'sur_counter') {
+      _pendingSurCounterCompleter = null;
+    } else {
+      _pendingCounterCompleter = null;
+    }
+    if (guestResult == counterOption.name) {
+      gameLogic.callSystem.makeCall(counterOption);
+      if (widget.isHost) {
+        GameChannelService().send('bid_made', {
+          'player': player,
+          'call': counterOption.name,
+          'next_player': gameLogic.callSystem.currentPlayer,
+        });
+      }
+      await _showCallBubble(player, counterOption);
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _handleCounterRequest(Map<String, dynamic> event) async {
+    final player = event['player'] as String? ?? 'Nord';
+    final seconds = (event['seconds'] as num?)?.toInt() ?? 5;
+    _setHandsFromEvent(event);
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _TimerChoiceDialog(
+        title: '${_displayName(player)} : Contrer ?',
+        seconds: seconds,
+        options: const ['x2', 'Passer'],
+      ),
+    );
+    GameChannelService().send('counter_response', {
+      'choice': result ?? 'pass',
+    });
+  }
+
+  Future<void> _handleSurCounterRequest(Map<String, dynamic> event) async {
+    final player = event['player'] as String? ?? 'Nord';
+    final seconds = (event['seconds'] as num?)?.toInt() ?? 10;
+    _setHandsFromEvent(event);
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _TimerChoiceDialog(
+        title: '${_displayName(player)} : Sur-contrer ?',
+        seconds: seconds,
+        options: const ['x4', 'Passer'],
+      ),
+    );
+    GameChannelService().send('sur_counter_response', {
+      'choice': result ?? 'pass',
+    });
+  }
+
+  void _setHandsFromEvent(Map<String, dynamic> event) {
+    final handData = event['hand'] as List? ?? [];
+    if (handData.isEmpty && !event.containsKey('hand')) return;
+    setState(() {
+      gameLogic.aiHands[0] = handData
+          .map((c) => CardModel.fromMap(Map<String, dynamic>.from(c)))
+          .toList();
+      final estData = event['est_hand'] as List? ?? [];
+      gameLogic.aiHands[1] = estData
+          .map((c) => CardModel.fromMap(Map<String, dynamic>.from(c)))
+          .toList();
+      final ouestData = event['ouest_hand'] as List? ?? [];
+      gameLogic.aiHands[2] = ouestData
+          .map((c) => CardModel.fromMap(Map<String, dynamic>.from(c)))
+          .toList();
+      final sudData = event['sud_hand'] as List? ?? [];
+      gameLogic.playerHand = sudData
+          .map((c) => CardModel.fromMap(Map<String, dynamic>.from(c)))
+          .toList();
+    });
+  }
+
   Widget _buildOverlapCardsRightToLeft(
     List<CardModel> cards, {
     bool showBack = false,
+    void Function(CardModel)? onCardTap,
   }) {
     const cardWidth = 80.0;
     const cardHeight = 100.0;
@@ -574,12 +1524,15 @@ class _GameScreenState extends State<GameScreen>
               for (var i = 0; i < cards.length; i++)
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
-                  child: SvgPicture.asset(
-                    showBack
-                        ? "assets/images/card/dos.svg"
-                        : cards[i].assetPath,
-                    width: cardWidth,
-                    height: cardHeight,
+                  child: GestureDetector(
+                    onTap: onCardTap != null ? () => onCardTap(cards[i]) : null,
+                    child: SvgPicture.asset(
+                      (showBack && onCardTap == null)
+                          ? "assets/images/card/dos.svg"
+                          : cards[i].assetPath,
+                      width: cardWidth,
+                      height: cardHeight,
+                    ),
                   ),
                 ),
             ],
@@ -626,8 +1579,15 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  String _displayName(String player) {
+    return widget.playerNames[player] ?? player;
+  }
+
   Widget _playerAvatar(String player) {
     final isCurrentPlayer = gameLogic.callSystem.currentPlayer == player;
+    final name = _displayName(player);
+    final avatarUrl = widget.playerAvatars[player] ?? '';
+    final showImage = _isHuman(player) && avatarUrl.isNotEmpty;
     return Container(
       width: 56,
       height: 56,
@@ -638,32 +1598,47 @@ class _GameScreenState extends State<GameScreen>
           width: 3,
         ),
       ),
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.grey[300],
-        ),
-        child: Center(
-          child: Text(
-            player[0],
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black,
-            ),
-          ),
-        ),
+      child: CircleAvatar(
+        radius: 28,
+        backgroundColor: Colors.grey[300],
+        backgroundImage: showImage ? NetworkImage(avatarUrl) : null,
+        child: showImage
+            ? null
+            : Text(
+                name.isNotEmpty ? name[0].toUpperCase() : player[0],
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+              ),
       ),
     );
+  }
+
+  String _mappedPosition(String player) {
+    if (widget.teamId == null) return player;
+    if (widget.isHost) {
+      // Host: Sud(me)→bottom, Nord(partner)→top, Ouest→left, Est→right
+      return player;
+    } else {
+      // Guest: Nord(me)→bottom, Sud(partner)→top, Ouest→right, Est→left
+      switch (player) {
+        case "Nord": return "Sud";
+        case "Sud": return "Nord";
+        case "Est": return "Ouest";
+        case "Ouest": return "Est";
+        default: return player;
+      }
+    }
   }
 
   Widget _positionedMarker(String player, Color color) {
     final media = MediaQuery.of(context);
     final w = media.size.width;
     final h = media.size.height;
-    switch (player) {
+    final pos = _mappedPosition(player);
+    switch (pos) {
       case "Nord":
         return Positioned(
           top: 80,
@@ -709,7 +1684,8 @@ class _GameScreenState extends State<GameScreen>
       ),
     );
 
-    switch (callBubblePlayer) {
+    final pos = _mappedPosition(callBubblePlayer);
+    switch (pos) {
       case "Nord":
         return Positioned(top: 12, left: w * 0.5 - 60, child: content);
       case "Est":
@@ -799,7 +1775,7 @@ class _GameScreenState extends State<GameScreen>
               ),
               if (gameLogic.callSystem.contractWinner != null)
                 Text(
-                  gameLogic.callSystem.contractWinner!,
+                  _displayName(gameLogic.callSystem.contractWinner!),
                   style: const TextStyle(color: Colors.white60, fontSize: 11),
                 ),
             ],
@@ -840,10 +1816,49 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  Alignment _playOrigin(String player) {
+    if (widget.teamId != null && !widget.isHost) {
+      switch (player) {
+        case "Nord": return const Alignment(0, 0.85);
+        case "Sud": return const Alignment(0, -0.85);
+        case "Est": return const Alignment(-0.85, 0);
+        case "Ouest": return const Alignment(0.85, 0);
+      }
+    }
+    return _alignmentForPlayer(player);
+  }
+
+  Alignment _dealAlignment(String player) {
+    if (widget.teamId != null && !widget.isHost) {
+      switch (player) {
+        case "Nord": return const Alignment(0, 0.85);
+        case "Sud": return const Alignment(0, -0.85);
+        case "Est": return const Alignment(-0.85, 0);
+        case "Ouest": return const Alignment(0.85, 0);
+      }
+    }
+    return _alignmentForPlayer(player);
+  }
+
+  Widget _buildDragOverlay() {
+    return Positioned(
+      left: _dragX - 40,
+      top: _dragY - 50,
+      child: Transform.rotate(
+        angle: 0.05,
+        child: SvgPicture.asset(
+          _draggingCard!.assetPath,
+          width: 80,
+          height: 100,
+        ),
+      ),
+    );
+  }
+
   Widget _buildDealAnimation() {
     return AnimatedAlign(
       alignment: dealCardAtTarget
-          ? _alignmentForPlayer(animatingDealPlayer!)
+          ? _dealAlignment(animatingDealPlayer!)
           : Alignment.center,
       duration: dealAnimationDuration,
       curve: Curves.easeInOut,
@@ -859,7 +1874,7 @@ class _GameScreenState extends State<GameScreen>
     return AnimatedAlign(
       alignment: playCardAtCenter
           ? Alignment.center
-          : _alignmentForPlayer(animatingPlayPlayer!),
+          : _playOrigin(animatingPlayPlayer!),
       duration: playAnimationDuration,
       curve: Curves.easeInOut,
       child: SvgPicture.asset(
@@ -874,6 +1889,7 @@ class _GameScreenState extends State<GameScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
+        key: _dragStackKey,
         children: [
           Positioned.fill(
             child: Image.asset(
@@ -883,6 +1899,7 @@ class _GameScreenState extends State<GameScreen>
           ),
           if (animatingDealCard != null) _buildDealAnimation(),
           if (animatingPlayCard != null) _buildPlayAnimation(),
+          if (_draggingCard != null) _buildDragOverlay(),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -893,14 +1910,30 @@ class _GameScreenState extends State<GameScreen>
                   
                   const SizedBox(height: 12),
 
-                  // Nord (IA 0)
-                  SizedBox(
-                    height: 120,
-                    child: _buildOverlapCardsRightToLeft(
-                      gameLogic.aiHands[0],
-                      showBack: true,
+                  // Nord (invité : affiche Sud face cachée)
+                  if (_isGuestNetworked)
+                    SizedBox(
+                      height: 120,
+                      child: _buildOverlapCardsRightToLeft(
+                        gameLogic.playerHand,
+                        showBack: true,
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      height: 120,
+                      child: _buildOverlapCardsRightToLeft(
+                        gameLogic.aiHands[0],
+                        showBack: !_isLocalPlayer('Nord'),
+                        onCardTap: _isLocalPlayer('Nord')
+                            ? (card) {
+                                if (gameLogic.canPlayCard(card, player: 'Nord')) {
+                                  _playCard('Nord', card);
+                                }
+                              }
+                            : null,
+                      ),
                     ),
-                  ),
 
                   const SizedBox(height: 12),
 
@@ -911,12 +1944,16 @@ class _GameScreenState extends State<GameScreen>
                       children: [
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[2]),
+                          child: _buildOverlapCardsTopToBottom(
+                            _isGuestNetworked ? gameLogic.aiHands[1] : gameLogic.aiHands[2],
+                          ),
                         ),
                         const Expanded(child: SizedBox.shrink()),
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(gameLogic.aiHands[1]),
+                          child: _buildOverlapCardsTopToBottom(
+                            _isGuestNetworked ? gameLogic.aiHands[2] : gameLogic.aiHands[1],
+                          ),
                         ),
                       ],
                     ),
@@ -924,10 +1961,12 @@ class _GameScreenState extends State<GameScreen>
 
                   const SizedBox(height: 12),
 
-                  // Sud (joueur humain)
+                  // Sud (joueur humain) — pour l'invité : main de Nord en bas
                   SizedBox(
                     height: 140,
-                    child: _buildPlayerHand(gameLogic.playerHand, playerName: "Sud"),
+                    child: _isGuestNetworked
+                        ? _buildPlayerHand(gameLogic.aiHands[0], playerName: "Nord")
+                        : _buildPlayerHand(gameLogic.playerHand, playerName: "Sud"),
                   ),
                 ],
               ),
@@ -944,6 +1983,23 @@ class _GameScreenState extends State<GameScreen>
               child: _showTrickArea(),
             ),
           ),
+
+          if (_guestDealing)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black26,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SvgPicture.asset("assets/images/card/dos.svg", height: 80),
+                      const SizedBox(height: 12),
+                      const Text("Distribution...", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           if (showCallBubble) _positionedCallBubble(),
           
@@ -975,8 +2031,30 @@ class _GameScreenState extends State<GameScreen>
                           Text('EO : +${gameLogic.lastHandDelta["EO"] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16)),
                           const SizedBox(height: 12),
                           ElevatedButton(
-                            onPressed: overallWinner == null ? _applyLastHandAndNext : null,
-                            child: const Text('Suivant'),
+                            onPressed: overallWinner == null
+                                ? (widget.isHost
+                                    ? () {
+                                        _autoCloseTimer?.cancel();
+                                        _hostReady = true;
+                                        if (_guestReady || widget.teamId == null) {
+                                          _hostReady = false;
+                                          _guestReady = false;
+                                          _applyLastHandAndNext();
+                                        } else {
+                                          setState(() {});
+                                        }
+                                      }
+                                    : () {
+                                        _autoCloseTimer?.cancel();
+                                        GameChannelService().send('player_ready', {});
+                                        setState(() {
+                                          gameLogic.waitingForNextHand = false;
+                                        });
+                                      })
+                                : null,
+                            child: Text(_hostReady && widget.isHost && widget.teamId != null
+                                ? 'Attente...'
+                                : 'Continuer'),
                           ),
                         ],
                       ),
@@ -1039,6 +2117,153 @@ class _GameScreenState extends State<GameScreen>
               left: MediaQuery.of(context).size.width / 2 - 30,
               child: SvgPicture.asset("assets/images/card/dos.svg", height: 60),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimerChoiceDialog extends StatefulWidget {
+  final String title;
+  final int seconds;
+  final List<String> options;
+
+  const _TimerChoiceDialog({
+    required this.title,
+    required this.seconds,
+    required this.options,
+  });
+
+  @override
+  State<_TimerChoiceDialog> createState() => _TimerChoiceDialogState();
+}
+
+class _TimerChoiceDialogState extends State<_TimerChoiceDialog> {
+  late int _remaining;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _remaining = widget.seconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_remaining > 1) {
+        setState(() => _remaining--);
+      } else {
+        _timer?.cancel();
+        if (mounted) Navigator.pop(context);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('${_remaining}s',
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: widget.options.map((opt) {
+              final isAction = opt == 'x2' || opt == 'x4';
+              return ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isAction ? Colors.orange : Colors.grey,
+                ),
+                onPressed: () {
+                  _timer?.cancel();
+                  Navigator.pop(context, opt);
+                },
+                child: Text(opt,
+                    style: const TextStyle(color: Colors.white)),
+              );
+                }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ForfeitWarningDialog extends StatefulWidget {
+  const _ForfeitWarningDialog();
+
+  @override
+  State<_ForfeitWarningDialog> createState() => _ForfeitWarningDialogState();
+}
+
+class _ForfeitWarningDialogState extends State<_ForfeitWarningDialog> {
+  int _seconds = 10;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) { _timer?.cancel(); return; }
+      setState(() {
+        _seconds--;
+      });
+      if (_seconds <= 0) {
+        _timer?.cancel();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.orange.shade900,
+      title: const Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
+          SizedBox(width: 8),
+          Text('Inactivité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Vous n\'avez pas joué depuis 50s.\nJouez une carte dans les',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontSize: 15),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '$_seconds',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Text(
+            'secondes',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'sinon votre équipe sera forfait.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
         ],
       ),
     );

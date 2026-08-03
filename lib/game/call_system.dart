@@ -22,6 +22,7 @@ class Call {
 
 class CallSystem {
   final List<String> players;
+  final Map<String, String> _playerTeams;
   int currentPlayerIndex = 0;
 
   List<CallOption> availableCalls = [
@@ -51,7 +52,8 @@ class CallSystem {
   ];
 
   // Optional initialIndex allows the caller to control who starts.
-  CallSystem(this.players, {int? initialIndex}) {
+  CallSystem(this.players, {int? initialIndex, Map<String, String>? playerTeams})
+      : _playerTeams = playerTeams ?? {} {
     if (initialIndex != null) {
       currentPlayerIndex = initialIndex % players.length;
     } else {
@@ -66,8 +68,6 @@ class CallSystem {
       CallOption.sansAs,
       CallOption.toutAs,
     ];
-    print("➡️ Premier joueur choisi : ${players[currentPlayerIndex]}");
-    print("👉 C'est maintenant au tour de ${players[currentPlayerIndex]}");
   }
 
   String get currentPlayer => players[currentPlayerIndex];
@@ -84,16 +84,16 @@ class CallSystem {
     }
   }
 
-  Future<void> makeCall(CallOption option, {bool isHuman = false}) async {
-    await Future.delayed(const Duration(seconds: 1));
+  bool _isTeammate(String a, String b) {
+    if (_playerTeams.isEmpty) return false;
+    return _playerTeams[a] == _playerTeams[b];
+  }
+
+  void makeCall(CallOption option) {
 
     if (!availableCalls.contains(option)) {
       print("⛔ $currentPlayer ne peut pas appeler ${option.name}, ce n'est pas une option valide.");
-      if (!isHuman) {
-        option = CallOption.pass;
-      } else {
-        return;
-      }
+      return;
     }
 
     print("🎤 $currentPlayer a appelé : ${option.name}");
@@ -129,6 +129,12 @@ class CallSystem {
     }
 
     nextTurn();
+
+    if (contractWinner != null && _isTeammate(currentPlayer, contractWinner!)) {
+      availableCalls = availableCalls.where((c) =>
+        c == CallOption.sansAs || c == CallOption.toutAs || c == CallOption.pass
+      ).toList();
+    }
   }
 
   bool isFinished() {
@@ -152,7 +158,7 @@ class CallSystem {
     }
 
     final choice = availableCalls[Random().nextInt(availableCalls.length)];
-    await makeCall(choice);
+    makeCall(choice);
 
     if (!isFinished()) {
       await autoPlayTurn();

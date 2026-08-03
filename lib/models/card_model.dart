@@ -6,6 +6,14 @@ class CardModel {
   final Rank rank;
   CardModel(this.suit, this.rank);
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CardModel && suit == other.suit && rank == other.rank;
+
+  @override
+  int get hashCode => Object.hash(suit, rank);
+
   String get assetPath {
     // Exemple : assets/images/card/carreau-9.svg
     final suitName = suit.name; // carreau, coeur, pique, trefle
@@ -25,4 +33,11 @@ class CardModel {
       case Rank.as: return "A";
     }
   }
+
+  Map<String, dynamic> toMap() => {'suit': suit.name, 'rank': rank.name};
+
+  factory CardModel.fromMap(Map<String, dynamic> map) => CardModel(
+    Suit.values.byName(map['suit'] as String),
+    Rank.values.byName(map['rank'] as String),
+  );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../screens/belote_screen.dart';
+import '../screens/domino_screen.dart';
 import '../screens/ludo_screen.dart';
 
 class GameChoiceCard extends StatefulWidget {
@@ -63,6 +64,20 @@ class GameChoiceCardState extends State<GameChoiceCard>
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
             pageBuilder: (_, _, _) => const LudoScreen(),
+            transitionsBuilder: (_, animation, _, child) {
+              return ScaleTransition(
+                scale: animation,
+                child: child,
+              );
+            },
+          ),
+        );
+      } else if (widget.title == 'Dominos') {
+        future = Navigator.push(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder: (_, _, _) => const DominoScreen(),
             transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,

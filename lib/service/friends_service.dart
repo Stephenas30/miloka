@@ -192,58 +192,6 @@ class FriendsService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getGameParticipants(String hostId) async {
-    final friendsList = <Map<String, dynamic>>[];
-    try {
-      final hostData = await client
-          .from('users')
-          .select('id, username, avatar_url')
-          .eq('id', hostId)
-          .single();
-
-      final response = await client
-          .from('amis')
-          .select('id_ami')
-          .eq('id_user', hostId)
-          .or('send_partie.eq.accepted,send_partie.eq.playing');
-
-      for (var entry in response) {
-        final friendData = await client
-            .from('users')
-            .select('id, username, avatar_url')
-            .eq('id', entry['id_ami'])
-            .single();
-        friendsList.add({
-          'id': friendData['id'],
-          'username': friendData['username'],
-          'avatar_url': friendData['avatar_url'],
-        });
-      }
-
-      const friendColors = ['blue', 'green', 'yellow'];
-      return [
-        {
-          'name': hostData['username'],
-          'color': 'red',
-          'id': hostData['id'],
-          'avatar': hostData['avatar_url'],
-        },
-        ...friendsList.take(3).toList().asMap().entries.map((entry) {
-          final i = entry.key;
-          final e = entry.value;
-          return {
-            'name': e['username'],
-            'color': friendColors[i],
-            'id': e['id'],
-            'avatar': e['avatar_url'],
-          };
-        }),
-      ];
-    } catch (e) {
-      throw Exception('Erreur lors de la récupération des participants: $e');
-    }
-  }
-
   Future<void> removeFriendSubscribeToGam(String friendId) async {
     try {
       final userId = SupabaseService().client.auth.currentUser?.id;

@@ -2,6 +2,30 @@ import 'dart:async';
 import 'package:realtime_client/src/types.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+class ColorSelectionState {
+  final String userId;
+  final String? pendingColor;
+  final String? fixedColor;
+
+  const ColorSelectionState({
+    required this.userId,
+    this.pendingColor,
+    this.fixedColor,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'userId': userId,
+        'pendingColor': pendingColor,
+        'fixedColor': fixedColor,
+      };
+
+  factory ColorSelectionState.fromJson(Map<String, dynamic> json) => ColorSelectionState(
+        userId: json['userId']?.toString() ?? '',
+        pendingColor: json['pendingColor']?.toString(),
+        fixedColor: json['fixedColor']?.toString(),
+      );
+}
+
 class LudoMultiplayerSession {
   final String roomCode;
   final bool isHost;
@@ -120,10 +144,10 @@ class LudoMultiplayerService {
       callback: (payload, [ref]) {
         final data = Map<String, dynamic>.from(payload as Map);
         try {
-          final type = data['event']?.toString();
+          final type = data['type']?.toString();
           final action = data['action']?.toString();
           final playerData = data['player'] as Map<String, dynamic>?;
-          if (type == 'ludo_presence' && action == 'join' && playerData != null) {
+          if (type == 'presence' && action == 'join' && playerData != null) {
             final existing = _participants.putIfAbsent(channelName, () => []);
             final name = playerData['name']?.toString() ?? '';
             final color = playerData['color']?.toString() ?? '';
@@ -145,8 +169,8 @@ class LudoMultiplayerService {
       callback: (payload, [ref]) {
         final data = Map<String, dynamic>.from(payload as Map);
         try {
-          final type = data['event']?.toString();
-          if (type == 'ludo_participants') {
+          final type = data['type']?.toString();
+          if (type == 'participants') {
             final participantList = data['participants'] as List<dynamic>?;
             if (participantList != null) {
               final existing = _participants.putIfAbsent(channelName, () => []);
@@ -382,18 +406,129 @@ class LudoMultiplayerService {
     return _participants.putIfAbsent(name, () => []);
   }
 
-  void disposeRoom(String roomCode) {
-    final channel = _channels.remove(roomCode);
-    _streams[roomCode]?.close();
-    _streams.remove(roomCode);
+  Future<RealtimeChannel> createColorChannel(String teamId) async {
+    final channelName = 'ludo_color_$teamId';
+    final channel = _client.channel(channelName);
+    _streams[channelName] = StreamController<Map<String, dynamic>>.broadcast();
+    await channel.subscribe();
+    _registerColorListeners(channel, channelName);
+    _channels[channelName] = channel;
+    return channel;
+  }
 
-    if (channel != null) {
-      Future.microtask(() {
-        try {
-          channel.unsubscribe();
-        } catch (_) {}
+  Stream<Map<String, dynamic>> watchColorChannel(String teamId) {
+    final name = 'ludo_color_$teamId';
+    return _streams
+        .putIfAbsent(name, () => StreamController<Map<String, dynamic>>.broadcast())
+        .stream;
+  }
+
+  void _registerColorListeners(RealtimeChannel channel, String channelName) {
+    for (final event in [
+      'ludo_color_select', 'ludo_color_fix', 'ludo_color_unfix',
+      'ludo_color_done', 'ludo_color_start',
+      'ludo_bet_enable', 'ludo_bet_amount',
+      'ludo_bet_request_agreement', 'ludo_bet_agree', 'ludo_bet_disagree', 'ludo_bet_reset',
+      'ludo_color_sync_request', 'ludo_color_sync_state',
+    ]) {
+      channel.onBroadcast(event: event, callback: (payload, [ref]) {
+        final data = Map<String, dynamic>.from(payload as Map);
+        _streams[channelName]?.add(data);
       });
     }
+  }
+
+  void sendColorStart(String teamId, String userId) {
+    _sendColorEvent(teamId, 'ludo_color_start', {'type': 'ludo_color_start', 'userId': userId});
+  }
+
+  void sendColorSelect(String teamId, String userId, String color) {
+    _sendColorEvent(teamId, 'ludo_color_select', {
+      'type': 'ludo_color_select',
+      'userId': userId,
+      'color': color,
+    });
+  }
+
+  void sendColorFix(String teamId, String userId, String color) {
+    _sendColorEvent(teamId, 'ludo_color_fix', {
+      'type': 'ludo_color_fix',
+      'userId': userId,
+      'color': color,
+    });
+  }
+
+  void sendColorUnfix(String teamId, String userId) {
+    _sendColorEvent(teamId, 'ludo_color_unfix', {
+      'type': 'ludo_color_unfix',
+      'userId': userId,
+    });
+  }
+
+  void sendColorDone(String teamId) {
+    _sendColorEvent(teamId, 'ludo_color_done', {'type': 'ludo_color_done'});
+  }
+
+  void sendColorSyncRequest(String teamId, String userId) {
+    _sendColorEvent(teamId, 'ludo_color_sync_request', {
+      'type': 'ludo_color_sync_request',
+      'userId': userId,
+    });
+  }
+
+  void sendColorSyncState(String teamId, List<Map<String, dynamic>> states, {bool bettingEnabled = false}) {
+    _sendColorEvent(teamId, 'ludo_color_sync_state', {
+      'type': 'ludo_color_sync_state',
+      'states': states,
+      'bettingEnabled': bettingEnabled,
+    });
+  }
+
+  void _sendColorEvent(String teamId, String event, Map<String, dynamic> payload) {
+    final channelName = 'ludo_color_$teamId';
+    final channel = _channels[channelName];
+    if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
+    channel.send(event: event, type: RealtimeListenTypes.broadcast, payload: payload);
+  }
+
+  void sendBetEnable(String teamId, bool enabled) {
+    _sendColorEvent(teamId, 'ludo_bet_enable', {'type': 'ludo_bet_enable', 'enabled': enabled});
+  }
+
+  void sendBetAmount(String teamId, String userId, int amount) {
+    _sendColorEvent(teamId, 'ludo_bet_amount', {'type': 'ludo_bet_amount', 'userId': userId, 'amount': amount});
+  }
+
+  void sendBetRequestAgreement(String teamId) {
+    _sendColorEvent(teamId, 'ludo_bet_request_agreement', {'type': 'ludo_bet_request_agreement'});
+  }
+
+  void sendBetAgree(String teamId, String userId) {
+    _sendColorEvent(teamId, 'ludo_bet_agree', {'type': 'ludo_bet_agree', 'userId': userId});
+  }
+
+  void sendBetDisagree(String teamId, String userId) {
+    _sendColorEvent(teamId, 'ludo_bet_disagree', {'type': 'ludo_bet_disagree', 'userId': userId});
+  }
+
+  void sendBetReset(String teamId) {
+    _sendColorEvent(teamId, 'ludo_bet_reset', {'type': 'ludo_bet_reset'});
+  }
+
+  void disposeColorChannel(String teamId) {
+    final channelName = 'ludo_color_$teamId';
+    final channel = _channels.remove(channelName);
+    channel?.unsubscribe();
+    _streams[channelName]?.close();
+    _streams.remove(channelName);
+  }
+
+  void disposeRoom(String roomCode) {
+    final channel = _channels.remove(roomCode);
+    channel?.unsubscribe();
+    _streams[roomCode]?.close();
+    _streams.remove(roomCode);
   }
 
 }

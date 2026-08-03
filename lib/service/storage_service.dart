@@ -4,7 +4,7 @@ class TokenStorage {
 
  static final storage = FlutterSecureStorage();
 
-static void writeTokenStorage(String token) async{
+static Future<void> writeTokenStorage(String token) async{
   await storage.write(key: 'token', value: token);
 }
 
@@ -13,12 +13,12 @@ static Future<String?> readTokenStorage() async {
   return token;
 }
 
-static void deleteTokenStorage() async {
+static Future<void> deleteTokenStorage() async {
   await storage.delete(key: 'token');
-  UserStorage.deleteUserStorage();
+  await UserStorage.deleteUserStorage();
 }
 
-static void allDeleteStorage() async {
+static Future<void> allDeleteStorage() async {
   await storage.deleteAll();
 }
 
@@ -33,7 +33,7 @@ class UserStorage {
 
  static final storage = FlutterSecureStorage();
 
-static void writeUserStorage(String email) async{
+static Future<void> writeUserStorage(String email) async{
   await storage.write(key: 'email', value: email);
 }
 
@@ -42,11 +42,11 @@ static Future<String?> readUserStorage() async {
   return email;
 }
 
-static void deleteUserStorage() async {
+static Future<void> deleteUserStorage() async {
   await storage.delete(key: 'email');
 }
 
-static void allDeleteStorage() async {
+static Future<void> allDeleteStorage() async {
   await storage.deleteAll();
 }
 
