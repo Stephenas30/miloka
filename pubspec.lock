@@ -763,11 +763,10 @@ packages:
   realtime_client:
     dependency: "direct overridden"
     description:
-      name: realtime_client
-      sha256: cf816d406248a6286bf7aa2053b406583ff88bd0842ab7f3f3127d53f6f1c68b
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.10.0"
+      path: "packages/realtime_client"
+      relative: true
+    source: path
+    version: "2.11.0"
   record_use:
     dependency: transitive
     description:
