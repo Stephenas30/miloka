@@ -133,3 +133,9 @@ dependencies:
 
 ## ⚖️ Licence
 Projet **Miloka** sous licence MIT. Libre à l’utilisation et à la modification.
+
+---
+
+## Build
+
+flutter build apk --release

@@ -293,6 +293,8 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
+  bool get _inactivityEnabled => widget.humanPlayers.length >= 2;
+
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
     if (_isWarningShown) {
@@ -300,6 +302,10 @@ class _GameScreenState extends State<GameScreen>
       Navigator.of(context).pop();
     }
     if (!gameLogic.gameStarted || gameLogic.gameOver) return;
+    // L'inactivité (forfait) ne s'applique que lorsque 2 joueurs réels
+    // jouent ensemble (partie en ligne / contre un adversaire réel).
+    // En solo contre l'IA, aucun forfait d'inactivité n'est déclenché.
+    if (!_inactivityEnabled) return;
     final current = gameLogic.callSystem.currentPlayer;
     if (!_isHuman(current)) return;
     _inactivityTimer = Timer(const Duration(seconds: 60), () {
@@ -324,6 +330,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _showForfeitWarning(String current) {
     if (!mounted || gameLogic.gameOver || !gameLogic.gameStarted) return;
+    if (!_inactivityEnabled) return;
     if (gameLogic.callSystem.currentPlayer != current) return;
     if (!_isHuman(current)) return;
     _isWarningShown = true;

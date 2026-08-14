@@ -363,6 +363,7 @@ class LudoMultiplayerService {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
     channel.send(
       event: 'ludo_color_change',
       type: RealtimeListenTypes.broadcast,
@@ -378,6 +379,7 @@ class LudoMultiplayerService {
     final name = roomCode.isEmpty ? _globalChannel : roomCode;
     final channel = _channels[name];
     if (channel == null) return;
+    // ignore: invalid_use_of_internal_member
     channel.send(
       event: 'ludo_player_ready',
       type: RealtimeListenTypes.broadcast,

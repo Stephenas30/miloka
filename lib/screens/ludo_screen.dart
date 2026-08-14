@@ -57,6 +57,9 @@ class _LudoScreenState extends State<LudoScreen>
   final Set<LudoColor> _disconnectedColors = {};
   final ValueNotifier<Set<String>> _readyPlayersNotifier = ValueNotifier({});
 
+  Timer? _inactivityTimer;
+  bool _isWarningShown = false;
+
   Offset _diceDragOffset = Offset.zero;
   Offset _slideVelocity = Offset.zero;
   double _diceSlideAngle = 0;
@@ -103,6 +106,7 @@ class _LudoScreenState extends State<LudoScreen>
     _aiTimer?.cancel();
     _moveTimer?.cancel();
     _slideTimer?.cancel();
+    _inactivityTimer?.cancel();
     _multiplayerSubscription?.cancel();
     if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame) {
       if (isHost) {
@@ -221,6 +225,7 @@ class _LudoScreenState extends State<LudoScreen>
 
     print('Host? => $isHost');
     _diceRolledThisTurn = true;
+    _resetInactivityTimer();
     final value = _engine.rollDice();
     setState(() => _selectedPawn = null);
     // engine now broadcasts state via its `onStateChange` callback in multiplayer
@@ -254,6 +259,7 @@ class _LudoScreenState extends State<LudoScreen>
     if (!_isMyTurn) return;
     if (!_diceRolledThisTurn || !_engine.canMovePawn(pawn)) return;
 
+    _resetInactivityTimer();
     final fromSteps = pawn.stepsFromStart;
     final move = _engine.getValidMoves().firstWhere(
       (m) => m.pawn.id == pawn.id,
@@ -377,6 +383,77 @@ class _LudoScreenState extends State<LudoScreen>
       MaterialPageRoute(builder: (_) => const HomeScreen()),
       (route) => route.isFirst,
     );
+  }
+
+  bool get _inactivityEnabled =>
+      _isMultiplayer && _roomCode.isNotEmpty;
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (_isWarningShown) {
+      _isWarningShown = false;
+      Navigator.of(context).pop();
+    }
+    if (!_beginGame || _engine.winner != null) return;
+    // Le forfait d'inactivité n'existe qu'en partie en ligne réelle
+    // (2 joueurs ou plus), jamais en solo contre l'IA.
+    if (!_inactivityEnabled) return;
+    if (!_isMyTurn) return;
+    final currentColor = _engine.currentPlayer.color;
+    _inactivityTimer = Timer(const Duration(seconds: 60), () {
+      if (!mounted || !_beginGame || _engine.winner != null) return;
+      if (!_inactivityEnabled) return;
+      if (_engine.currentPlayer.color != currentColor) return;
+      if (!_isMyTurn) return;
+      _forfeitLocalPlayer();
+    });
+    Timer(const Duration(seconds: 50), () {
+      if (!mounted || !_beginGame || _engine.winner != null) return;
+      if (_engine.currentPlayer.color != currentColor) return;
+      if (!_isMyTurn) return;
+      _showForfeitWarning();
+    });
+  }
+
+  void _showForfeitWarning() {
+    if (!mounted || !_beginGame || _engine.winner != null) return;
+    if (!_inactivityEnabled || !_isMyTurn) return;
+    _isWarningShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: false,
+      builder: (_) => const _LudoForfeitWarningDialog(),
+    ).whenComplete(() {
+      _isWarningShown = false;
+    });
+  }
+
+  LudoColor? _winningForfeitColor() {
+    final mine = _engine.currentPlayer.color;
+    for (final p in _engine.players) {
+      if (p.isHuman &&
+          p.color != mine &&
+          !_disconnectedColors.contains(p.color)) {
+        return p.color;
+      }
+    }
+    return null;
+  }
+
+  void _forfeitLocalPlayer() {
+    _inactivityTimer?.cancel();
+    if (!mounted || !_beginGame || _engine.winner != null) return;
+    if (!_inactivityEnabled || !_isMyTurn) return;
+    final winnerColor = _winningForfeitColor();
+    if (winnerColor == null) return;
+    _engine
+      ..winner = winnerColor
+      ..message = '${winnerColor.label} gagne par forfait !';
+    if (_engine.onStateChange != null) {
+      _engine.onStateChange!(_engine.snapshot());
+    }
+    setState(() {});
   }
 
   void _startPawnMove(
@@ -559,6 +636,7 @@ class _LudoScreenState extends State<LudoScreen>
       isHost = widget.isHost;
       _beginGame = true;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _resetInactivityTimer());
 
     if (!_engine.currentPlayer.isHuman && isHost) {
       _scheduleAiTurn();
@@ -588,6 +666,7 @@ class _LudoScreenState extends State<LudoScreen>
               _diceRolledThisTurn = snapshot.diceRolled && _isMyTurn;
               _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
             });
+            _resetInactivityTimer();
             if (isHost) {
               _scheduleAiTurn();
             }
@@ -2439,4 +2518,83 @@ class _LudoBoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class _LudoForfeitWarningDialog extends StatefulWidget {
+  const _LudoForfeitWarningDialog();
+
+  @override
+  State<_LudoForfeitWarningDialog> createState() =>
+      _LudoForfeitWarningDialogState();
+}
+
+class _LudoForfeitWarningDialogState extends State<_LudoForfeitWarningDialog> {
+  int _seconds = 10;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        _timer?.cancel();
+        return;
+      }
+      setState(() {
+        _seconds--;
+      });
+      if (_seconds <= 0) {
+        _timer?.cancel();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.orange.shade900,
+      title: const Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
+          SizedBox(width: 8),
+          Text('Inactivité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Vous n\'avez pas joué depuis 50s.\nJouez votre coup dans les',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontSize: 15),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '$_seconds',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Text(
+            'secondes',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'sinon vous perdez la partie par forfait.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
 }
