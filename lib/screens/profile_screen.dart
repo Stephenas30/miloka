@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:miloka/service/supabase_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../utils/image_cache.dart';
 import 'connexion_screen.dart';
 import 'feedback_screen.dart';
 
@@ -343,7 +344,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   ImageProvider<Object>? _resolveAvatar(String? url) {
     if (url == null || url.isEmpty) return null;
-    if (url.startsWith('http')) return NetworkImage(url);
+    if (url.startsWith('http')) return cachedNetworkImage(url);
     final file = File(url);
     if (file.existsSync()) return FileImage(file);
     return null;

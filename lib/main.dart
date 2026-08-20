@@ -59,7 +59,7 @@ class _MilokaAppState extends State<MilokaApp> with WidgetsBindingObserver {
       create: (_) => AuthProvider(),
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: "Miloka",
+        title: "Kadri",
         theme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.light,

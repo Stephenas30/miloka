@@ -164,6 +164,7 @@ class LudoEngine {
   final void Function(LudoGameSnapshot snapshot)? onStateChange;
   bool waitingForRemote = false;
   final String roomCode;
+  List<LudoMove>? _movesCache;
 
   List<LudoColor> get humanColor => players.where((p) => p.isHuman).map((p) => p.color).toList();
 
@@ -200,6 +201,7 @@ class LudoEngine {
     if (diceRolled || winner != null) return lastDice;
     //if (isMultiplayer && waitingForRemote) return lastDice;
     //if (isMultiplayer && !humanColor.contains(currentPlayer.color)) return lastDice;
+    _movesCache = null;
     lastDice = _random.nextInt(6) + 1;
     diceRolled = true;
     final moves = getValidMoves();
@@ -222,12 +224,14 @@ class LudoEngine {
   }
 
   List<LudoMove> getValidMoves() {
-    if (!diceRolled || winner != null) return [];
+    if (!diceRolled || winner != null) return const [];
+    if (_movesCache != null) return _movesCache!;
     final moves = <LudoMove>[];
     for (final pawn in currentPlayer.pawns) {
       final move = _evaluateMove(pawn, lastDice);
       if (move != null) moves.add(move);
     }
+    _movesCache = moves;
     return moves;
   }
 
@@ -251,14 +255,17 @@ class LudoEngine {
   }
 
   bool canMovePawn(LudoPawn pawn) {
-    return getValidMoves().any(
-      (m) => m.pawn.id == pawn.id && m.pawn.color == pawn.color,
-    );
+    final moves = getValidMoves();
+    for (final m in moves) {
+      if (m.pawn.id == pawn.id && m.pawn.color == pawn.color) return true;
+    }
+    return false;
   }
 
   bool applyMove(LudoPawn pawn) {
     if (winner != null /* || !diceRolled */ ) return false;
 
+    _movesCache = null;
     final move = getValidMoves().where((m) => m.pawn.id == pawn.id).firstOrNull;
     if (move == null) return false;
 
@@ -320,6 +327,7 @@ class LudoEngine {
   }
 
   void scheduleTurnEnd({required bool extraTurn}) {
+    _movesCache = null;
     this.extraTurn = extraTurn;
     if (!extraTurn) {
       _nextPlayer();
@@ -334,11 +342,13 @@ class LudoEngine {
   }
 
   void skipTurnIfNoMoves() {
+    _movesCache = null;
     extraTurn = false;
     diceRolled = false;
   }
 
   void _nextPlayer() {
+    _movesCache = null;
     diceRolled = false;
     extraTurn = false;
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
@@ -352,6 +362,7 @@ class LudoEngine {
   }
 
   void reset() {
+    _movesCache = null;
     currentPlayerIndex = 0;
     lastDice = 0;
     diceRolled = false;
@@ -388,6 +399,7 @@ class LudoEngine {
 
   void applySnapshot(LudoGameSnapshot snapshot) {
     // applying remote snapshot — stop waiting for remote
+    _movesCache = null;
     waitingForRemote = false;
     currentPlayerIndex = snapshot.currentPlayerIndex;
     lastDice = snapshot.lastDice;
@@ -408,6 +420,7 @@ class LudoEngine {
   void aiPlay() {
     if (winner != null || currentPlayer.isHuman) return;
 
+    _movesCache = null;
     final moves = getValidMoves();
     if (moves.isEmpty) {
       lastMove = null;

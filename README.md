@@ -1,7 +1,7 @@
-# 🎮 Miloka
+# 🎮 Kadri
 
 ## 🚀 Présentation
-**Miloka** est une application Flutter regroupant plusieurs jeux classiques et populaires :
+**Kadri** est une application Flutter regroupant plusieurs jeux classiques et populaires :
 - **Belote** (avec distribution animée, système d’appel, contre IA ou en ligne)
 - **Rami**
 - **Billard**
@@ -132,7 +132,7 @@ dependencies:
 ---
 
 ## ⚖️ Licence
-Projet **Miloka** sous licence MIT. Libre à l’utilisation et à la modification.
+Projet **Kadri** sous licence MIT. Libre à l’utilisation et à la modification.
 
 ---
 

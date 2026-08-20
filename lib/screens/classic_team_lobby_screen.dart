@@ -8,6 +8,7 @@ import '../service/game_channel_service.dart';
 import '../service/private_match_service.dart';
 import '../service/team_invitation_service.dart';
 import '../service/team_lobby_service.dart';
+import '../utils/image_cache.dart';
 
 class ClassicTeamLobbyScreen extends StatefulWidget {
   final String teamId;
@@ -559,7 +560,7 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
                             radius: 20,
                             backgroundColor: Colors.white24,
                             backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                                ? NetworkImage(avatarUrl)
+                                ? cachedNetworkImage(avatarUrl)
                                 : null,
                             child: avatarUrl == null || avatarUrl.isEmpty
                                 ? const Icon(Icons.person, color: Colors.white38)
@@ -719,7 +720,7 @@ class _ClassicTeamLobbyScreenState extends State<ClassicTeamLobbyScreen> {
         CircleAvatar(
           radius: 32,
           backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-              ? NetworkImage(avatarUrl)
+              ? cachedNetworkImage(avatarUrl)
               : null,
           child: avatarUrl == null || avatarUrl.isEmpty ? Text(username.substring(0, 1).toUpperCase()) : null,
         ),

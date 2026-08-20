@@ -11,6 +11,7 @@ import 'package:miloka/utils/retry_util.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
+import '../utils/image_cache.dart';
 import '../widgets/friends_dialog.dart';
 import '../widgets/game_choice.dart';
 import 'classic_team_lobby_screen.dart';
@@ -681,7 +682,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   radius: 18,
                   backgroundColor: Colors.white24,
                   backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                      ? NetworkImage(avatarUrl)
+                      ? cachedNetworkImage(avatarUrl)
                       : null,
                   child: avatarUrl == null || avatarUrl.isEmpty
                       ? const Icon(Icons.person, color: Colors.white)
@@ -854,7 +855,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 backgroundColor: Colors.white24,
                                 backgroundImage:
                                     avatarUrl != null && avatarUrl.isNotEmpty
-                                    ? NetworkImage(avatarUrl)
+                                    ? cachedNetworkImage(avatarUrl)
                                     : null,
                                 child: avatarUrl == null || avatarUrl.isEmpty
                                     ? const Icon(
@@ -894,7 +895,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 backgroundColor: Colors.white24,
                                 backgroundImage:
                                     avatarUrl != null && avatarUrl.isNotEmpty
-                                    ? NetworkImage(avatarUrl)
+                                    ? cachedNetworkImage(avatarUrl)
                                     : null,
                                 child: avatarUrl == null || avatarUrl.isEmpty
                                     ? const Icon(

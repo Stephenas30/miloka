@@ -11,6 +11,7 @@ import '../models/card_model.dart';
 import '../widgets/call_popup.dart';
 import '../service/stats_service.dart';
 import '../service/game_channel_service.dart';
+import '../utils/image_cache.dart';
 
 class HandHistoryEntry {
   final CallOption contractCall;
@@ -72,8 +73,7 @@ class _GameScreenState extends State<GameScreen>
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
   CardModel? _draggingCard;
-  double _dragX = 0;
-  double _dragY = 0;
+  final ValueNotifier<Offset> _dragPos = ValueNotifier<Offset>(Offset.zero);
   final GlobalKey _dragStackKey = GlobalKey();
 
   bool _hostReady = false;
@@ -97,6 +97,7 @@ class _GameScreenState extends State<GameScreen>
   bool _guestDealing = false;
   Timer? _guestDealTimer;
   Timer? _inactivityTimer;
+  Timer? _inactivityWarningTimer;
   bool _isWarningShown = false;
 
   @override
@@ -141,6 +142,8 @@ class _GameScreenState extends State<GameScreen>
     _guestDealTimer?.cancel();
     _autoCloseTimer?.cancel();
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
+    _dragPos.dispose();
     if (widget.teamId != null) {
       GameChannelService().disconnect();
     }
@@ -297,6 +300,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
     if (_isWarningShown) {
       _isWarningShown = false;
       Navigator.of(context).pop();
@@ -323,7 +327,7 @@ class _GameScreenState extends State<GameScreen>
         });
       }
     });
-    Timer(const Duration(seconds: 50), () {
+    _inactivityWarningTimer = Timer(const Duration(seconds: 50), () {
       _showForfeitWarning(current);
     });
   }
@@ -963,8 +967,7 @@ class _GameScreenState extends State<GameScreen>
     final local = box.globalToLocal(details.globalPosition);
     setState(() {
       _draggingCard = card;
-      _dragX = local.dx;
-      _dragY = local.dy;
+      _dragPos.value = local;
     });
   }
 
@@ -972,10 +975,7 @@ class _GameScreenState extends State<GameScreen>
     final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(details.globalPosition);
-    setState(() {
-      _dragX = local.dx;
-      _dragY = local.dy;
-    });
+    _dragPos.value = local;
   }
 
   void _onDragEnd(CardModel card, String playerName) {
@@ -984,7 +984,7 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
     final screenHeight = MediaQuery.of(context).size.height;
-    if (_dragY < screenHeight * 0.5) {
+    if (_dragPos.value.dy < screenHeight * 0.5) {
       final playCard = card;
       setState(() => _draggingCard = null);
       _playCard(playerName, playCard);
@@ -1608,7 +1608,7 @@ class _GameScreenState extends State<GameScreen>
       child: CircleAvatar(
         radius: 28,
         backgroundColor: Colors.grey[300],
-        backgroundImage: showImage ? NetworkImage(avatarUrl) : null,
+        backgroundImage: showImage ? cachedNetworkImage(avatarUrl) : null,
         child: showImage
             ? null
             : Text(
@@ -1848,15 +1848,31 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _buildDragOverlay() {
-    return Positioned(
-      left: _dragX - 40,
-      top: _dragY - 50,
-      child: Transform.rotate(
-        angle: 0.05,
-        child: SvgPicture.asset(
-          _draggingCard!.assetPath,
-          width: 80,
-          height: 100,
+    final card = _draggingCard;
+    if (card == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _dragPos,
+          builder: (context, _) {
+            final pos = _dragPos.value;
+            return Stack(
+              children: [
+                Positioned(
+                  left: pos.dx - 40,
+                  top: pos.dy - 50,
+                  child: Transform.rotate(
+                    angle: 0.05,
+                    child: SvgPicture.asset(
+                      card.assetPath,
+                      width: 80,
+                      height: 100,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1899,9 +1915,11 @@ class _GameScreenState extends State<GameScreen>
         key: _dragStackKey,
         children: [
           Positioned.fill(
-            child: Image.asset(
-              "assets/images/background.png",
-              fit: BoxFit.cover,
+            child: RepaintBoundary(
+              child: Image.asset(
+                "assets/images/background.png",
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           if (animatingDealCard != null) _buildDealAnimation(),
@@ -1987,7 +2005,7 @@ class _GameScreenState extends State<GameScreen>
             right: 0,
             child: IgnorePointer(
               ignoring: true,
-              child: _showTrickArea(),
+              child: RepaintBoundary(child: _showTrickArea()),
             ),
           ),
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../utils/image_cache.dart';
 import '../widgets/friends_dialog.dart';
 import '../widgets/game_choice_card.dart';
 import '../widgets/game_mode_popup.dart';
@@ -206,7 +207,7 @@ class _BeloteScreenState extends State<BeloteScreen> {
                       radius: 14,
                       backgroundColor: Colors.white24,
                       backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                          ? NetworkImage(avatarUrl)
+                          ? cachedNetworkImage(avatarUrl)
                           : null,
                       child: avatarUrl == null || avatarUrl.isEmpty
                           ? const Icon(Icons.person, color: Colors.white, size: 16)

@@ -10,6 +10,7 @@ import '../game/ludo/ludo_engine.dart';
 import '../providers/auth_provider.dart';
 import '../service/ludo_multiplayer_service.dart';
 import '../service/stats_service.dart';
+import '../utils/image_cache.dart';
 import '../widgets/friends_dialog.dart';
 import 'home_screen.dart';
 import 'ludo_lobby_screen.dart';
@@ -34,18 +35,20 @@ class LudoScreen extends StatefulWidget {
 }
 
 class _LudoScreenState extends State<LudoScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late LudoEngine _engine;
   Timer? _aiTimer;
   late AnimationController _diceController;
-  int _displayDice = 1;
+  late AnimationController _moveController;
+  final ValueNotifier<int> _displayDice = ValueNotifier<int>(1);
   LudoPawn? _selectedPawn;
   bool _winnerDialogShown = false;
   bool _beginGame = false;
   bool _aiPlaying = false;
   bool _diceRolledThisTurn = false;
-  bool _isDraggingDice = false;
-  bool _isSlidingDice = false;
+  final ValueNotifier<bool> _isDraggingDice = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _isSlidingDice = ValueNotifier<bool>(false);
+  late final Listenable _diceListenable;
   bool _isMultiplayer = false;
   List<LudoHuman> _playerSubscribe = [];
   String _roomCode = '';
@@ -58,19 +61,18 @@ class _LudoScreenState extends State<LudoScreen>
   final ValueNotifier<Set<String>> _readyPlayersNotifier = ValueNotifier({});
 
   Timer? _inactivityTimer;
+  Timer? _inactivityWarningTimer;
   bool _isWarningShown = false;
 
-  Offset _diceDragOffset = Offset.zero;
   Offset _slideVelocity = Offset.zero;
-  double _diceSlideAngle = 0;
+  final ValueNotifier<Offset> _diceDragOffset = ValueNotifier<Offset>(Offset.zero);
+  final ValueNotifier<double> _diceSlideAngle = ValueNotifier<double>(0);
   Timer? _slideTimer;
   final GlobalKey _stackKey = GlobalKey();
   double _cellSize = 0;
-  Timer? _moveTimer;
   int? _movingPawnId;
   LudoColor? _movingPawnColor;
   List<Offset> _movePath = [];
-  int _moveIndex = 0;
   dynamic _userProfile;
 
   @override
@@ -80,6 +82,14 @@ class _LudoScreenState extends State<LudoScreen>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
+    _moveController = AnimationController(vsync: this);
+    _diceListenable = Listenable.merge([
+      _diceDragOffset,
+      _diceSlideAngle,
+      _displayDice,
+      _isDraggingDice,
+      _isSlidingDice,
+    ]);
     //_beginGame = widget.beginGame;
     if (widget.beginGame) {
       //_startGame(LudoColor.yellow);
@@ -104,9 +114,9 @@ class _LudoScreenState extends State<LudoScreen>
   @override
   void dispose() {
     _aiTimer?.cancel();
-    _moveTimer?.cancel();
     _slideTimer?.cancel();
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
     _multiplayerSubscription?.cancel();
     if (_roomCode.isNotEmpty && _isMultiplayer && _beginGame) {
       if (isHost) {
@@ -129,6 +139,12 @@ class _LudoScreenState extends State<LudoScreen>
     _participantsNotifier.dispose();
     _readyPlayersNotifier.dispose();
     _diceController.dispose();
+    _moveController.dispose();
+    _displayDice.dispose();
+    _diceDragOffset.dispose();
+    _diceSlideAngle.dispose();
+    _isDraggingDice.dispose();
+    _isSlidingDice.dispose();
     super.dispose();
   }
 
@@ -198,17 +214,15 @@ class _LudoScreenState extends State<LudoScreen>
 
   Future<void> _animateDiceRoll(int value) async {
     _diceController.forward(from: 0).then((_) {
-      if (mounted) setState(() => _displayDice = value);
+      if (mounted) _displayDice.value = value;
     });
     for (var i = 0; i < 6; i++) {
       Future.delayed(Duration(milliseconds: i * 70), () {
-        if (mounted) {
-          setState(() => _displayDice = math.Random().nextInt(6) + 1);
-        }
+        if (mounted) _displayDice.value = math.Random().nextInt(6) + 1;
       });
     }
     await Future.delayed(const Duration(milliseconds: 420), () {
-      if (mounted) setState(() => _displayDice = value);
+      if (mounted) _displayDice.value = value;
     });
   }
 
@@ -390,6 +404,7 @@ class _LudoScreenState extends State<LudoScreen>
 
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
     if (_isWarningShown) {
       _isWarningShown = false;
       Navigator.of(context).pop();
@@ -407,7 +422,7 @@ class _LudoScreenState extends State<LudoScreen>
       if (!_isMyTurn) return;
       _forfeitLocalPlayer();
     });
-    Timer(const Duration(seconds: 50), () {
+    _inactivityWarningTimer = Timer(const Duration(seconds: 50), () {
       if (!mounted || !_beginGame || _engine.winner != null) return;
       if (_engine.currentPlayer.color != currentColor) return;
       if (!_isMyTurn) return;
@@ -476,24 +491,15 @@ class _LudoScreenState extends State<LudoScreen>
     }
     _movingPawnId = pawnId;
     _movingPawnColor = color;
-    _moveIndex = 0;
 
-    _moveTimer?.cancel();
-    _moveTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        _moveIndex++;
-      });
-      if (_moveIndex >= _movePath.length) {
-        timer.cancel();
-        _movingPawnId = null;
-        _movingPawnColor = null;
-        _movePath = [];
-        onComplete();
-      }
+    _moveController.duration = Duration(milliseconds: _movePath.length * 100);
+    _moveController.forward(from: 0).whenComplete(() {
+      if (!mounted) return;
+      _movingPawnId = null;
+      _movingPawnColor = null;
+      _movePath = [];
+      setState(() {});
+      onComplete();
     });
   }
 
@@ -521,29 +527,30 @@ class _LudoScreenState extends State<LudoScreen>
         return;
       }
 
-      setState(() {
-        _diceDragOffset += _slideVelocity * 0.016;
-        _diceSlideAngle += _slideVelocity.distance * 0.0003;
+      _diceDragOffset.value += _slideVelocity * 0.016;
+      _diceSlideAngle.value += _slideVelocity.distance * 0.0003;
 
-        if (_diceDragOffset.dx < leftBound) {
-          _diceDragOffset = Offset(leftBound, _diceDragOffset.dy);
-          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
-        } else if (_diceDragOffset.dx > rightBound) {
-          _diceDragOffset = Offset(rightBound, _diceDragOffset.dy);
-          _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
-        }
-        if (_diceDragOffset.dy < topBound) {
-          _diceDragOffset = Offset(_diceDragOffset.dx, topBound);
-          _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
-        }
-      });
+      if (_diceDragOffset.value.dx < leftBound) {
+        _diceDragOffset.value =
+            Offset(leftBound, _diceDragOffset.value.dy);
+        _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+      } else if (_diceDragOffset.value.dx > rightBound) {
+        _diceDragOffset.value =
+            Offset(rightBound, _diceDragOffset.value.dy);
+        _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+      }
+      if (_diceDragOffset.value.dy < topBound) {
+        _diceDragOffset.value =
+            Offset(_diceDragOffset.value.dx, topBound);
+        _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
+      }
     });
   }
 
   void _animateDiceBack() {
     const duration = Duration(milliseconds: 300);
-    final startOffset = _diceDragOffset;
-    final startAngle = _diceSlideAngle;
+    final startOffset = _diceDragOffset.value;
+    final startAngle = _diceSlideAngle.value;
     final startTime = DateTime.now();
 
     _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
@@ -553,19 +560,15 @@ class _LudoScreenState extends State<LudoScreen>
       final t = elapsed.clamp(0.0, 1.0);
       final easeOut = 1 - (1 - t) * (1 - t);
 
-      setState(() {
-        _diceDragOffset = Offset.lerp(startOffset, Offset.zero, easeOut)!;
-        _diceSlideAngle = startAngle * (1 - easeOut);
-      });
+      _diceDragOffset.value = Offset.lerp(startOffset, Offset.zero, easeOut)!;
+      _diceSlideAngle.value = startAngle * (1 - easeOut);
 
       if (t >= 1) {
         timer.cancel();
-        setState(() {
-          _isSlidingDice = false;
-          _diceDragOffset = Offset.zero;
-          _diceSlideAngle = 0;
-          _slideVelocity = Offset.zero;
-        });
+        _isSlidingDice.value = false;
+        _diceDragOffset.value = Offset.zero;
+        _diceSlideAngle.value = 0;
+        _slideVelocity = Offset.zero;
         _onRollDice();
       }
     });
@@ -664,7 +667,7 @@ class _LudoScreenState extends State<LudoScreen>
             setState(() {
               _engine.applySnapshot(snapshot);
               _diceRolledThisTurn = snapshot.diceRolled && _isMyTurn;
-              _displayDice = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
+              _displayDice.value = snapshot.lastDice == 0 ? 1 : snapshot.lastDice;
             });
             _resetInactivityTimer();
             if (isHost) {
@@ -1314,66 +1317,54 @@ class _LudoScreenState extends State<LudoScreen>
                       alignment: Alignment.bottomCenter,
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 24),
-                        child: GestureDetector(
-                          onTap: /* () { */
-                            /* print(
-                              'verifier => ${_engine.currentPlayer.id == _userProfile['id']}\n ${_playerSubscribe.map((elt) => elt.id).toList()}\n ${_engine.currentPlayer.id}',
-                            );
-                            print([!_isDraggingDice, !_isSlidingDice, _engine.currentPlayer.isHuman, _engine.winner == null, !_diceRolledThisTurn, _engine.currentPlayer.id ==
-                                        _userProfile['id']]); */
-                            !_isDraggingDice &&
-                                    !_isSlidingDice &&
-                                    _isMyTurn &&
-                                    !_diceRolledThisTurn
-                                ? _onRollDice
-                                : null,
-                          /* }, */
-
-                          onPanStart: (_) {
-                            _slideTimer?.cancel();
-                            setState(() {
-                              _isDraggingDice = true;
-                              _isSlidingDice = false;
-                              _slideVelocity = Offset.zero;
-                            });
-                          },
-                          onPanUpdate: (details) {
-                            setState(() {
-                              _diceDragOffset += details.delta;
-                            });
-                          },
-                          onPanEnd: (details) {
+                        child: AnimatedBuilder(
+                          animation: _diceListenable,
+                          builder: (context, _) {
                             final canRoll =
-                                _isDraggingDice &&
-                                _isMyTurn &&
-                                !_diceRolledThisTurn;
+                                !_isDraggingDice.value &&
+                                    !_isSlidingDice.value &&
+                                    _isMyTurn &&
+                                    !_diceRolledThisTurn;
+                            return GestureDetector(
+                              onTap: canRoll ? _onRollDice : null,
+                              onPanStart: (_) {
+                                _slideTimer?.cancel();
+                                _isDraggingDice.value = true;
+                                _isSlidingDice.value = false;
+                                _slideVelocity = Offset.zero;
+                              },
+                              onPanUpdate: (details) {
+                                _diceDragOffset.value += details.delta;
+                              },
+                              onPanEnd: (details) {
+                                final rollEnabled =
+                                    _isDraggingDice.value &&
+                                    _isMyTurn &&
+                                    !_diceRolledThisTurn;
 
-                            _slideVelocity = details.velocity.pixelsPerSecond;
+                                _slideVelocity = details.velocity.pixelsPerSecond;
 
-                            if (_slideVelocity.distance > 50 && canRoll) {
-                              _isSlidingDice = true;
-                              _isDraggingDice = false;
-                              _startDiceSlide();
-                            } else {
-                              setState(() {
-                                _isDraggingDice = false;
-                                _diceDragOffset = Offset.zero;
-                              });
-                              if (canRoll) {
-                                _onRollDice();
-                              }
-                            }
-                          },
-                          child: Transform.translate(
-                            offset: _diceDragOffset,
-                            child: Transform.rotate(
-                              angle: _diceSlideAngle,
-                              child: _buildDice(
-                                _isMyTurn,
-                                _engine,
+                                if (_slideVelocity.distance > 50 && rollEnabled) {
+                                  _isSlidingDice.value = true;
+                                  _isDraggingDice.value = false;
+                                  _startDiceSlide();
+                                } else {
+                                  _isDraggingDice.value = false;
+                                  _diceDragOffset.value = Offset.zero;
+                                  if (rollEnabled) {
+                                    _onRollDice();
+                                  }
+                                }
+                              },
+                              child: Transform.translate(
+                                offset: _diceDragOffset.value,
+                                child: Transform.rotate(
+                                  angle: _diceSlideAngle.value,
+                                  child: _buildDice(_isMyTurn, _engine),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -1444,7 +1435,7 @@ class _LudoScreenState extends State<LudoScreen>
                       radius: 14,
                       backgroundColor: Colors.white24,
                       backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                          ? NetworkImage(avatarUrl)
+                          ? cachedNetworkImage(avatarUrl)
                           : null,
                       child: avatarUrl == null || avatarUrl.isEmpty
                           ? const Icon(
@@ -1847,12 +1838,21 @@ class _LudoScreenState extends State<LudoScreen>
           height: size,
           child: Stack(
             children: [
-              CustomPaint(
-                size: Size(size, size),
-                painter: _LudoBoardPainter(cellSize: _cellSize),
+              RepaintBoundary(
+                child: CustomPaint(
+                  size: Size(size, size),
+                  painter: _LudoBoardPainter(cellSize: _cellSize),
+                ),
               ),
               ..._buildPlayerInfo(),
-              ..._buildPawns(_cellSize),
+              RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _moveController,
+                  builder: (context, child) {
+                    return Stack(children: _buildPawns(_cellSize));
+                  },
+                ),
+              ),
             ],
           ),
         );
@@ -1867,8 +1867,12 @@ class _LudoScreenState extends State<LudoScreen>
         final isAnimating =
             _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
         Offset pos;
-        if (isAnimating && _moveIndex < _movePath.length) {
-          pos = _movePath[_moveIndex];
+        if (isAnimating && _movePath.isNotEmpty) {
+          final t = (_moveController.value * (_movePath.length - 1))
+              .clamp(0.0, (_movePath.length - 1).toDouble());
+          final idx = t.floor();
+          final next = idx + 1 < _movePath.length ? idx + 1 : idx;
+          pos = Offset.lerp(_movePath[idx], _movePath[next], t - idx)!;
         } else {
           pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
         }
@@ -1989,7 +1993,7 @@ class _LudoScreenState extends State<LudoScreen>
           matchingPlayer.avatar!.isNotEmpty) {
         avatar = CircleAvatar(
           radius: 8,
-          backgroundImage: NetworkImage(matchingPlayer.avatar!),
+          backgroundImage: cachedNetworkImage(matchingPlayer.avatar!),
         );
       } else if (isHuman) {
         avatar = const Icon(Icons.person, color: Colors.white, size: 14);
@@ -2061,8 +2065,8 @@ class _LudoScreenState extends State<LudoScreen>
               ],
             ),
             child: Center(
-              child: _displayDice > 0
-                  ? _DiceFace(value: _displayDice, dark: !canRoll)
+              child: _displayDice.value > 0
+                  ? _DiceFace(value: _displayDice.value, dark: !canRoll)
                   : const SizedBox.shrink(),
             ),
           ),
@@ -2083,7 +2087,7 @@ class _ConfettiWidgetState extends State<_ConfettiWidget>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   final _particles = List<_ConfettiParticle>.generate(
-    80,
+    24,
     (_) => _ConfettiParticle(),
   );
 
@@ -2137,6 +2141,7 @@ class _ConfettiPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width.isInfinite || size.height.isInfinite) return;
 
+    final paint = Paint();
     for (final p in particles) {
       final t = (progress + p.startOffset) % 1.0;
       final y = -0.15 + t * 1.3;
@@ -2148,8 +2153,7 @@ class _ConfettiPainter extends CustomPainter {
       canvas.rotate(p.rotation + t * p.rotationSpeed);
 
       final alpha = (1 - y.clamp(0, 1)) * 0.85;
-      final paint = Paint()
-        ..color = p.color.withValues(alpha: alpha);
+      paint.color = p.color.withValues(alpha: alpha);
       canvas.drawRect(
         Rect.fromCenter(
           center: Offset.zero,
@@ -2163,7 +2167,9 @@ class _ConfettiPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.particles != particles;
 }
 
 class _PawnRenderInfo {
@@ -2311,7 +2317,7 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
               backgroundColor: Colors.white24,
               backgroundImage:
                   avatarUrl != null && avatarUrl.isNotEmpty
-                      ? NetworkImage(avatarUrl)
+                      ? cachedNetworkImage(avatarUrl)
                       : null,
               child: avatarUrl == null || avatarUrl.isEmpty
                   ? const Icon(Icons.person, color: Colors.white)
@@ -2517,7 +2523,8 @@ class _LudoBoardPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _LudoBoardPainter oldDelegate) =>
+      oldDelegate.cellSize != cellSize;
 }
 
 class _LudoForfeitWarningDialog extends StatefulWidget {

@@ -12,6 +12,7 @@ import '../service/game_channel_service.dart';
 import '../service/private_match_service.dart';
 import '../service/supabase_service.dart';
 import '../providers/auth_provider.dart';
+import '../utils/image_cache.dart';
 import '../widgets/call_popup.dart';
 import 'classic_team_lobby_screen.dart';
 import 'private_game_lobby_screen.dart';
@@ -74,10 +75,12 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
 
   Timer? _syncTimer;
   Timer? _inactivityTimer;
+  Timer? _inactivityWarningTimer;
   bool _isWarningShown = false;
 
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
     if (_isWarningShown) {
       _isWarningShown = false;
       Navigator.of(context).pop();
@@ -95,10 +98,9 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
         _localWon = false;
         _winningShare = 0;
       });
-      _startConfetti();
       context.read<AuthProvider>().refreshProfile();
     });
-    Timer(const Duration(seconds: 50), _showForfeitWarning);
+    _inactivityWarningTimer = Timer(const Duration(seconds: 50), _showForfeitWarning);
   }
 
   void _showForfeitWarning() {
@@ -129,7 +131,6 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           || (winningTeam == 'EO' && (widget.localPosition == 'Est' || widget.localPosition == 'Ouest'));
       _winningShare = 0;
     });
-    _startConfetti();
     context.read<AuthProvider>().refreshProfile();
   }
 
@@ -247,6 +248,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
     _counterTimer?.cancel();
     _syncTimer?.cancel();
     _inactivityTimer?.cancel();
+    _inactivityWarningTimer?.cancel();
     super.dispose();
   }
 
@@ -1018,7 +1020,6 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
             || (winningTeam == 'EO' && (widget.localPosition == 'Est' || widget.localPosition == 'Ouest'));
         _winningShare = winningShare;
       });
-      _startConfetti();
       _gameChannel.send('game_over', {
         'winner': winningTeam,
         'scores': {'NS': nsTotal, 'EO': eoTotal},
@@ -1128,7 +1129,6 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           || (winningTeam == 'EO' && (widget.localPosition == 'Est' || widget.localPosition == 'Ouest'));
       _winningShare = event['winning_share'] as int? ?? 0;
     });
-    _startConfetti();
     context.read<AuthProvider>().refreshProfile();
   }
 
@@ -1305,7 +1305,9 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
         body: Stack(
           children: [
             Positioned.fill(
-              child: Image.asset('assets/images/background.png', fit: BoxFit.cover),
+              child: RepaintBoundary(
+                child: Image.asset('assets/images/background.png', fit: BoxFit.cover),
+              ),
             ),
             SafeArea(
               child: Padding(
@@ -1626,7 +1628,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
       child: CircleAvatar(
         radius: 24,
         backgroundColor: Colors.grey[300],
-        backgroundImage: showImage ? NetworkImage(avatarUrl) : null,
+        backgroundImage: showImage ? cachedNetworkImage(avatarUrl) : null,
         child: showImage
             ? null
             : Text(
@@ -1764,7 +1766,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
       child: Stack(
         children: [
           Container(color: Colors.black54),
-          _ConfettiWidget(particles: _confettiParticles),
+          const _ConfettiWidget(),
           Center(
             child: Card(
               color: Colors.black54,
@@ -1830,82 +1832,110 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   //  CONFETTI
   // ═══════════════════════════════════════════
 
-  bool _confettiInitialized = false;
-  final List<_ConfettiParticle> _confettiParticles = [];
-  Timer? _confettiTimer;
-
-  void _startConfetti() {
-    if (_confettiInitialized) return;
-    _confettiInitialized = true;
-    _confettiParticles.clear();
-    final rng = Random();
-    for (int i = 0; i < 80; i++) {
-      _confettiParticles.add(_ConfettiParticle(
-        x: rng.nextDouble(),
-        y: rng.nextDouble() * -0.2,
-        speed: 0.002 + rng.nextDouble() * 0.006,
-        size: 6 + rng.nextDouble() * 8,
-        color: Color.fromARGB(
-          255,
-          100 + rng.nextInt(156),
-          100 + rng.nextInt(156),
-          100 + rng.nextInt(156),
-        ),
-      ));
-    }
-    _confettiTimer = Timer.periodic(const Duration(milliseconds: 30), (_) {
-      if (!mounted) { _confettiTimer?.cancel(); return; }
-      bool anyAlive = false;
-      for (final p in _confettiParticles) {
-        p.y += p.speed;
-        anyAlive = anyAlive || p.y < 1.2;
-      }
-      if (!anyAlive) _confettiTimer?.cancel();
-      else setState(() {});
-    });
-  }
 }
 
 class _ConfettiParticle {
-  double x, y, speed, size;
-  Color color;
-  _ConfettiParticle({required this.x, required this.y, required this.speed, required this.size, required this.color});
+  final double startOffset;
+  final double x;
+  final double speed;
+  final double size;
+  final Color color;
+  final double rotation;
+  final double rotationSpeed;
+
+  _ConfettiParticle()
+      : startOffset = Random().nextDouble(),
+        x = Random().nextDouble(),
+        speed = 0.12 + Random().nextDouble() * 0.28,
+        size = 3 + Random().nextDouble() * 5,
+        color = Colors.primaries[
+            Random().nextInt(Colors.primaries.length)],
+        rotation = Random().nextDouble() * 6.28,
+        rotationSpeed = (Random().nextDouble() - 0.5) * 8;
 }
 
-class _ConfettiWidget extends StatelessWidget {
-  final List<_ConfettiParticle> particles;
-  const _ConfettiWidget({required this.particles});
+class _ConfettiWidget extends StatefulWidget {
+  const _ConfettiWidget();
+
+  @override
+  State<_ConfettiWidget> createState() => _ConfettiWidgetState();
+}
+
+class _ConfettiWidgetState extends State<_ConfettiWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  final _particles = List<_ConfettiParticle>.generate(
+    24,
+    (_) => _ConfettiParticle(),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 6),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (particles.isEmpty) return const SizedBox.shrink();
-    return IgnorePointer(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _ConfettiPainter(particles),
-      ),
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          size: Size.infinite,
+          painter: _ConfettiPainter(_particles, _controller.value),
+        );
+      },
     );
   }
 }
 
 class _ConfettiPainter extends CustomPainter {
   final List<_ConfettiParticle> particles;
-  _ConfettiPainter(this.particles);
+  final double progress;
+
+  _ConfettiPainter(this.particles, this.progress);
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width.isInfinite || size.height.isInfinite) return;
+
+    final paint = Paint();
     for (final p in particles) {
-      if (p.y < 0 || p.y > 1.1) continue;
-      canvas.drawCircle(
-        Offset(p.x * size.width, p.y * size.height),
-        p.size,
-        Paint()..color = p.color,
+      final t = (progress + p.startOffset) % 1.0;
+      final y = -0.15 + t * 1.3;
+      if (y < -0.1 || y > 1.1) continue;
+      final x = p.x + sin(t * 8 + p.x * 10) * 0.025;
+
+      canvas.save();
+      canvas.translate(x * size.width, y * size.height);
+      canvas.rotate(p.rotation + t * p.rotationSpeed);
+
+      final alpha = (1 - y.clamp(0, 1)) * 0.85;
+      paint.color = p.color.withValues(alpha: alpha);
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: p.size,
+          height: p.size * 0.6,
+        ),
+        paint,
       );
+      canvas.restore();
     }
   }
 
   @override
-  bool shouldRepaint(_ConfettiPainter old) => true;
+  bool shouldRepaint(_ConfettiPainter old) =>
+      old.progress != progress || old.particles != particles;
 }
 
 class _ForfeitWarningDialog extends StatefulWidget {

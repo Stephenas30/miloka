@@ -1,11 +1,11 @@
 {
-    "name": "Miloka - Jeux de société",
-    "short_name": "Miloka",
+    "name": "Kadri - Jeux de société",
+    "short_name": "Kadri",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#080816",
     "theme_color": "#006400",
-    "description": "Miloka - Jeux de société en ligne : Belote, Ludo, Fanorona, Rami, Solitaire, Dominos et bien plus encore.",
+    "description": "Kadri - Jeux de société en ligne : Belote, Ludo, Fanorona, Rami, Solitaire, Dominos et bien plus encore.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

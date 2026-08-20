@@ -8,9 +8,9 @@ serve(async (req) => {
   try {
     const { category, message, contact_email, user_id } = await req.json()
 
-    const subject = `[Miloka Feedback] ${category} - ${contact_email || 'anonyme'}`
+    const subject = `[Kadri Feedback] ${category} - ${contact_email || 'anonyme'}`
     const html = `
-      <h2>Nouveau feedback Miloka</h2>
+      <h2>Nouveau feedback Kadri</h2>
       <p><strong>Catégorie :</strong> ${category}</p>
       <p><strong>Email de contact :</strong> ${contact_email || 'Non renseigné'}</p>
       <p><strong>Utilisateur ID :</strong> ${user_id || 'Non connecté'}</p>

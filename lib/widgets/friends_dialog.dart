@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:miloka/service/friends_service.dart';
+import 'package:miloka/utils/image_cache.dart';
 
 void showFriendsDialog(BuildContext context) {
   showDialog(
@@ -124,7 +125,7 @@ class _FriendsTabContentState extends State<_FriendsTabContent> {
               radius: 18,
               backgroundColor: Colors.white24,
               backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                  ? NetworkImage(avatarUrl)
+                  ? cachedNetworkImage(avatarUrl)
                   : null,
               child: avatarUrl == null || avatarUrl.isEmpty
                   ? const Icon(Icons.person, color: Colors.white)
@@ -214,7 +215,7 @@ class _RequestsTabContentState extends State<_RequestsTabContent> {
             radius: 18,
             backgroundColor: Colors.white24,
             backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                ? NetworkImage(avatarUrl)
+                ? cachedNetworkImage(avatarUrl)
                 : null,
             child: avatarUrl == null || avatarUrl.isEmpty
                 ? const Icon(Icons.person, color: Colors.white)
@@ -341,7 +342,7 @@ class _SearchTabContentState extends State<_SearchTabContent> {
                             radius: 18,
                             backgroundColor: Colors.white24,
                             backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                                ? NetworkImage(avatarUrl)
+                                ? cachedNetworkImage(avatarUrl)
                                 : null,
                             child: avatarUrl == null || avatarUrl.isEmpty
                                 ? const Icon(Icons.person, color: Colors.white)

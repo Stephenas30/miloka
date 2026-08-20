@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../service/game_channel_service.dart';
 import '../service/private_match_service.dart';
 import '../service/team_lobby_service.dart';
+import '../utils/image_cache.dart';
 import 'classic_team_lobby_screen.dart';
 import 'private_belote_game_screen.dart';
 
@@ -368,7 +369,7 @@ class _PrivateGameLobbyScreenState extends State<PrivateGameLobbyScreen> {
         CircleAvatar(
           radius: 20,
           backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-              ? NetworkImage(avatarUrl)
+              ? cachedNetworkImage(avatarUrl)
               : null,
           child: avatarUrl == null || avatarUrl.isEmpty
               ? Text(username.substring(0, 1).toUpperCase(), style: const TextStyle(fontSize: 14))

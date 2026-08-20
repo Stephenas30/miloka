@@ -7,6 +7,7 @@ import '../service/friends_service.dart';
 import '../service/ludo_multiplayer_service.dart';
 import '../service/ludo_team_invitation_service.dart';
 import '../service/ludo_team_lobby_service.dart';
+import '../utils/image_cache.dart';
 import 'ludo_screen.dart';
 
 class LudoLobbyScreen extends StatefulWidget {
@@ -764,7 +765,7 @@ _awaitingAgreement = true;
                           CircleAvatar(
                             radius: 20,
                             backgroundColor: Colors.white24,
-                            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? cachedNetworkImage(avatarUrl) : null,
                             child: avatarUrl == null || avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white38) : null,
                           ),
                           const SizedBox(width: 12),
@@ -1046,7 +1047,7 @@ _awaitingAgreement = true;
                         CircleAvatar(
                           radius: 18,
                           backgroundColor: displayColor ?? Colors.white12,
-                          backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                          backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? cachedNetworkImage(avatarUrl) : null,
                           child: avatarUrl == null || avatarUrl.isEmpty
                               ? Icon(Icons.person, color: fixedColor != null ? Colors.white : Colors.white38, size: 18)
                               : null,
@@ -1295,7 +1296,7 @@ _awaitingAgreement = true;
           ),
           child: CircleAvatar(
             radius: 26, backgroundColor: Colors.white12,
-            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? cachedNetworkImage(avatarUrl) : null,
             child: avatarUrl == null || avatarUrl.isEmpty ? Icon(Icons.person, color: baseColor, size: 26) : null,
           ),
         ),
