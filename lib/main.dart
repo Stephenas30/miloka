@@ -15,6 +15,12 @@ void main() async {
     statusBarColor: Colors.transparent,
   ));
 
+  // Portrait par défaut pour toute l'app (Fanorona force le paysage à la place).
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
   await SupabaseService().initialize();
 
   // Bloquer la mise en veille tant que l'app est ouverte

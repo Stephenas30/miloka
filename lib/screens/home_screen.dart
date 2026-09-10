@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:miloka/service/ludo_team_invitation_service.dart';
+import 'package:miloka/service/fanorona/invitation_service.dart';
 import 'package:miloka/screens/ludo_lobby_screen.dart';
 import 'package:miloka/screens/ludo_screen.dart';
+import 'package:miloka/screens/fanorona/fanorona_lobby_screen.dart';
 import 'package:miloka/service/friends_service.dart';
 import 'package:miloka/service/supabase_service.dart';
 import 'package:miloka/service/team_invitation_service.dart';
@@ -300,7 +302,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<List<Map<String, dynamic>>> _loadPendingInvitations() async {
     final belote = await TeamInvitationService().getPendingInvitations();
     final ludo = await LudoTeamInvitationService().getPendingInvitations();
-    return [...belote, ...ludo];
+    final fanorona = await FanoronaTeamInvitationService().getPendingInvitations();
+    return [...belote, ...ludo, ...fanorona];
   }
 
   void _subscribeToTeamInvitations() {
@@ -449,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final inv = _pendingTeamInvitations.first;
     final inviterName = inv['inviter_name']?.toString() ?? 'Quelqu\'un';
     final gameType = inv['game_type']?.toString() ?? 'belote';
-    final gameName = gameType == 'ludo' ? 'Ludo' : 'belote';
+    final gameName = gameType == 'ludo' ? 'Ludo' : (gameType == 'fanorona' ? 'Fanorona' : 'belote');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -465,6 +468,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onPressed: () async {
               if (gameType == 'ludo') {
                 await LudoTeamInvitationService().declineInvitation(inv['id']);
+              } else if (gameType == 'fanorona') {
+                await FanoronaTeamInvitationService().declineInvitation(inv['id']);
               } else {
                 await TeamInvitationService().declineInvitation(inv['id']);
               }
@@ -488,6 +493,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     context,
                     MaterialPageRoute(
                       builder: (_) => LudoLobbyScreen(
+                        teamId: invResult['team_id'],
+                        isHost: false,
+                      ),
+                    ),
+                  );
+                }
+              } else if (gameType == 'fanorona') {
+                final invResult = await FanoronaTeamInvitationService().acceptInvitation(inv['id']);
+                if (invResult != null && mounted) {
+                  final invitations = await _loadPendingInvitations();
+                  setState(() => _pendingTeamInvitations = invitations);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FanoronaLobbyScreen(
                         teamId: invResult['team_id'],
                         isHost: false,
                       ),

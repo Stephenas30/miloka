@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../screens/belote_screen.dart';
 import '../screens/ludo_screen.dart';
+import '../screens/fanorona/fanorona_screen.dart';
 
 class GameChoiceCard extends StatefulWidget {
   final String title;
@@ -63,6 +64,20 @@ class GameChoiceCardState extends State<GameChoiceCard>
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
             pageBuilder: (_, _, _) => const LudoScreen(),
+            transitionsBuilder: (_, animation, _, child) {
+              return ScaleTransition(
+                scale: animation,
+                child: child,
+              );
+            },
+          ),
+        );
+      } else if (widget.title == 'Fanorona') {
+        future = Navigator.push(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder: (_, _, _) => const FanoronaScreen(),
             transitionsBuilder: (_, animation, _, child) {
               return ScaleTransition(
                 scale: animation,

@@ -604,24 +604,12 @@
       document.body.style.overflow = '';
     }
     function downloadApk() {
-      var xhr = new XMLHttpRequest();
-      xhr.open('HEAD', 'apk/miloka.apk', true);
-      xhr.onload = function() {
-        if (xhr.status === 200) {
-          var a = document.createElement('a');
-          a.href = 'apk/miloka.apk';
-          a.download = 'miloka.apk';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        } else {
-          alert("L'APK n'est pas encore disponible. Revenez plus tard !");
-        }
-      };
-      xhr.onerror = function() {
-        alert("L'APK n'est pas encore disponible. Revenez plus tard !");
-      };
-      xhr.send();
+      var link = document.createElement('a');
+      link.href = 'apk/kadri.apk';
+      link.download = 'kadri.apk';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
     document.querySelectorAll('.modal-overlay').forEach(function(el) {
       el.addEventListener('click', function(e) {

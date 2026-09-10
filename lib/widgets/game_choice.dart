@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'game_choice_card.dart';
 
-List<dynamic> games = ["Belote", "Ludo"];
+List<dynamic> games = ["Belote", "Ludo", "Fanorona"];
 
 class GameChoices extends StatelessWidget {
   const GameChoices({super.key});
