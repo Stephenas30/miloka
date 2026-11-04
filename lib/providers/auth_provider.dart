@@ -21,11 +21,12 @@ class AuthProvider with ChangeNotifier {
     _initializeAuth();
   }
 
-  void _initializeAuth() {
+  Future<void> _initializeAuth() async {
     _currentUser = _supabaseService.getCurrentUser();
     if (_currentUser != null) {
-      _loadUserProfile();
+      await _loadUserProfile();
     }
+    notifyListeners();
   }
 
   Future<void> signInWithGoogle() async {
@@ -39,10 +40,8 @@ class AuthProvider with ChangeNotifier {
       if (_currentUser != null) {
         await _loadUserProfile();
       }
-      notifyListeners();
     } catch (e) {
       _error = e.toString();
-      notifyListeners();
       rethrow;
     } finally {
       _isLoading = false;
@@ -57,14 +56,12 @@ class AuthProvider with ChangeNotifier {
 
     try {
       await AuthService.login(email, password);
-      _currentUser = _supabaseService.getCurrentUser();
+      _currentUser = await AuthService.getCurrentUser();
       if (_currentUser != null) {
         await _loadUserProfile();
       }
-      notifyListeners();
     } catch (e) {
       _error = e.toString();
-      notifyListeners();
       rethrow;
     } finally {
       _isLoading = false;
@@ -72,21 +69,24 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<void> register(String email, String password, String? fullName, String username) async {
+  Future<void> register(
+    String email,
+    String password,
+    String? fullName,
+    String username,
+  ) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
       await AuthService.register(email, password, fullName, username);
-      _currentUser = _supabaseService.getCurrentUser();
+      _currentUser = await AuthService.getCurrentUser();
       if (_currentUser != null) {
         await _loadUserProfile();
       }
-      notifyListeners();
     } catch (e) {
       _error = e.toString();
-      notifyListeners();
       rethrow;
     } finally {
       _isLoading = false;
@@ -95,13 +95,16 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _loadUserProfile() async {
-    if (_currentUser == null) return;
+    if (_currentUser == null) {
+      _userProfile = null;
+      return;
+    }
 
     try {
       _userProfile = await _supabaseService.getUserProfile(_currentUser!.id);
-      notifyListeners();
     } catch (e) {
       _error = 'Erreur lors du chargement du profil: $e';
+    } finally {
       notifyListeners();
     }
   }
@@ -111,14 +114,12 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      await _supabaseService.signOut();
+      await AuthService.signOut();
       _currentUser = null;
       _userProfile = null;
       _error = null;
-      notifyListeners();
     } catch (e) {
       _error = e.toString();
-      notifyListeners();
       rethrow;
     } finally {
       _isLoading = false;
@@ -145,14 +146,12 @@ class AuthProvider with ChangeNotifier {
       };
 
       await _supabaseService.client.from('users').update(payload).eq(
-            'id',
-            _currentUser!.id,
-          );
+        'id',
+        _currentUser!.id,
+      );
       await _loadUserProfile();
-      notifyListeners();
     } catch (e) {
       _error = 'Erreur lors de la mise à jour du profil: $e';
-      notifyListeners();
       rethrow;
     } finally {
       _isLoading = false;
