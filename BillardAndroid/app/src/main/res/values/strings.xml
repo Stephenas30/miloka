@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Billard 🎱</string>
+    <string name="p1">Joueur 1</string>
+    <string name="p2">Joueur 2</string>
+    <string name="restart">Nouvelle partie</string>
+    <string name="turn">Au tour de</string>
+    <string name="again">Bien joué, rejouez !</string>
+    <string name="place">Placez la bille blanche avec le doigt, puis relâchez.</string>
+    <string name="f_cue">Bille blanche empochée</string>
+    <string name="f_none">Aucune bille touchée</string>
+    <string name="f_wrong">Mauvaise bille touchée</string>
+    <string name="foul">Faute</string>
+    <string name="win">gagne la partie !</string>
+    <string name="open_table">Table ouverte</string>
+    <string name="left">restantes</string>
+    <string name="red">Rouges</string>
+    <string name="yellow">Jaunes</string>
+    <string name="you">Vous</string>
+    <string name="computer">Ordinateur</string>
+    <string name="opponent">Adversaire</string>
+    <string name="your_turn">À vous de jouer</string>
+    <string name="computer_turn">L’ordinateur réfléchit…</string>
+    <string name="opponent_turn">C’est au tour de l’adversaire</string>
+    <string name="win_you">🏆 Vous avez gagné !</string>
+    <string name="home_sub">Choisissez un mode de jeu</string>
+    <string name="mode_solo">Solo</string>
+    <string name="mode_solo_sub">Affrontez l’IA</string>
+    <string name="mode_two">Multiplayer</string>
+    <string name="mode_two_sub">À tour de rôle sur le même téléphone</string>
+    <string name="mode_online">En ligne</string>
+    <string name="mode_online_sub">Jouez contre un ami en réseau</string>
+    <string name="online_title">Jeu en ligne</string>
+    <string name="your_address">Votre adresse :</string>
+    <string name="host_btn">Créer une partie</string>
+    <string name="join_btn">Rejoindre</string>
+    <string name="ip_hint">Adresse de l’hôte (ex. 192.168.1.20)</string>
+    <string name="or">ou</string>
+    <string name="waiting">En attente de l’adversaire… Donnez-lui cette adresse :</string>
+    <string name="connecting">Connexion en cours…</string>
+    <string name="conn_error">Connexion impossible</string>
+    <string name="conn_lost">Connexion perdue</string>
+    <string name="only_host">Seul l’hôte peut relancer la partie</string>
+    <string name="home">🏠 Accueil</string>
+    <string-array name="levels">
+        <item>Facile</item>
+        <item>Moyen</item>
+        <item>Difficile</item>
+    </string-array>
+    <string name="choose_level">Choisissez la difficulté</string>
+    <string name="victory">VICTOIRE !</string>
+    <string name="defeat">DÉFAITE</string>
+    <string name="win_sub">Bravo, vous avez gagné la partie !</string>
+    <string name="lose_sub">Courage, retentez votre chance !</string>
+    <string name="replay">Rejouer</string>
+</resources>

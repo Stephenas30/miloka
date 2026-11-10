@@ -1,0 +1,35 @@
+{
+    "name": "Kadri - Jeux de société",
+    "short_name": "Kadri",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#080816",
+    "theme_color": "#006400",
+    "description": "Kadri - Jeux de société en ligne : Belote, Ludo, Fanorona, Rami, Solitaire, Dominos et bien plus encore.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/logo.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/logo.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/logo.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/logo.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

@@ -1,0 +1,194 @@
+1. pubspec.yaml — Modifications
+Ligne 19 — Changer la version :
+version: 0.6.0+1
+Ligne 37 — Ajouter après supabase_flutter les deux dépendances :
+  supabase_flutter: ^2.15.4
+  package_info_plus: ^8.2.0
+  url_launcher: ^6.3.1
+2. lib/service/version_service.dart — Nouveau fichier
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class VersionService {
+  static final _client = Supabase.instance.client;
+
+  static Future<PackageInfo> getCurrentPackageInfo() async {
+    return await PackageInfo.fromPlatform();
+  }
+
+  static Future<int?> getLatestBuildNumber() async {
+    try {
+      final data = await _client
+          .from('app_version')
+          .select('build_number')
+          .limit(1)
+          .single();
+      return (data['build_number'] as num).toInt();
+    } catch (e) {
+      print('Version check error: $e');
+      return null;
+    }
+  }
+
+  static Future<bool> isUpToDate() async {
+    final info = await getCurrentPackageInfo();
+    final currentBuild = int.tryParse(info.buildNumber) ?? 0;
+    final latestBuild = await getLatestBuildNumber();
+    if (latestBuild == null) return true;
+    return currentBuild >= latestBuild;
+  }
+}
+3. lib/screens/update_required_screen.dart — Nouveau fichier
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class UpdateRequiredScreen extends StatelessWidget {
+  const UpdateRequiredScreen({super.key});
+
+  Future<void> _openUpdateUrl() async {
+    final uri = Uri.parse('https://miloka.smartdev-solutions.com');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/background.png'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Image(image: AssetImage('assets/images/logo.png')),
+              const SizedBox(height: 40),
+              const Text(
+                'Mise à jour disponible',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Veuillez mettre à jour l\'application pour continuer à jouer.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 40),
+              ElevatedButton(
+                onPressed: _openUpdateUrl,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 48,
+                    vertical: 16,
+                  ),
+                  backgroundColor: const Color(0xFF1A237E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Mettre à jour',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+4. lib/screens/splash_screen.dart — Fichier modifié
+import 'package:flutter/material.dart';
+import 'package:miloka/screens/home_screen.dart';
+import 'package:miloka/screens/onboarding_screen.dart';
+import 'package:miloka/screens/update_required_screen.dart';
+import 'package:miloka/service/auth_service.dart';
+import 'package:miloka/service/version_service.dart';
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<StatefulWidget> createState() {
+    return _SplashScreenState();
+  }
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  void loadApp() async {
+    final token = await AuthService.listenSessionChange();
+
+    Future.delayed(const Duration(seconds: 5), () async {
+      if (!mounted) return;
+
+      final upToDate = await VersionService.isUpToDate();
+      if (!mounted) return;
+
+      if (!upToDate) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const UpdateRequiredScreen(),
+          ),
+        );
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => token ? HomeScreen() : OnboardingScreen(),
+        ),
+      );
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadApp();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/background.png'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image(image: AssetImage("assets/images/logo.png")),
+              const CircularProgressIndicator(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

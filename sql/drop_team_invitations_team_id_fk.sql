@@ -1,0 +1,1 @@
+ALTER TABLE public.team_invitations DROP CONSTRAINT IF EXISTS team_invitations_team_id_fkey;

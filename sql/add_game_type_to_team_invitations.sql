@@ -1,0 +1,1 @@
+ALTER TABLE public.team_invitations ADD COLUMN IF NOT EXISTS game_type text DEFAULT 'belote';

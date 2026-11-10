@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Physique -->
+    <item name="friction" format="float" type="dimen">0.9925</item>
+    <item name="restitution" format="float" type="dimen">0.96</item>
+    <item name="cushion_bounce" format="float" type="dimen">0.78</item>
+    <item name="max_power" format="float" type="dimen">24</item>
+    <item name="roll_decel" format="float" type="dimen">0.012</item>
+</resources>
