@@ -22,9 +22,14 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _initializeAuth() async {
-    _currentUser = _supabaseService.getCurrentUser();
-    if (_currentUser != null) {
-      await _loadUserProfile();
+    try {
+      _currentUser = _supabaseService.getCurrentUser();
+      if (_currentUser != null) {
+        await _loadUserProfile();
+      }
+    } catch (_) {
+      _currentUser = null;
+      _userProfile = null;
     }
     notifyListeners();
   }

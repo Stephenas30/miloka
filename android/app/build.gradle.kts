@@ -5,14 +5,9 @@ plugins {
 }
 
 android {
-    namespace = "com.billard.game"
+    namespace = "com.example.miloka"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-
-    sourceSets.getByName("main") {
-    java.srcDir(rootProject.file("../BillardAndroid/app/src/main/java"))
-    res.srcDir(rootProject.file("../BillardAndroid/app/src/main/res"))
-    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -48,3 +43,4 @@ kotlin {
 flutter {
     source = "../.."
 }
+

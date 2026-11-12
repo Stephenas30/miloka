@@ -8,10 +8,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 
 import '../game/pool_game.dart';
-import '../game/pool_network.dart';
 import '../providers/auth_provider.dart';
 import '../utils/image_cache.dart';
 import '../widgets/friends_dialog.dart';
+import 'pool_online_lobby_screen.dart';
 
 const _poolInk = Color(0xFF17110C);
 const _poolHudCard = Color(0xFF261A10);
@@ -49,54 +49,57 @@ class _PoolScreenState extends State<PoolScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            'BillardAndroid/app/src/main/res/drawable/billardfond.png',
-            fit: BoxFit.cover,
-          ),
-          const ColoredBox(color: Color(0xAA000000)),
+          Image.asset('assets/images/background.png', fit: BoxFit.cover),
           Padding(
             padding: const EdgeInsets.all(22),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final isLandscape = constraints.maxWidth > constraints.maxHeight;
+                final isLandscape =
+                    constraints.maxWidth > constraints.maxHeight;
+                final compact = constraints.maxHeight < 380 ||
+                    constraints.maxWidth < 340;
                 final modes = [
                   _PoolModeCard(
-                    emoji: '🤖',
+                    emoji: '🔮',
                     title: 'Solo',
-                    subtitle: 'Affrontez l’ordinateur',
-                    accent: const Color(0xFF6FD602),
+                    subtitle: 'Affrontez l’IA',
+                    colors: const [Color(0xCCE53935), Color(0x66E53935)],
                     onTap: () => _chooseDifficulty(context),
+                    compact: compact,
                   ),
                   _PoolModeCard(
-                    emoji: '👥',
+                    emoji: '⚔️',
                     title: 'Multiplayer',
                     subtitle: 'À tour de rôle sur le même téléphone',
-                    accent: const Color(0xFF1267B5),
+                    colors: const [Color(0xCCFDD835), Color(0x66FDD835)],
                     onTap: () => _openGame(context, PoolMode.local),
+                    compact: compact,
                   ),
                   _PoolModeCard(
                     emoji: '🌐',
                     title: 'En ligne',
-                    subtitle: PoolNetwork.supportsLan
-                        ? 'Jouez contre un ami en réseau'
-                        : 'Disponible sur Android et iOS',
-                    accent: const Color(0xFF6FD602),
-                    onTap: PoolNetwork.supportsLan
-                        ? () => _chooseNetwork(context)
-                        : null,
+                    subtitle: 'Jouez contre un ami en réseau',
+                    colors: const [Color(0xCC43A047), Color(0x6643A047)],
+                    compact: compact,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PoolOnlineLobbyScreen(),
+                      ),
+                    ),
                   ),
                 ];
                 return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const SizedBox(height: 22),
                     Text(
-                      'Billard 8',
+                      'Billard 🎱',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Color(0xFFFFE6A0),
+                      style: TextStyle(
+                        color: Colors.white,
                         fontFamily: _poolTitleFont,
-                        fontSize: 48,
-                        shadows: [
+                        fontSize: compact ? 30 : 42,
+                        fontWeight: FontWeight.bold,
+                        shadows: const [
                           Shadow(
                             color: Colors.black,
                             blurRadius: 12,
@@ -105,54 +108,52 @@ class _PoolScreenState extends State<PoolScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    const Text(
+                    SizedBox(height: compact ? 3 : 5),
+                    Text(
                       'Choisissez un mode de jeu',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
                         fontFamily: _poolTextFont,
-                        fontSize: 16,
+                        fontSize: compact ? 13 : 16,
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Expanded(
-                      child: isLandscape
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (var index = 0; index < modes.length; index++)
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(10),
-                                      child: modes[index],
-                                    ),
-                                  ),
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (var index = 0; index < modes.length; index++)
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(10),
-                                      child: modes[index],
-                                    ),
-                                  ),
-                              ],
+                    SizedBox(height: compact ? 12 : 24),
+                    if (isLandscape)
+                      Row(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < modes.length;
+                            index++
+                          ) ...[
+                            if (index > 0) const SizedBox(width: 10),
+                            Expanded(child: modes[index]),
+                          ],
+                        ],
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < modes.length;
+                            index++
+                          ) ...[
+                            if (index > 0) const SizedBox(height: 7),
+                            SizedBox(
+                              width: compact ? 210 : 240,
+                              child: modes[index],
                             ),
-                    ),
+                          ],
+                        ],
+                      ),
                   ],
                 );
               },
             ),
           ),
-          const Positioned(
-            top: 12,
-            right: 12,
-            child: _PoolAccountHeader(),
-          ),
+          const Positioned(top: 12, right: 12, child: _PoolAccountHeader()),
           Positioned(
             top: 12,
             left: 12,
@@ -170,12 +171,25 @@ class _PoolScreenState extends State<PoolScreen> {
                 child: const CircleAvatar(
                   radius: 14,
                   backgroundColor: Colors.black54,
-                  child: Icon(
-                    Icons.people_alt,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  child: Icon(Icons.people_alt, color: Colors.white, size: 20),
                 ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 20,
+            left: 16,
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).maybePop(),
+              child: Container(
+                width: 48,
+                height: 48,
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0x99000000),
+                ),
+                child: const Icon(Icons.arrow_back, color: Colors.white),
               ),
             ),
           ),
@@ -191,10 +205,7 @@ class _PoolScreenState extends State<PoolScreen> {
         backgroundColor: _poolHudCard,
         title: const Text(
           'Choisissez la difficulté',
-          style: TextStyle(
-            color: _poolHudText,
-            fontFamily: _poolBoldFont,
-          ),
+          style: TextStyle(color: _poolHudText, fontFamily: _poolBoldFont),
         ),
         contentPadding: const EdgeInsets.symmetric(vertical: 8),
         content: Column(
@@ -224,105 +235,14 @@ class _PoolScreenState extends State<PoolScreen> {
     }
   }
 
-  Future<void> _chooseNetwork(BuildContext context) async {
-    final addressController = TextEditingController();
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: _poolHudCard,
-        title: const Text(
-          'Jeu en ligne',
-          style: TextStyle(
-            color: _poolHudText,
-            fontFamily: _poolBoldFont,
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Les deux joueurs doivent être connectés au même Wi-Fi.',
-              style: TextStyle(
-                color: _poolHudText,
-                fontFamily: _poolTextFont,
-              ),
-            ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: addressController,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(
-                color: Colors.white,
-                fontFamily: _poolTextFont,
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Adresse IP de l’hôte',
-                hintText: '192.168.1.20',
-                labelStyle: TextStyle(color: _poolAccent),
-                hintStyle: TextStyle(color: Colors.white38),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: _poolHudLine),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text(
-              'Annuler',
-              style: TextStyle(color: _poolHudText, fontFamily: _poolTextFont),
-            ),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, 'host'),
-            style: FilledButton.styleFrom(backgroundColor: _poolAccent),
-            child: const Text(
-              'Créer une partie',
-              style: TextStyle(fontFamily: _poolTextFont),
-            ),
-          ),
-          FilledButton(
-            onPressed: () {
-              final address = addressController.text.trim();
-              if (address.isNotEmpty) Navigator.pop(dialogContext, address);
-            },
-            style: FilledButton.styleFrom(backgroundColor: _poolAccent),
-            child: const Text(
-              'Rejoindre',
-              style: TextStyle(fontFamily: _poolTextFont),
-            ),
-          ),
-        ],
-      ),
-    );
-    addressController.dispose();
-    if (choice == null || !context.mounted) return;
-    await _openGame(
-      context,
-      PoolMode.online,
-      isHost: choice == 'host',
-      address: choice == 'host' ? null : choice,
-    );
-  }
-
   Future<void> _openGame(
     BuildContext context,
     PoolMode mode, {
     int level = 1,
-    bool isHost = false,
-    String? address,
   }) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PoolGameScreen(
-          mode: mode,
-          level: level,
-          isHost: isHost,
-          address: address,
-        ),
+        builder: (_) => PoolGameScreen(mode: mode, level: level),
       ),
     );
   }
@@ -333,30 +253,40 @@ class _PoolModeCard extends StatelessWidget {
     required this.emoji,
     required this.title,
     required this.subtitle,
-    required this.accent,
+    required this.colors,
     required this.onTap,
+    this.compact = false,
   });
 
   final String emoji;
   final String title;
   final String subtitle;
-  final Color accent;
+  final List<Color> colors;
   final VoidCallback? onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(32),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(12),
+        borderRadius: BorderRadius.circular(32),
+         child: Container(
+          height: compact ? 64 : 90,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 12,
+            vertical: compact ? 1 : 2,
+          ),
           decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: .27)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: colors,
+            ),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: const Color(0x4DFFFFFF), width: 2),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x66000000),
@@ -365,39 +295,41 @@ class _PoolModeCard extends StatelessWidget {
               ),
             ],
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) => Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  emoji,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 55),
+          child: Row(
+            children: [
+              Text(
+                emoji,
+                style: TextStyle(fontSize: compact ? 22 : 30),
+              ),
+              SizedBox(width: compact ? 8 : 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontFamily: _poolBoldFont,
+                        fontSize: compact ? 13 : 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: compact ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontFamily: _poolTextFont,
+                        fontSize: compact ? 9 : 11,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: _poolBoldFont,
-                    fontSize: 19,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  maxLines: constraints.maxHeight < 150 ? 2 : 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: _poolTextFont,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -405,19 +337,40 @@ class _PoolModeCard extends StatelessWidget {
   }
 }
 
+/// Contexte d’une partie en ligne Kadri (Supabase Realtime).
+class KadriPoolSession {
+  const KadriPoolSession({
+    required this.seed,
+    required this.playerIndex,
+    required this.hostBet,
+    required this.guestBet,
+    required this.onSendLine,
+    required this.remoteLines,
+    required this.onGameFinished,
+    required this.onClosed,
+  });
+
+  final int seed;
+  final int playerIndex;
+  final int hostBet;
+  final int guestBet;
+  final void Function(String line) onSendLine;
+  final Stream<String> remoteLines;
+  final void Function(int winnerIndex) onGameFinished;
+  final VoidCallback onClosed;
+}
+
 class PoolGameScreen extends StatefulWidget {
   const PoolGameScreen({
     super.key,
     required this.mode,
     this.level = 1,
-    this.isHost = false,
-    this.address,
+    this.kadri,
   });
 
   final PoolMode mode;
   final int level;
-  final bool isHost;
-  final String? address;
+  final KadriPoolSession? kadri;
 
   @override
   State<PoolGameScreen> createState() => _PoolGameScreenState();
@@ -427,8 +380,8 @@ class _PoolGameScreenState extends State<PoolGameScreen>
     with SingleTickerProviderStateMixin {
   late final PoolGame _game;
   late final Ticker _ticker;
-  PoolNetwork? _network;
-  String _connectionMessage = '';
+  StreamSubscription<String>? _remoteSubscription;
+  bool _gameOverReported = false;
 
   @override
   void initState() {
@@ -438,83 +391,31 @@ class _PoolGameScreenState extends State<PoolGameScreen>
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    if (widget.mode == PoolMode.online) {
-      _network = PoolNetwork(onLine: _onLine, onStatus: _onNetworkStatus);
-    }
+    final kadri = widget.kadri;
     _game = PoolGame(
       mode: widget.mode,
       level: widget.level,
-      myPlayerIndex: widget.isHost ? 0 : 1,
-      onSend: _network?.send,
+      myPlayerIndex: kadri?.playerIndex ?? 0,
+      onSend: kadri?.onSendLine,
     );
-    if (widget.mode == PoolMode.online) {
-      _game.ready = false;
-      _connect();
+    if (kadri != null) {
+      _game
+        ..start(seed: kadri.seed)
+        ..ready = true;
+      _remoteSubscription = kadri.remoteLines.listen(_onRemoteLine);
     }
     _ticker = createTicker((_) {
       _game.tick();
+      final session = widget.kadri;
+      if (session != null && _game.isGameOver && !_gameOverReported) {
+        _gameOverReported = true;
+        session.onGameFinished(_game.winner);
+      }
       if (mounted) setState(() {});
     })..start();
   }
 
-  Future<void> _connect() async {
-    try {
-      if (widget.isHost) {
-        final address = await _network!.host();
-        if (mounted) {
-          setState(() {
-            _connectionMessage = 'Adresse : $address';
-            if (!_game.ready) {
-              _game.message = 'En attente de l’adversaire… $address';
-            }
-          });
-        }
-      } else {
-        await _network!.join(widget.address!);
-        if (mounted) {
-          setState(() {
-            _connectionMessage = 'En attente de l’hôte…';
-            if (!_game.ready) _game.message = _connectionMessage;
-          });
-        }
-      }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _connectionMessage = 'Connexion impossible : $error';
-        _game.message = _connectionMessage;
-      });
-    }
-  }
-
-  void _onNetworkStatus(String status) {
-    if (!mounted) return;
-    setState(() {
-      switch (status) {
-        case 'connected':
-          _connectionMessage = 'Adversaire connecté';
-          _game.message = _connectionMessage;
-          if (widget.isHost) _startOnlineGame();
-        case 'lost':
-          _connectionMessage = 'Connexion perdue';
-          _game.ready = false;
-          _game.message = _connectionMessage;
-        case 'error':
-          _connectionMessage = 'Erreur de connexion';
-          _game.message = _connectionMessage;
-      }
-    });
-  }
-
-  void _startOnlineGame() {
-    final seed = DateTime.now().microsecondsSinceEpoch;
-    _game
-      ..start(seed: seed)
-      ..ready = true;
-    _network?.send('START $seed');
-  }
-
-  void _onLine(String line) {
+  void _onRemoteLine(String line) {
     if (!mounted) return;
     final fields = line.split(' ');
     setState(() {
@@ -524,27 +425,75 @@ class _PoolGameScreenState extends State<PoolGameScreen>
           _game
             ..start(seed: seed)
             ..ready = true;
-          _connectionMessage = 'Partie lancée';
+          _gameOverReported = false;
         }
-      } else if (fields.first == 'SHOT' && fields.length == 3) {
+        return;
+      }
+      if (fields.first == 'SHOT' && fields.length == 3) {
         final angle = double.tryParse(fields[1]);
         final power = double.tryParse(fields[2]);
         if (angle != null && power != null) _game.remoteShot(angle, power);
-      } else if (fields.first == 'PLACE' && fields.length == 3) {
+        return;
+      }
+      if (fields.first == 'PLACE' && fields.length == 3) {
         final x = double.tryParse(fields[1]);
         final y = double.tryParse(fields[2]);
         if (x != null && y != null) _game.remotePlace(x, y);
-      } else if (fields.first == 'STATE' && !_game.applySnapshot(line)) {
-        _connectionMessage = 'État de partie reçu invalide';
-        _game.message = _connectionMessage;
+        return;
+      }
+      if (fields.first == 'STATE' && !_game.applySnapshot(line)) {
+        _game.message = 'État de partie reçu invalide';
       }
     });
+  }
+
+  void _closeGame() {
+    final kadri = widget.kadri;
+    if (kadri != null) {
+      kadri.onClosed();
+    } else {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  Future<void> _confirmCloseGame() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2C),
+        title: const Text(
+          'Quitter la partie ?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Êtes-vous sûr de vouloir quitter la partie ?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Quitter',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) _closeGame();
   }
 
   @override
   void dispose() {
     _ticker.dispose();
-    unawaited(_network?.close() ?? Future<void>.value());
+    _remoteSubscription?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
@@ -554,72 +503,100 @@ class _PoolGameScreenState extends State<PoolGameScreen>
   }
 
   void _restart() {
-    if (widget.mode == PoolMode.online && !widget.isHost) {
-      setState(() => _game.message = 'Seul l’hôte peut relancer la partie.');
+    final kadri = widget.kadri;
+    if (kadri != null) {
+      if (kadri.playerIndex != 0) {
+        setState(() => _game.message = 'Seul l’hôte peut relancer la partie.');
+        return;
+      }
+      final seed = DateTime.now().microsecondsSinceEpoch;
+      setState(() {
+        _game
+          ..start(seed: seed)
+          ..ready = true;
+        _gameOverReported = false;
+      });
+      kadri.onSendLine('START $seed');
       return;
     }
-    if (widget.mode == PoolMode.online) {
-      _startOnlineGame();
-    } else {
-      setState(() => _game.start());
-    }
+    setState(() => _game.start());
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _poolInk,
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              _buildHud(),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final scale = math.min(
-                      (constraints.maxWidth - 36).clamp(0, double.infinity) /
-                          PoolGame.tableWidth,
-                      (constraints.maxHeight - 36).clamp(0, double.infinity) /
-                          PoolGame.tableHeight,
-                    ).toDouble();
-                    final boardSize = Size(
-                      PoolGame.tableWidth * scale,
-                      PoolGame.tableHeight * scale,
-                    );
-                    return Center(
-                      child: SizedBox(
-                        width: boardSize.width,
-                        height: boardSize.height,
-                        child: Listener(
-                          onPointerDown: (event) {
-                            final point = _toBoard(event.localPosition, scale);
-                            _game.pointerDown(point.dx, point.dy);
-                            setState(() {});
-                          },
-                          onPointerMove: (event) {
-                            final point = _toBoard(event.localPosition, scale);
-                            _game.pointerMove(point.dx, point.dy);
-                            setState(() {});
-                          },
-                          onPointerUp: (_) {
-                            _game.pointerUp();
-                            setState(() {});
-                          },
-                          child: CustomPaint(
-                            painter: _PoolTablePainter(_game),
-                            size: boardSize,
+    return PopScope(
+      canPop: widget.kadri == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && widget.kadri != null) widget.kadri!.onClosed();
+      },
+      child: Scaffold(
+        backgroundColor: _poolInk,
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                _buildHud(),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final scale = math
+                          .min(
+                            (constraints.maxWidth - 36).clamp(
+                                  0,
+                                  double.infinity,
+                                ) /
+                                PoolGame.tableWidth,
+                            (constraints.maxHeight - 36).clamp(
+                                  0,
+                                  double.infinity,
+                                ) /
+                                PoolGame.tableHeight,
+                          )
+                          .toDouble();
+                      final boardSize = Size(
+                        PoolGame.tableWidth * scale,
+                        PoolGame.tableHeight * scale,
+                      );
+                      return Center(
+                        child: SizedBox(
+                          width: boardSize.width,
+                          height: boardSize.height,
+                          child: Listener(
+                            onPointerDown: (event) {
+                              final point = _toBoard(
+                                event.localPosition,
+                                scale,
+                              );
+                              _game.pointerDown(point.dx, point.dy);
+                              setState(() {});
+                            },
+                            onPointerMove: (event) {
+                              final point = _toBoard(
+                                event.localPosition,
+                                scale,
+                              );
+                              _game.pointerMove(point.dx, point.dy);
+                              setState(() {});
+                            },
+                            onPointerUp: (_) {
+                              _game.pointerUp();
+                              setState(() {});
+                            },
+                            child: CustomPaint(
+                              painter: _PoolTablePainter(_game),
+                              size: boardSize,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
-          ),
-          if (_game.isGameOver) Positioned.fill(child: _buildGameOver()),
-        ],
+              ],
+            ),
+            if (_game.isGameOver) Positioned.fill(child: _buildGameOver()),
+          ],
+        ),
       ),
     );
   }
@@ -628,6 +605,7 @@ class _PoolGameScreenState extends State<PoolGameScreen>
       Offset(point.dx / scale, point.dy / scale);
 
   Widget _buildHud() {
+    final narrow = MediaQuery.sizeOf(context).width < 560;
     return Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -639,48 +617,54 @@ class _PoolGameScreenState extends State<PoolGameScreen>
         children: [
           _HudButton(
             icon: Icons.home,
-            label: 'Accueil',
-            onPressed: () => Navigator.pop(context),
+            onPressed: _confirmCloseGame,
+            tooltip: 'Accueil',
           ),
           _PlayerBadge(
             title: _game.playerName(0),
             subtitle: _game.groupLabel(0),
             active: _game.currentPlayer == 0 && !_game.isGameOver,
+            compact: narrow,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _game.message.isEmpty ? _connectionMessage : _game.message,
+              _game.message,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+              strutStyle: const StrutStyle(fontSize: 13, height: 1.15),
               style: const TextStyle(
                 color: _poolHudText,
-                fontSize: 14,
+                fontSize: 13,
                 fontFamily: _poolBoldFont,
               ),
             ),
           ),
           const SizedBox(width: 8),
+          if (widget.kadri != null &&
+              (widget.kadri!.hostBet > 0 || widget.kadri!.guestBet > 0)) ...[
+            _StakeBadge(
+              hostBet: widget.kadri!.hostBet,
+              guestBet: widget.kadri!.guestBet,
+            ),
+            const SizedBox(width: 8),
+          ],
           _PlayerBadge(
             title: _game.playerName(1),
             subtitle: _game.groupLabel(1),
             active: _game.currentPlayer == 1 && !_game.isGameOver,
-          ),
-          _HudButton(
-            icon: Icons.refresh,
-            label: 'Nouvelle partie',
-            onPressed: _restart,
+            compact: narrow,
           ),
           const SizedBox(width: 8),
-          const _PoolAccountHeader(compact: true),
+          if (!narrow) const _PoolAccountHeader(compact: true),
         ],
       ),
     );
   }
 
   Widget _buildGameOver() {
-    final playerIndex = widget.mode == PoolMode.online && !widget.isHost ? 1 : 0;
+    final playerIndex = widget.kadri?.playerIndex ?? 0;
     final won = _game.winner == playerIndex;
     final accent = won ? const Color(0xFFFFC107) : const Color(0xFFE53935);
     final title = won ? 'VICTOIRE !' : 'DÉFAITE';
@@ -720,11 +704,11 @@ class _PoolGameScreenState extends State<PoolGameScreen>
                   child: Text(
                     title,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
                       fontFamily: _poolTitleFont,
-                      fontSize: 54,
-                      shadows: [
+                      fontSize: MediaQuery.sizeOf(context).width < 400 ? 40 : 54,
+                      shadows: const [
                         Shadow(color: Color(0xFF3A1F00), blurRadius: 12),
                       ],
                     ),
@@ -754,7 +738,7 @@ class _PoolGameScreenState extends State<PoolGameScreen>
                     _GameOverButton(
                       label: '🏠 Accueil',
                       color: const Color(0xFF9A5424),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _confirmCloseGame,
                     ),
                   ],
                 ),
@@ -767,33 +751,61 @@ class _PoolGameScreenState extends State<PoolGameScreen>
   }
 }
 
-class _HudButton extends StatelessWidget {
-  const _HudButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
+class _StakeBadge extends StatelessWidget {
+  const _StakeBadge({required this.hostBet, required this.guestBet});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
+  final int hostBet;
+  final int guestBet;
 
   @override
   Widget build(BuildContext context) {
-    return TextButton.icon(
+    final compact = MediaQuery.sizeOf(context).width < 560;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 8,
+        vertical: compact ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: _poolHudCard,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: _poolAccent, width: 2),
+      ),
+      child: Text(
+        'Mise $hostBet / $guestBet 🪙',
+        style: TextStyle(
+          color: _poolHudText,
+          fontSize: compact ? 10 : 12,
+          fontFamily: _poolBoldFont,
+        ),
+      ),
+    );
+  }
+}
+
+class _HudButton extends StatelessWidget {
+  const _HudButton({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
       onPressed: onPressed,
-      icon: Icon(icon, size: 17),
-      label: Text(label),
       style: TextButton.styleFrom(
         foregroundColor: Colors.white,
         backgroundColor: _poolAccent,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        minimumSize: const Size(0, 40),
+        minimumSize: const Size(40, 40),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: const TextStyle(
-          fontSize: 12,
-          fontFamily: _poolBoldFont,
-        ),
+      ),
+      child: Tooltip(
+        message: tooltip ?? '',
+        child: Icon(icon, size: 19),
       ),
     );
   }
@@ -837,17 +849,25 @@ class _PlayerBadge extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.active,
+    this.compact = false,
   });
 
   final String title;
   final String subtitle;
   final bool active;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 92, maxWidth: 155),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      constraints: BoxConstraints(
+        minWidth: compact ? 56 : 92,
+        maxWidth: compact ? 96 : 155,
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 9,
+        vertical: compact ? 4 : 5,
+      ),
       decoration: BoxDecoration(
         color: _poolHudCard,
         borderRadius: BorderRadius.circular(9),
@@ -866,7 +886,7 @@ class _PlayerBadge extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: _poolHudText,
-              fontSize: 11,
+              fontSize: compact ? 9 : 11,
               fontFamily: _poolTextFont,
             ),
           ),
@@ -876,7 +896,7 @@ class _PlayerBadge extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: _poolHudText.withValues(alpha: .75),
-              fontSize: 9,
+              fontSize: compact ? 8 : 9,
               fontFamily: _poolTextFont,
             ),
           ),
@@ -896,19 +916,23 @@ class _PoolTablePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final scale = math.min(size.width / PoolGame.tableWidth,
-        size.height / PoolGame.tableHeight);
+    final scale = math.min(
+      size.width / PoolGame.tableWidth,
+      size.height / PoolGame.tableHeight,
+    );
     canvas.save();
     canvas.scale(scale);
     _drawTable(canvas);
     for (final ball in game.balls.where((ball) => ball.id != 0)) {
       _drawBall(canvas, ball);
     }
-    _drawBall(canvas, game.cueBall,
-        alpha: game.state == PoolGameState.placingCue &&
-                !game.cuePlacementValid
-            ? 105
-            : 255);
+    _drawBall(
+      canvas,
+      game.cueBall,
+      alpha: game.state == PoolGameState.placingCue && !game.cuePlacementValid
+          ? 105
+          : 255,
+    );
     if (game.state == PoolGameState.aiming) {
       _drawAim(canvas);
       _drawPower(canvas);
@@ -944,24 +968,30 @@ class _PoolTablePainter extends CustomPainter {
         ..color = const Color(0xFF2A1307),
     );
     canvas.drawRect(
-      const Rect.fromLTRB(edge - 10, edge - 10, width - edge + 10, height - edge + 10),
+      const Rect.fromLTRB(
+        edge - 10,
+        edge - 10,
+        width - edge + 10,
+        height - edge + 10,
+      ),
       Paint()..color = const Color(0xFF0B6A1F),
     );
     canvas.drawRect(
       const Rect.fromLTRB(edge, edge, width - edge, height - edge),
       Paint()
-        ..shader = const RadialGradient(
-          center: Alignment.center,
-          colors: [Color(0xFF22B43F), _felt],
-          radius: 1.94,
-        ).createShader(
-          const Rect.fromLTWH(
-            edge,
-            edge,
-            width - 2 * edge,
-            height - 2 * edge,
-          ),
-        ),
+        ..shader =
+            const RadialGradient(
+              center: Alignment.center,
+              colors: [Color(0xFF22B43F), _felt],
+              radius: 1.94,
+            ).createShader(
+              const Rect.fromLTWH(
+                edge,
+                edge,
+                width - 2 * edge,
+                height - 2 * edge,
+              ),
+            ),
     );
     final diamond = Paint()..color = const Color(0xFFECDCAA);
     for (var i = 1; i <= 7; i++) {
@@ -1010,33 +1040,13 @@ class _PoolTablePainter extends CustomPainter {
       _ when game.groupOf(ball.id) == 1 => const Color(0xFFD9302A),
       _ => const Color(0xFFF2A61C),
     };
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()..color = color.withAlpha(alpha),
-    );
+    canvas.drawCircle(center, radius, Paint()..color = color.withAlpha(alpha));
     canvas.save();
-    final clip = Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+    final clip = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
     canvas.clipPath(clip);
     final rotation = ball.orientation;
-    if (ball.id == 0) {
-      final dotPaint = Paint()..color = const Color(0xFFCC2222).withAlpha(alpha);
-      for (var axis = 0; axis < 3; axis++) {
-        for (final side in const [1, -1]) {
-          final depth = side * rotation[6 + axis];
-          if (depth <= .05) continue;
-          canvas.drawCircle(
-            center +
-                Offset(
-                  side * rotation[axis] * radius,
-                  side * rotation[3 + axis] * radius,
-                ),
-            radius * (.1 + .12 * depth),
-            dotPaint,
-          );
-        }
-      }
-    } else {
+    if (ball.id != 0) {
       for (final side in const [1, -1]) {
         if (side * rotation[8] <= 0) continue;
         canvas.save();
@@ -1124,7 +1134,8 @@ class _PoolTablePainter extends CustomPainter {
       if (projection <= 0) continue;
       final perpendicular = (ox * dy - oy * dx).abs();
       if (perpendicular < 2 * PoolGame.ballRadius) {
-        final distance = projection -
+        final distance =
+            projection -
             math.sqrt(
               4 * PoolGame.ballRadius * PoolGame.ballRadius -
                   perpendicular * perpendicular,
@@ -1145,7 +1156,12 @@ class _PoolTablePainter extends CustomPainter {
       ..color = Colors.white.withAlpha(150)
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
-    _drawDashedLine(canvas, Offset(game.cueBall.x, game.cueBall.y), end, guidePaint);
+    _drawDashedLine(
+      canvas,
+      Offset(game.cueBall.x, game.cueBall.y),
+      end,
+      guidePaint,
+    );
     canvas.drawCircle(end, PoolGame.ballRadius, guidePaint);
     if (target != null && edgeDistance >= closest) {
       final normal = Offset(target.x - end.dx, target.y - end.dy);
@@ -1153,13 +1169,17 @@ class _PoolTablePainter extends CustomPainter {
       if (length > 0) {
         canvas.drawLine(
           Offset(target.x, target.y),
-          Offset(target.x + normal.dx / length * 45, target.y + normal.dy / length * 45),
+          Offset(
+            target.x + normal.dx / length * 45,
+            target.y + normal.dy / length * 45,
+          ),
           guidePaint,
         );
       }
     }
     final stickStart = Offset(game.cueBall.x, game.cueBall.y);
-    final stickEnd = stickStart -
+    final stickEnd =
+        stickStart -
         Offset(dx, dy) * (PoolGame.ballRadius + 5 + game.power * 90 + 250);
     canvas.drawLine(
       stickStart - Offset(dx, dy) * (PoolGame.ballRadius + 5 + game.power * 90),
@@ -1171,7 +1191,8 @@ class _PoolTablePainter extends CustomPainter {
     );
     canvas.drawLine(
       stickStart - Offset(dx, dy) * (PoolGame.ballRadius + 5 + game.power * 90),
-      stickStart - Offset(dx, dy) * (PoolGame.ballRadius + 12 + game.power * 90),
+      stickStart -
+          Offset(dx, dy) * (PoolGame.ballRadius + 12 + game.power * 90),
       Paint()
         ..color = const Color(0xFF4AA3DF)
         ..strokeWidth = 3
@@ -1181,11 +1202,9 @@ class _PoolTablePainter extends CustomPainter {
 
   double _distanceToRail(double dx, double dy) {
     final left = PoolGame.rail + PoolGame.ballRadius;
-    final right =
-        PoolGame.tableWidth - PoolGame.rail - PoolGame.ballRadius;
+    final right = PoolGame.tableWidth - PoolGame.rail - PoolGame.ballRadius;
     final top = PoolGame.rail + PoolGame.ballRadius;
-    final bottom =
-        PoolGame.tableHeight - PoolGame.rail - PoolGame.ballRadius;
+    final bottom = PoolGame.tableHeight - PoolGame.rail - PoolGame.ballRadius;
     var distance = double.infinity;
     if (dx > 0) distance = math.min(distance, (right - game.cueBall.x) / dx);
     if (dx < 0) distance = math.min(distance, (left - game.cueBall.x) / dx);
@@ -1201,7 +1220,11 @@ class _PoolTablePainter extends CustomPainter {
     final direction = (end - start) / distance;
     for (var offset = 0.0; offset < distance; offset += dash + gap) {
       final stop = math.min(offset + dash, distance);
-      canvas.drawLine(start + direction * offset, start + direction * stop, paint);
+      canvas.drawLine(
+        start + direction * offset,
+        start + direction * stop,
+        paint,
+      );
     }
   }
 
@@ -1214,12 +1237,7 @@ class _PoolTablePainter extends CustomPainter {
         Paint()..color = const Color(0xFF2A1307),
       )
       ..drawRect(
-        Rect.fromLTRB(
-          left,
-          5,
-          left + (right - left) * game.power,
-          11,
-        ),
+        Rect.fromLTRB(left, 5, left + (right - left) * game.power, 11),
         Paint()..color = const Color(0xFF1F9A3A),
       );
   }
@@ -1239,7 +1257,8 @@ class _PoolAccountHeader extends StatelessWidget {
       builder: (context, auth, _) {
         final coins =
             int.tryParse((auth.userProfile?['coins'] ?? '0').toString()) ?? 0;
-        final username = auth.userProfile?['username']?.toString() ??
+        final username =
+            auth.userProfile?['username']?.toString() ??
             auth.userProfile?['full_name']?.toString() ??
             'Profil';
         final avatarUrl = auth.userProfile?['avatar_url']?.toString();
@@ -1308,10 +1327,7 @@ class _PoolAccountHeader extends StatelessWidget {
                   SizedBox(width: compact ? 4 : 6),
                   Text(
                     '$coins',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ],
               ),

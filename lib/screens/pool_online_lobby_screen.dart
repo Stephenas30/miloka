@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,13 +7,13 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
+import '../game/pool_game.dart';
 import '../service/friends_service.dart';
 import '../service/game_channel_service.dart';
 import '../service/pool_team_invitation_service.dart';
 import '../service/pool_team_lobby_service.dart';
-import '../utils/app_navigator.dart';
 import '../utils/image_cache.dart';
-import '../widgets/friends_dialog.dart';
+import 'pool_screen.dart';
 
 class PoolOnlineLobbyScreen extends StatefulWidget {
   const PoolOnlineLobbyScreen({
@@ -26,50 +27,19 @@ class PoolOnlineLobbyScreen extends StatefulWidget {
   final bool isHost;
   final bool showEntryDialog;
 
-  static _PoolOnlineLobbyScreenState? _active;
-
-  static Future<void> handlePlatformCall(MethodCall call) async {
-    final active = _active;
-    switch (call.method) {
-      case 'poolMessage':
-        final line = call.arguments;
-        if (line is String) await active?._sendGameMessage(line);
-        break;
-      case 'poolGameClosed':
-        active?._onNativeGameClosed();
-        break;
-      case 'poolGameFinished':
-        final winnerIndex = call.arguments;
-        if (winnerIndex is int) {
-          await active?._onNativeGameFinished(winnerIndex);
-        }
-        break;
-      case 'openPoolOnline':
-        final navigator = appNavigatorKey.currentState;
-        if (navigator != null) {
-          await navigator.push(
-            MaterialPageRoute<void>(
-              builder: (_) => const PoolOnlineLobbyScreen(
-                showEntryDialog: true,
-              ),
-            ),
-          );
-        }
-        break;
-      case 'openPoolFriends':
-        final context = appNavigatorKey.currentState?.context;
-        if (context != null) showFriendsDialog(context);
-        break;
-    }
-  }
-
   @override
   State<PoolOnlineLobbyScreen> createState() => _PoolOnlineLobbyScreenState();
 }
 
 class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
-  static const _channel = MethodChannel('miloka/billard');
   static const _matchmakingLimit = 60;
+
+  /// Identifiant unique par appareil/session pour ignorer ses propres
+  /// messages de broadcast (le filtre ne peut pas se baser sur _userId :
+  /// les deux joueurs peuvent utiliser le même compte).
+  final _sessionId =
+      '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
+      '${Random().nextInt(1 << 20).toRadixString(16)}';
 
   final _lobbies = PoolTeamLobbyService.instance;
   final _gameChannel = GameChannelService();
@@ -77,6 +47,7 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
   Timer? _pollTimer;
   Timer? _searchTimer;
   StreamSubscription<Map<String, dynamic>>? _gameSubscription;
+  StreamController<String>? _remoteMoves;
   String? _roomId;
   String? _userId;
   String? _error;
@@ -95,7 +66,6 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
   @override
   void initState() {
     super.initState();
-    PoolOnlineLobbyScreen._active = this;
     _userId = Supabase.instance.client.auth.currentUser?.id;
     _isHost = widget.isHost;
     _roomId = widget.teamId;
@@ -113,11 +83,9 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
     _pollTimer?.cancel();
     _searchTimer?.cancel();
     _gameSubscription?.cancel();
+    _remoteMoves?.close();
     _betController.dispose();
     unawaited(_gameChannel.disconnect());
-    if (identical(PoolOnlineLobbyScreen._active, this)) {
-      PoolOnlineLobbyScreen._active = null;
-    }
     super.dispose();
   }
 
@@ -161,7 +129,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
         await _showFriends();
       }
     } catch (error) {
-      if (mounted) setState(() => _error = 'Impossible de créer le salon : $error');
+      if (mounted)
+        setState(() => _error = 'Impossible de créer le salon : $error');
     } finally {
       if (mounted) setState(() => _isCreatingRoom = false);
     }
@@ -285,9 +254,9 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
   Future<void> _copyJoinCode(String code) async {
     await Clipboard.setData(ClipboardData(text: code));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Code du salon copié.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Code du salon copié.')));
   }
 
   void _startPolling() {
@@ -306,8 +275,7 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       final room = await _lobbies.getRoom(_roomId!);
       if (!mounted) return;
       if (room == null ||
-          (room['status'] == 'cancelled' &&
-              room['matched_team_id'] == null)) {
+          (room['status'] == 'cancelled' && room['matched_team_id'] == null)) {
         setState(() {
           _room = room;
           _error = 'Ce salon n’est plus disponible.';
@@ -335,10 +303,11 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
         _searchTimer?.cancel();
         _searchTimer = null;
       } else if (room['status'] == 'playing') {
-        await _launchNativeGame(room);
+        await _launchFlutterGame(room);
       }
     } catch (error) {
-      if (mounted) setState(() => _error = 'Erreur de connexion au salon : $error');
+      if (mounted)
+        setState(() => _error = 'Erreur de connexion au salon : $error');
     } finally {
       _isPolling = false;
     }
@@ -367,7 +336,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       await _loadMyCoins();
       await _pollRoom();
     } catch (error) {
-      if (mounted) setState(() => _error = 'Impossible d’enregistrer la mise : $error');
+      if (mounted)
+        setState(() => _error = 'Impossible d’enregistrer la mise : $error');
     } finally {
       if (mounted) setState(() => _isSavingBet = false);
     }
@@ -381,7 +351,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       if (!updated) throw StateError('L’accord n’a pas pu être modifié.');
       await _pollRoom();
     } catch (error) {
-      if (mounted) setState(() => _error = 'Impossible de confirmer la mise : $error');
+      if (mounted)
+        setState(() => _error = 'Impossible de confirmer la mise : $error');
     }
   }
 
@@ -404,7 +375,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       }
       await _pollRoom();
     } catch (error) {
-      if (mounted) setState(() => _error = 'Impossible de lancer la partie : $error');
+      if (mounted)
+        setState(() => _error = 'Impossible de lancer la partie : $error');
     } finally {
       if (mounted) setState(() => _isStarting = false);
     }
@@ -415,7 +387,9 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       final friends = await FriendsService().getFriendsList();
       if (!mounted) return;
       if (friends.isEmpty) {
-        setState(() => _error = 'Ajoutez un ami dans Kadri avant de l’inviter.');
+        setState(
+          () => _error = 'Ajoutez un ami dans Kadri avant de l’inviter.',
+        );
         return;
       }
       final friend = await showDialog<Map<String, dynamic>>(
@@ -562,14 +536,18 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
         inviterName: username,
       );
       if (mounted) {
-        setState(() => _error = 'Invitation envoyée à ${friend['username'] ?? 'votre ami'}.');
+        setState(
+          () => _error =
+              'Invitation envoyée à ${friend['username'] ?? 'votre ami'}.',
+        );
       }
     } catch (error) {
-      if (mounted) setState(() => _error = 'Impossible d’envoyer l’invitation : $error');
+      if (mounted)
+        setState(() => _error = 'Impossible d’envoyer l’invitation : $error');
     }
   }
 
-  Future<void> _launchNativeGame(Map<String, dynamic> room) async {
+  Future<void> _launchFlutterGame(Map<String, dynamic> room) async {
     if (_isStarting || _roomId == null) return;
     _isStarting = true;
     _searchTimer?.cancel();
@@ -577,53 +555,71 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
     try {
       await _gameChannel.connect(_roomId!);
       await _gameSubscription?.cancel();
+      await _remoteMoves?.close();
+      final remoteMoves = StreamController<String>.broadcast();
+      _remoteMoves = remoteMoves;
       _gameSubscription = _gameChannel.events.listen((event) {
         if (event['action'] == 'pool_result') {
-          if (event['_from'] != _userId) _refreshUserProfile();
+          if (event['_sid'] != _sessionId) _refreshUserProfile();
           return;
         }
         if (event['action'] != 'pool_move' ||
-            event['_from'] == _userId ||
+            event['_sid'] == _sessionId ||
             event['line'] is! String) {
           return;
         }
-        unawaited(
-          _channel.invokeMethod<void>(
-            'remotePoolMessage',
-            event['line'] as String,
-          ),
-        );
+        remoteMoves.add(event['line'] as String);
       });
-      await _channel.invokeMethod<void>('startOnlineGame', {
-        'playerIndex': _isHost ? 0 : 1,
-        'seed': room['game_seed'],
-        'hostBet': _profileBet(
-          room['host_profile'] is Map
-              ? Map<String, dynamic>.from(room['host_profile'] as Map)
-              : null,
-        ),
-        'guestBet': _profileBet(
-          room['guest_profile'] is Map
-              ? Map<String, dynamic>.from(room['guest_profile'] as Map)
-              : null,
-        ),
-        'userCoins': _myCoins,
-        'userName': context.read<AuthProvider?>()?.userProfile?['username']
-                ?.toString() ??
-            context.read<AuthProvider?>()?.userProfile?['full_name']
-                ?.toString() ??
-            'Profil',
-        'avatarUrl': context
-                .read<AuthProvider?>()
-                ?.userProfile?['avatar_url']
-                ?.toString() ??
-            '',
-      });
+      final seed =
+          (room['game_seed'] as num?)?.toInt() ??
+          int.tryParse('${room['game_seed'] ?? ''}') ??
+          DateTime.now().microsecondsSinceEpoch;
+      final hostBet = _profileBet(
+        room['host_profile'] is Map
+            ? Map<String, dynamic>.from(room['host_profile'] as Map)
+            : null,
+      );
+      final guestBet = _profileBet(
+        room['guest_profile'] is Map
+            ? Map<String, dynamic>.from(room['guest_profile'] as Map)
+            : null,
+      );
       _pollTimer?.cancel();
       _pollTimer = null;
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PoolGameScreen(
+            mode: PoolMode.online,
+            kadri: KadriPoolSession(
+              seed: seed,
+              playerIndex: _isHost ? 0 : 1,
+              hostBet: hostBet,
+              guestBet: guestBet,
+              onSendLine: (line) {
+                final userId = _userId;
+                if (userId != null) {
+                  unawaited(
+                    _gameChannel.send('pool_move', {
+                      'line': line,
+                      '_sid': _sessionId,
+                    }, from: userId),
+                  );
+                }
+              },
+              remoteLines: remoteMoves.stream,
+              onGameFinished: (winnerIndex) =>
+                  unawaited(_onPoolGameFinished(winnerIndex)),
+              onClosed: _closeOnlineGame,
+            ),
+          ),
+        ),
+      );
     } catch (error) {
       await _gameSubscription?.cancel();
       _gameSubscription = null;
+      await _remoteMoves?.close();
+      _remoteMoves = null;
       await _gameChannel.disconnect();
       if (mounted) {
         setState(() => _error = 'Impossible de lancer la partie : $error');
@@ -633,13 +629,7 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
     }
   }
 
-  Future<void> _sendGameMessage(String line) async {
-    final userId = _userId;
-    if (userId == null) return;
-    await _gameChannel.send('pool_move', {'line': line}, from: userId);
-  }
-
-  Future<void> _onNativeGameFinished(int winnerIndex) async {
+  Future<void> _onPoolGameFinished(int winnerIndex) async {
     if (!_isHost || _roomId == null || _didSettleResult || _isSettlingResult) {
       return;
     }
@@ -669,28 +659,14 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       _refreshUserProfile();
       final userId = _userId;
       if (userId != null) {
-        await _gameChannel.send(
-          'pool_result',
-          {'winnerIndex': winnerIndex},
-          from: userId,
-        );
+        await _gameChannel.send('pool_result', {
+          'winnerIndex': winnerIndex,
+          '_sid': _sessionId,
+        }, from: userId);
       }
     } catch (error) {
       if (mounted) {
         setState(() => _error = 'Impossible de régler la mise : $error');
-      }
-      try {
-        await _channel.invokeMethod<void>(
-          'poolResultError',
-          'Le résultat du billard n’a pas pu être crédité.',
-        );
-      } catch (notificationError) {
-        if (mounted) {
-          setState(
-            () => _error =
-                'Impossible de régler la mise : $error. Notification impossible : $notificationError',
-          );
-        }
       }
     } finally {
       _isSettlingResult = false;
@@ -699,13 +675,12 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
 
   void _refreshUserProfile() {
     unawaited(
-      context.read<AuthProvider?>()?.refreshProfile() ??
-          Future<void>.value(),
+      context.read<AuthProvider?>()?.refreshProfile() ?? Future<void>.value(),
     );
     unawaited(_loadMyCoins());
   }
 
-  void _onNativeGameClosed() {
+  void _closeOnlineGame() {
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
@@ -745,7 +720,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
   }
 
   Widget _playerSlot(Map<String, dynamic>? profile, {required bool isMe}) {
-    final name = profile?['username']?.toString() ??
+    final name =
+        profile?['username']?.toString() ??
         profile?['full_name']?.toString() ??
         (isMe ? 'Vous' : null);
     final avatarUrl = profile?['avatar_url']?.toString();
@@ -863,11 +839,6 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
   ) {
     final myProfile = _isHost ? hostProfile : guestProfile;
     final opponentProfile = _isHost ? guestProfile : hostProfile;
-    final authProfile = context.read<AuthProvider?>()?.userProfile;
-    final userName = authProfile?['username']?.toString() ??
-        authProfile?['full_name']?.toString() ??
-        'Profil';
-    final avatarUrl = authProfile?['avatar_url']?.toString();
     final myBet = _profileBet(myProfile);
     final opponentBet = _profileBet(opponentProfile);
     final bettingActive = myBet > 0 || opponentBet > 0;
@@ -892,7 +863,10 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
               const SizedBox(width: 8),
               const Text(
                 'Mise (optionnelle)',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const Spacer(),
               Text(
@@ -1034,8 +1008,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
     final hostProfile = _room?['host_profile'] is Map
         ? Map<String, dynamic>.from(_room!['host_profile'] as Map)
         : null;
-    final guestProfile = _room?['guest_id'] != null &&
-            _room?['guest_profile'] is Map
+    final guestProfile =
+        _room?['guest_id'] != null && _room?['guest_profile'] is Map
         ? Map<String, dynamic>.from(_room!['guest_profile'] as Map)
         : null;
     final joinCode = _room?['join_code']?.toString();
@@ -1046,7 +1020,8 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
     final myProfile = _isHost ? hostProfile : guestProfile;
     final opponentProfile = _isHost ? guestProfile : hostProfile;
     final authProfile = context.read<AuthProvider?>()?.userProfile;
-    final userName = authProfile?['username']?.toString() ??
+    final userName =
+        authProfile?['username']?.toString() ??
         authProfile?['full_name']?.toString() ??
         'Profil';
     final avatarUrl = authProfile?['avatar_url']?.toString();

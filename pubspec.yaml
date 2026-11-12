@@ -73,7 +73,6 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - BillardAndroid/app/src/main/res/drawable/billardfond.png
     - assets/images/background.png
     - assets/images/bkg-con.png
     - assets/images/icon.png
@@ -84,13 +83,13 @@ flutter:
   fonts:
     - family: BillardTitre
       fonts:
-        - asset: BillardAndroid/app/src/main/res/font/titre.ttf
+        - asset: assets/fonts/titre.ttf
     - family: BillardLora
       fonts:
-        - asset: BillardAndroid/app/src/main/res/font/lora.ttf
+        - asset: assets/fonts/lora.ttf
     - family: BillardBold
       fonts:
-        - asset: BillardAndroid/app/src/main/res/font/bold.ttf
+        - asset: assets/fonts/bold.ttf
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
