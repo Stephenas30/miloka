@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <integer name="table_width">960</integer>
-    <integer name="table_height">480</integer>
-    <integer name="frame">46</integer>
-    <integer name="ball_radius">12</integer>
-    <integer name="pocket_radius">25</integer>
-    <integer name="stick_length">330</integer>
-</resources>
