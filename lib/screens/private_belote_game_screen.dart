@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +13,7 @@ import '../service/supabase_service.dart';
 import '../providers/auth_provider.dart';
 import '../utils/image_cache.dart';
 import '../widgets/call_popup.dart';
+import '../widgets/game_result_animation.dart';
 import 'classic_team_lobby_screen.dart';
 import 'private_game_lobby_screen.dart';
 
@@ -1763,179 +1763,62 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
     final nsTotal = gameLogic.gameScore['NS'] ?? 0;
     final eoTotal = gameLogic.gameScore['EO'] ?? 0;
     return Positioned.fill(
-      child: Stack(
-        children: [
-          Container(color: Colors.black54),
-          const _ConfettiWidget(),
-          Center(
-            child: Card(
-              color: Colors.black54,
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _localWon ? '🎉 Victoire !' : '💔 Défaite',
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('NS : $nsTotal', style: const TextStyle(color: Colors.white, fontSize: 16)),
-                    Text('EO : $eoTotal', style: const TextStyle(color: Colors.white, fontSize: 16)),
-                    if (widget.bet > 0) ...[
-                      const SizedBox(height: 16),
-                      if (_localWon) ...[
-                        Text('+${_winningShare ~/ 2} 🪙', style: const TextStyle(color: Colors.greenAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-                        Text('Gain de l\'équipe', style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                      ] else ...[
-                        Text('-${widget.bet} 🪙', style: const TextStyle(color: Colors.redAccent, fontSize: 20, fontWeight: FontWeight.bold)),
-                        Text('Mise perdue', style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                      ],
-                    ],
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      onPressed: () async {
-                        final isTeamA = widget.localPosition == 'Sud' || widget.localPosition == 'Nord';
-                        final isHost = widget.localPosition == 'Sud' || widget.localPosition == 'Ouest';
-                        final match = await PrivateMatchService().getMatch(widget.matchCode, forceRefresh: true);
-                        if (match == null) return;
-                        await PrivateMatchService().rejectBets(widget.matchCode);
-                        _gameChannel.disconnect();
-                        if (!mounted) return;
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PrivateGameLobbyScreen(
-                              matchCode: widget.matchCode,
-                              isTeamA: isTeamA,
-                              isHost: isHost,
-                              match: match,
-                              localPosition: widget.localPosition,
-                            ),
-                          ),
-                        );
-                      },
-                      child: const Text('Quitter', style: TextStyle(color: Colors.white)),
-                    ),
-                  ],
-                ),
+      child: GameResultAnimation(
+        won: _localWon,
+        title: _localWon ? 'VICTOIRE !' : 'DÉFAITE',
+        subtitle: 'NS : $nsTotal  •  EO : $eoTotal',
+        details: [
+          if (widget.bet > 0)
+            Text(
+              _localWon
+                  ? '+${_winningShare ~/ 2} pièces — Gain de l’équipe'
+                  : '-${widget.bet} pièces — Mise perdue',
+              style: TextStyle(
+                color: _localWon ? Colors.greenAccent : Colors.redAccent,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
+              textAlign: TextAlign.center,
             ),
+        ],
+        actions: [
+          GameResultAction(
+            label: 'Retour au lobby',
+            color: const Color(0xFF9A5424),
+            onPressed: () async {
+              final isTeamA =
+                  widget.localPosition == 'Sud' ||
+                  widget.localPosition == 'Nord';
+              final isHost =
+                  widget.localPosition == 'Sud' ||
+                  widget.localPosition == 'Ouest';
+              final match = await PrivateMatchService().getMatch(
+                widget.matchCode,
+                forceRefresh: true,
+              );
+              if (match == null) return;
+              await PrivateMatchService().rejectBets(widget.matchCode);
+              _gameChannel.disconnect();
+              if (!mounted) return;
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PrivateGameLobbyScreen(
+                    matchCode: widget.matchCode,
+                    isTeamA: isTeamA,
+                    isHost: isHost,
+                    match: match,
+                    localPosition: widget.localPosition,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
     );
   }
 
-  // ═══════════════════════════════════════════
-  //  CONFETTI
-  // ═══════════════════════════════════════════
-
-}
-
-class _ConfettiParticle {
-  final double startOffset;
-  final double x;
-  final double speed;
-  final double size;
-  final Color color;
-  final double rotation;
-  final double rotationSpeed;
-
-  _ConfettiParticle()
-      : startOffset = Random().nextDouble(),
-        x = Random().nextDouble(),
-        speed = 0.12 + Random().nextDouble() * 0.28,
-        size = 3 + Random().nextDouble() * 5,
-        color = Colors.primaries[
-            Random().nextInt(Colors.primaries.length)],
-        rotation = Random().nextDouble() * 6.28,
-        rotationSpeed = (Random().nextDouble() - 0.5) * 8;
-}
-
-class _ConfettiWidget extends StatefulWidget {
-  const _ConfettiWidget();
-
-  @override
-  State<_ConfettiWidget> createState() => _ConfettiWidgetState();
-}
-
-class _ConfettiWidgetState extends State<_ConfettiWidget>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  final _particles = List<_ConfettiParticle>.generate(
-    24,
-    (_) => _ConfettiParticle(),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 6),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return CustomPaint(
-          size: Size.infinite,
-          painter: _ConfettiPainter(_particles, _controller.value),
-        );
-      },
-    );
-  }
-}
-
-class _ConfettiPainter extends CustomPainter {
-  final List<_ConfettiParticle> particles;
-  final double progress;
-
-  _ConfettiPainter(this.particles, this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width.isInfinite || size.height.isInfinite) return;
-
-    final paint = Paint();
-    for (final p in particles) {
-      final t = (progress + p.startOffset) % 1.0;
-      final y = -0.15 + t * 1.3;
-      if (y < -0.1 || y > 1.1) continue;
-      final x = p.x + sin(t * 8 + p.x * 10) * 0.025;
-
-      canvas.save();
-      canvas.translate(x * size.width, y * size.height);
-      canvas.rotate(p.rotation + t * p.rotationSpeed);
-
-      final alpha = (1 - y.clamp(0, 1)) * 0.85;
-      paint.color = p.color.withValues(alpha: alpha);
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: p.size,
-          height: p.size * 0.6,
-        ),
-        paint,
-      );
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ConfettiPainter old) =>
-      old.progress != progress || old.particles != particles;
 }
 
 class _ForfeitWarningDialog extends StatefulWidget {

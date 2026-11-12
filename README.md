@@ -67,7 +67,8 @@ assets/
   - Système d’appel avec popup interactif.
   - Modes : 1v1, 2v2, tournoi, contre IA, en ligne.
 - **Rami** : logique de jeu en cours de développement.
-- **Billard / Ludo** : placeholders avec règles à implémenter.
+- **Billard** : billard 8 en Flutter, avec IA à trois niveaux, partie locale à deux et jeu en réseau local.
+- **Ludo / Fanorona** : parties locales et modes en ligne selon les fonctionnalités disponibles.
 - **IA** : niveaux de difficulté (facile, moyen, difficile).
 - **En ligne** : matchmaking + mise en jeu (si backend activé).
 
@@ -123,7 +124,7 @@ dependencies:
 - [x] Système d’appel avec popup en Belote.  
 - [ ] Création de compte avec validation email.  
 - [ ] Implémentation complète du Rami.  
-- [ ] Ajout du Billard.  
+- [x] Ajout du Billard 8 en Flutter (solo, local et réseau local).  
 - [ ] Ajout du Ludo.  
 - [ ] Mode en ligne avec matchmaking.  
 - [ ] Sauvegarde des scores et classements.  

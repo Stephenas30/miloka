@@ -15,6 +15,7 @@ import '../profile_screen.dart';
 import '../home_screen.dart';
 import '../purchase_screen.dart';
 import '../../widgets/friends_dialog.dart';
+import '../../widgets/game_result_animation.dart';
 import 'fanorona_lobby_screen.dart';
 
 class FanoronaScreen extends StatefulWidget {
@@ -841,7 +842,6 @@ class _FanoronaScreenState extends State<FanoronaScreen>
     final won =
         _engine.winner != null &&
         _engine.winner == (_isOnline ? _myPlayerIndex : 0);
-    final title = draw ? 'Égalité' : (won ? 'Victoire !' : 'Défaite');
     final message = draw
         ? (_engine.drawReason == 'paika'
               ? '50 coups sans capture : partie nulle.'
@@ -853,48 +853,23 @@ class _FanoronaScreenState extends State<FanoronaScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2C),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          title,
-          style: TextStyle(
-            color: draw
-                ? Colors.white
-                : (won ? Colors.greenAccent : Colors.redAccent),
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(color: Colors.white70, fontSize: 15),
-          textAlign: TextAlign.center,
-        ),
+      barrierColor: Colors.transparent,
+      builder: (ctx) => GameResultAnimation(
+        won: draw ? null : won,
+        title: draw ? 'ÉGALITÉ' : (won ? 'VICTOIRE !' : 'DÉFAITE'),
+        subtitle: message,
+        icon: draw ? '🤝' : null,
         actions: [
-          Center(
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-              ),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _returnToModeSelection();
-              },
-              child: const Text(
-                'Choix du mode de jeu',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
+          GameResultAction(
+            label: 'Choix du mode de jeu',
+            color: const Color(0xFF9A5424),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _returnToModeSelection();
+            },
           ),
         ],
-      ),
+        ),
     );
   }
 

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../screens/belote_screen.dart';
 import '../screens/ludo_screen.dart';
 import '../screens/fanorona/fanorona_screen.dart';
-
+import '../screens/pool_screen.dart';
+import '../providers/auth_provider.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 class GameChoiceCard extends StatefulWidget {
   final String title;
   final VoidCallback? onTap;
@@ -86,6 +90,34 @@ class GameChoiceCardState extends State<GameChoiceCard>
             },
           ),
         );
+      } else if (widget.title == 'Billard') {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          final profile = context.read<AuthProvider?>()?.userProfile;
+          final coins =
+              int.tryParse((profile?['coins'] ?? '0').toString()) ?? 0;
+          final username = profile?['username']?.toString() ??
+              profile?['full_name']?.toString() ??
+              'Profil';
+          final avatarUrl = profile?['avatar_url']?.toString() ?? '';
+          future = const MethodChannel(
+            'miloka/billard',
+          ).invokeMethod<void>('open', {
+            'userCoins': coins,
+            'userName': username,
+            'avatarUrl': avatarUrl,
+          });
+        } else {
+          future = Navigator.push(
+            context,
+            PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 600),
+              pageBuilder: (_, _, _) => const PoolScreen(),
+              transitionsBuilder: (_, animation, _, child) {
+                return ScaleTransition(scale: animation, child: child);
+              },
+            ),
+          );
+        }
       } else {
         future = showDialog(
           context: context,

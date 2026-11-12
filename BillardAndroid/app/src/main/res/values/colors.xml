@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Table -->
+    <color name="rail_light">#9A5424</color>
+    <color name="rail_dark">#4A2410</color>
+    <color name="rail_edge">#2A1307</color>
+    <color name="cushion">#0B6A1F</color>
+    <color name="felt_center">#22B43F</color>
+    <color name="felt_edge">#0D7D25</color>
+    <color name="pocket">#080808</color>
+    <color name="pocket_ring">#C9A24A</color>
+    <color name="diamond">#ECDCAA</color>
+    <!-- Billes -->
+    <color name="ball_cue">#F7F7EF</color>
+    <color name="ball_eight">#111111</color>
+    <color name="ball_red">#D9302A</color>
+    <color name="ball_yellow">#F2A61C</color>
+    <color name="number_bg">#FFFFFF</color>
+    <color name="number_fg">#111111</color>
+    <!-- Queue et visée -->
+    <color name="stick_tip">#4AA3DF</color>
+    <color name="stick_shaft1">#ECC88E</color>
+    <color name="stick_shaft2">#7A4A1E</color>
+    <color name="stick_butt">#181818</color>
+    <color name="guide">#99FFFFFF</color>
+    <!-- Interface -->
+    <color name="hud_bg">#17110C</color>
+    <color name="hud_card">#261A10</color>
+    <color name="hud_line">#4A3220</color>
+    <color name="hud_text">#F1E6D3</color>
+    <color name="accent">#1F9A3A</color>
+    <color name="home_start">#0F5A27</color>
+    <color name="home_end">#120D09</color>
+    <color name="glass">#26FFFFFF</color>
+    <color name="glass_line">#44FFFFFF</color>
+    <color name="ripple">#55FFFFFF</color>
+    <color name="superposition">#80FFFFFF</color>
+
+</resources>

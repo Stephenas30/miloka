@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:miloka/screens/pool_online_lobby_screen.dart';
 import 'package:miloka/service/ludo_team_invitation_service.dart';
+import 'package:miloka/service/pool_team_invitation_service.dart';
 import 'package:miloka/service/fanorona/invitation_service.dart';
 import 'package:miloka/screens/ludo_lobby_screen.dart';
 import 'package:miloka/screens/ludo_screen.dart';
@@ -303,7 +305,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final belote = await TeamInvitationService().getPendingInvitations();
     final ludo = await LudoTeamInvitationService().getPendingInvitations();
     final fanorona = await FanoronaTeamInvitationService().getPendingInvitations();
-    return [...belote, ...ludo, ...fanorona];
+    final billard = await PoolTeamInvitationService().getPendingInvitations();
+    return [...belote, ...ludo, ...fanorona, ...billard];
   }
 
   void _subscribeToTeamInvitations() {
@@ -452,7 +455,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final inv = _pendingTeamInvitations.first;
     final inviterName = inv['inviter_name']?.toString() ?? 'Quelqu\'un';
     final gameType = inv['game_type']?.toString() ?? 'belote';
-    final gameName = gameType == 'ludo' ? 'Ludo' : (gameType == 'fanorona' ? 'Fanorona' : 'belote');
+    final gameName = gameType == 'ludo'
+        ? 'Ludo'
+        : (gameType == 'fanorona'
+            ? 'Fanorona'
+            : (gameType == 'billard' ? 'Billard' : 'belote'));
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -470,6 +477,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 await LudoTeamInvitationService().declineInvitation(inv['id']);
               } else if (gameType == 'fanorona') {
                 await FanoronaTeamInvitationService().declineInvitation(inv['id']);
+              } else if (gameType == 'billard') {
+                await PoolTeamInvitationService().declineInvitation(inv['id']);
               } else {
                 await TeamInvitationService().declineInvitation(inv['id']);
               }
@@ -509,6 +518,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     MaterialPageRoute(
                       builder: (_) => FanoronaLobbyScreen(
                         teamId: invResult['team_id'],
+                        isHost: false,
+                      ),
+                    ),
+                  );
+                }
+              } else if (gameType == 'billard') {
+                final invResult = await PoolTeamInvitationService().acceptInvitation(inv['id']);
+                if (invResult != null && mounted) {
+                  final invitations = await _loadPendingInvitations();
+                  setState(() => _pendingTeamInvitations = invitations);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PoolOnlineLobbyScreen(
+                        teamId: invResult['team_id'].toString(),
                         isHost: false,
                       ),
                     ),

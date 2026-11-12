@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'screens/pool_online_lobby_screen.dart';
 import 'screens/splash_screen.dart';
 import 'service/supabase_service.dart';
 import 'providers/auth_provider.dart';
+import 'utils/app_navigator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +24,8 @@ void main() async {
   ]);
 
   await SupabaseService().initialize();
+  const MethodChannel('miloka/billard')
+      .setMethodCallHandler(PoolOnlineLobbyScreen.handlePlatformCall);
 
   // Bloquer la mise en veille tant que l'app est ouverte
   await WakelockPlus.enable();
@@ -64,6 +68,7 @@ class _MilokaAppState extends State<MilokaApp> with WidgetsBindingObserver {
     return ChangeNotifierProvider(
       create: (_) => AuthProvider(),
       child: MaterialApp(
+        navigatorKey: appNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: "Kadri",
         theme: ThemeData(

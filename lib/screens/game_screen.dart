@@ -12,6 +12,7 @@ import '../widgets/call_popup.dart';
 import '../service/stats_service.dart';
 import '../service/game_channel_service.dart';
 import '../utils/image_cache.dart';
+import '../widgets/game_result_animation.dart';
 
 class HandHistoryEntry {
   final CallOption contractCall;
@@ -1910,6 +1911,12 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   Widget build(BuildContext context) {
+    final localPlayer = widget.teamId == null
+        ? (widget.humanPlayers.isEmpty ? 'Sud' : widget.humanPlayers.first)
+        : (widget.isHost ? 'Sud' : 'Nord');
+    final localTeam = BeloteRules.teamOf(localPlayer);
+    final localWon = overallWinner != null && overallWinner == localTeam;
+
     return Scaffold(
       body: Stack(
         key: _dragStackKey,
@@ -2089,50 +2096,49 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
 
-          // Overlay : victoire de la partie
+          // Overlay : résultat de la partie
           if (overallWinner != null)
             Positioned.fill(
-              child: Container(
-                color: Colors.black54,
-                child: Center(
-                  child: Card(
-                    color: Colors.green[800],
-                    child: Padding(
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Victoire : ${overallWinner == 'NS' ? 'Nord-Sud' : 'Est-Ouest'}', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 12),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await StatsService().recordGameResult(
-                                gameName: 'belote',
-                                won: overallWinner == 'NS',
-                                context: context,
-                              );
-                              // reset complet pour recommencer une nouvelle partie
-                              setState(() {
-                                gameLogic.resetGame();
-                                overallWinner = null;
-                                handHistory.clear();
-                              });
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                _dealCards();
-                              });
-                            },
-                            child: const Text('Recommencer'),
-                          ),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: _showStatistics,
-                            child: const Text('Statistiques'),
-                          ),
-                        ],
-                      ),
+              child: GameResultAnimation(
+                won: localWon,
+                title: localWon ? 'VICTOIRE !' : 'DÉFAITE',
+                subtitle:
+                    'Victoire : ${overallWinner == 'NS' ? 'Nord-Sud' : 'Est-Ouest'}',
+                details: [
+                  Text(
+                    'NS : ${gameLogic.gameScore['NS'] ?? 0}  •  EO : ${gameLogic.gameScore['EO'] ?? 0}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 17,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                ),
+                ],
+                actions: [
+                  GameResultAction(
+                    label: 'Recommencer',
+                    onPressed: () async {
+                      await StatsService().recordGameResult(
+                        gameName: 'belote',
+                        won: localWon,
+                        context: context,
+                      );
+                      setState(() {
+                        gameLogic.resetGame();
+                        overallWinner = null;
+                        handHistory.clear();
+                      });
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _dealCards();
+                      });
+                    },
+                  ),
+                  GameResultAction(
+                    label: 'Statistiques',
+                    color: const Color(0xFF9A5424),
+                    onPressed: _showStatistics,
+                  ),
+                ],
               ),
             ),
           

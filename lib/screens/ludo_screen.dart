@@ -12,6 +12,7 @@ import '../service/ludo_multiplayer_service.dart';
 import '../service/stats_service.dart';
 import '../utils/image_cache.dart';
 import '../widgets/friends_dialog.dart';
+import '../widgets/game_result_animation.dart';
 import 'home_screen.dart';
 import 'ludo_lobby_screen.dart';
 import 'profile_screen.dart';
@@ -1078,146 +1079,40 @@ class _LudoScreenState extends State<LudoScreen>
     } else {
       iWon = _engine.humanColor.contains(winner);
     }
-    final winColor = winner != null
-        ? LudoBoardLayout.colorValues[winner]!
-        : Colors.amber;
-
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) {
-        final dialog = Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 40),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF1C1C2E),
-                    winColor.withValues(alpha: 0.15),
-                    const Color(0xFF1C1C2E),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: iWon ? const Color(0xFFD4A017) : Colors.white24,
-                  width: 2,
-                ),
-                boxShadow: [
-                  if (iWon)
-                    BoxShadow(
-                      color: const Color(0xFFD4A017).withValues(alpha: 0.3),
-                      blurRadius: 30,
-                      spreadRadius: 4,
-                    ),
-                ],
-              ),
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          const Color(0xFFD4A017).withValues(alpha: 0.3),
-                          const Color(0xFFD4A017).withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                    child: Icon(
-                      iWon ? Icons.emoji_events : Icons.sentiment_dissatisfied,
-                      color: iWon
-                          ? const Color(0xFFD4A017)
-                          : Colors.white54,
-                      size: 44,
+      barrierColor: Colors.transparent,
+      builder: (dialogContext) => GameResultAnimation(
+        won: iWon,
+        title: iWon ? 'VICTOIRE !' : 'DÉFAITE',
+        subtitle: iWon
+            ? '${winner!.label} remporte la victoire !'
+            : '${winner?.label ?? 'L’adversaire'} a gagné. Retente ta chance !',
+        actions: [
+          GameResultAction(
+            label: 'Retour au lobby',
+            color: const Color(0xFF9A5424),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              if (widget.teamId.isNotEmpty) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LudoLobbyScreen(
+                      teamId: widget.teamId,
+                      isHost: widget.isHost,
+                      fromGame: true,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    iWon ? '💰 Victoire !' : '😞 Perdu',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    iWon
-                        ? '${winner!.label} empoche la cagnotte !'
-                        : '${winner!.label} remporte la victoire !',
-                    style: TextStyle(
-                      color: winColor.withValues(alpha: 0.8),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4A017),
-                        foregroundColor: const Color(0xFF1C1C2E),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                        elevation: 4,
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        if (widget.teamId.isNotEmpty) {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => LudoLobbyScreen(
-                                teamId: widget.teamId,
-                                isHost: widget.isHost,
-                                fromGame: true,
-                              ),
-                            ),
-                          );
-                        } else {
-                          Navigator.pop(context);
-                        }
-                      },
-                      child: const Text(
-                        'Retour au lobby',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                );
+              } else {
+                Navigator.pop(context);
+              }
+            },
           ),
-        );
-
-        if (iWon) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned.fill(child: const _ConfettiWidget()),
-              dialog,
-            ],
-          );
-        }
-        return dialog;
-      },
+        ],
+      ),
     );
   }
 
@@ -2074,102 +1969,6 @@ class _LudoScreenState extends State<LudoScreen>
       },
     );
   }
-}
-
-class _ConfettiWidget extends StatefulWidget {
-  const _ConfettiWidget();
-
-  @override
-  State<_ConfettiWidget> createState() => _ConfettiWidgetState();
-}
-
-class _ConfettiWidgetState extends State<_ConfettiWidget>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  final _particles = List<_ConfettiParticle>.generate(
-    24,
-    (_) => _ConfettiParticle(),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 6),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return CustomPaint(
-          size: Size.infinite,
-          painter: _ConfettiPainter(_particles, _controller.value),
-        );
-      },
-    );
-  }
-}
-
-class _ConfettiParticle {
-  final double startOffset = math.Random().nextDouble();
-  final double x = math.Random().nextDouble();
-  final double speed = 0.12 + math.Random().nextDouble() * 0.28;
-  final double size = 3 + math.Random().nextDouble() * 5;
-  final Color color =
-      Colors.primaries[math.Random().nextInt(Colors.primaries.length)];
-  final double rotation = math.Random().nextDouble() * 6.28;
-  final double rotationSpeed = (math.Random().nextDouble() - 0.5) * 8;
-}
-
-class _ConfettiPainter extends CustomPainter {
-  final List<_ConfettiParticle> particles;
-  final double progress;
-
-  _ConfettiPainter(this.particles, this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width.isInfinite || size.height.isInfinite) return;
-
-    final paint = Paint();
-    for (final p in particles) {
-      final t = (progress + p.startOffset) % 1.0;
-      final y = -0.15 + t * 1.3;
-      if (y < -0.1 || y > 1.1) continue;
-      final x = p.x + math.sin(t * 8 + p.x * 10) * 0.025;
-
-      canvas.save();
-      canvas.translate(x * size.width, y * size.height);
-      canvas.rotate(p.rotation + t * p.rotationSpeed);
-
-      final alpha = (1 - y.clamp(0, 1)) * 0.85;
-      paint.color = p.color.withValues(alpha: alpha);
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: p.size,
-          height: p.size * 0.6,
-        ),
-        paint,
-      );
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.particles != particles;
 }
 
 class _PawnRenderInfo {

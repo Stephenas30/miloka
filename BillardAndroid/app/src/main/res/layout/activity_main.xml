@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/hud_bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="1dp">
+
+        <Button
+            android:id="@+id/btn_home"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/button_bg"
+            android:text="@string/home"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:fontFamily="@font/bold"/>
+
+        <TextView
+            android:id="@+id/player1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.2"
+            android:background="@drawable/card_bg"
+            android:padding="6dp"
+            android:textColor="@color/hud_text"
+            android:textSize="13sp"
+            android:fontFamily="@font/lora"/>
+
+        <TextView
+            android:id="@+id/message"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="8dp"
+            android:layout_weight="2"
+            android:gravity="center"
+            android:textColor="@color/hud_text"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:fontFamily="@font/bold"/>
+
+        <TextView
+            android:id="@+id/stake"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="6dp"
+            android:background="@drawable/card_active"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="6dp"
+            android:textColor="@color/hud_text"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            android:fontFamily="@font/bold"/>
+
+        <TextView
+            android:id="@+id/player2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.2"
+            android:background="@drawable/card_bg"
+            android:padding="6dp"
+            android:textColor="@color/hud_text"
+            android:textSize="13sp"
+            android:fontFamily="@font/lora"/>
+
+        <Button
+            android:id="@+id/restart"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/button_bg"
+            android:text="@string/restart"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:paddingHorizontal="10dp"
+            android:fontFamily="@font/bold"/>
+
+        <LinearLayout
+            android:id="@+id/profile_chip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kadri_account_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp">
+
+            <ImageView
+                android:id="@+id/profile_avatar"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@drawable/profile_avatar_bg"
+                android:clipToOutline="true"
+                android:contentDescription="Photo de profil"
+                android:padding="4dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_profile" />
+
+            <TextView
+                android:id="@+id/profile_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxWidth="105dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:fontFamily="sans" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/wallet_balance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kadri_account_pill"
+            android:drawableStart="@drawable/ic_coin"
+            android:drawablePadding="4dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:fontFamily="sans" />
+    </LinearLayout>
+
+    <com.billard.game.PoolView
+        android:id="@+id/pool"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

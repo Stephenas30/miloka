@@ -30,6 +30,8 @@
 	<string>Cette application a besoin d’accéder à vos photos pour changer la photo de profil.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Cette application peut utiliser l’appareil photo pour changer la photo de profil.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Le billard utilise le réseau local pour jouer avec un ami connecté au même Wi-Fi.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
