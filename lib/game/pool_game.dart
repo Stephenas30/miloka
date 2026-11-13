@@ -22,7 +22,8 @@ class PoolGame {
     this.level = 1,
     this.myPlayerIndex = 0,
     this.onSend,
-  }) {
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now {
     start();
   }
 
@@ -31,6 +32,9 @@ class PoolGame {
   static const double rail = 46;
   static const double ballRadius = 12;
   static const double pocketRadius = 25;
+  static const double headStringX = rail + .25 * (tableWidth - 2 * rail);
+
+  static const int turnSeconds = 60;
 
   static const double _friction = .9925;
   static const double _restitution = .96;
@@ -69,6 +73,9 @@ class PoolGame {
   double _aiAngle = 0;
   double _aiPower = .5;
   bool _lastCuePlacementValid = true;
+  int turnSecondsLeft = turnSeconds;
+  DateTime? _turnDeadline;
+  final DateTime Function() _now;
 
   static const List<List<double>> _pockets = [
     [rail, rail],
@@ -133,8 +140,7 @@ class PoolGame {
     final random = math.Random(seed ?? DateTime.now().microsecondsSinceEpoch);
     balls
       ..clear()
-      ..add(PoolBall(0, rail + .25 * (tableWidth - 2 * rail),
-          tableHeight / 2));
+      ..add(PoolBall(0, headStringX, tableHeight / 2));
     final ids = <int>[1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15]
       ..shuffle(random);
     final spacing = 2 * ballRadius + .6;
@@ -171,6 +177,7 @@ class PoolGame {
     _aiWait = 0;
     _aiPlanned = false;
     message = _turnMessage();
+    _startTurnTimer();
   }
 
   void pointerDown(double x, double y) {
@@ -215,7 +222,7 @@ class PoolGame {
 
   void _moveCue(double x, double y) {
     cueBall
-      ..x = x.clamp(rail + ballRadius, tableWidth - rail - ballRadius)
+      ..x = x.clamp(rail + ballRadius, headStringX)
       ..y = y.clamp(rail + ballRadius, tableHeight - rail - ballRadius);
     _lastCuePlacementValid = _canPlaceCue();
   }
@@ -258,6 +265,10 @@ class PoolGame {
       }
       return;
     }
+    if (state == PoolGameState.aiming ||
+        state == PoolGameState.placingCue) {
+      _tickTurnTimer();
+    }
     if (mode == PoolMode.solo &&
         currentPlayer == 1 &&
         (state == PoolGameState.aiming ||
@@ -267,6 +278,7 @@ class PoolGame {
   }
 
   void _launch() {
+    _stopTurnTimer();
     final speed = _strikePower * _maxPower;
     cueBall
       ..vx = math.cos(_strikeAngle) * speed
@@ -437,6 +449,7 @@ class PoolGame {
       final won = !foul && group != 0 && _leftBeforeShot == 0;
       winner = won ? player : opponent;
       state = PoolGameState.gameOver;
+      _stopTurnTimer();
       message = '${playerName(winner)} ${won ? 'gagne' : 'perd'} la partie !';
       return;
     }
@@ -448,29 +461,97 @@ class PoolGame {
         !foul && _potted.any((id) => groupOf(id) == _groups[player]);
     if (!keepsTurn) currentPlayer = opponent;
     if (foul) {
-      cueBall
-        ..pocketed = false
-        ..vx = 0
-        ..vy = 0
-        ..x = rail + .25 * (tableWidth - 2 * rail)
-        ..y = tableHeight / 2;
+      _resetCueToLegalSpot();
       state = PoolGameState.placingCue;
-      _lastCuePlacementValid = _canPlaceCue();
       message = _cueWasPocketed
-          ? 'Faute : la bille blanche est empochée. Replacez-la.'
+          ? 'Faute : la bille blanche est empochée. Replacez-la derrière la ligne de départ.'
           : (_firstHit == -1
-              ? 'Faute : aucune bille touchée. Replacez la bille blanche.'
-              : 'Faute : mauvaise bille touchée. Replacez-la.');
+              ? 'Faute : aucune bille touchée. Replacez la bille blanche derrière la ligne de départ.'
+              : 'Faute : mauvaise bille touchée. Replacez-la derrière la ligne de départ.');
     } else {
       state = PoolGameState.aiming;
       message = keepsTurn ? 'Bien joué, rejouez !' : _turnMessage();
     }
+    _startTurnTimer();
   }
 
-  bool _canPlaceCue() => balls.every((ball) =>
-      ball.id == 0 ||
-      ball.pocketed ||
-      _distance(ball.x, ball.y, cueBall.x, cueBall.y) >= 2 * ballRadius);
+  bool _canPlaceCue() =>
+      cueBall.x >= rail + ballRadius &&
+      cueBall.x <= headStringX &&
+      cueBall.y >= rail + ballRadius &&
+      cueBall.y <= tableHeight - rail - ballRadius &&
+      _pockets.every((pocket) =>
+          _distance(pocket[0], pocket[1], cueBall.x, cueBall.y) >=
+          pocketRadius + ballRadius) &&
+      balls.every((ball) =>
+          ball.id == 0 ||
+          ball.pocketed ||
+          _distance(ball.x, ball.y, cueBall.x, cueBall.y) >= 2 * ballRadius);
+
+  void _startTurnTimer() {
+    _turnDeadline = _now().add(const Duration(seconds: turnSeconds));
+    turnSecondsLeft = turnSeconds;
+  }
+
+  void _stopTurnTimer() {
+    _turnDeadline = null;
+  }
+
+  void _tickTurnTimer() {
+    final deadline = _turnDeadline;
+    if (deadline == null) return;
+    final remainingMs = deadline.difference(_now()).inMilliseconds;
+    if (remainingMs <= 0) {
+      _expireTurnTimer();
+      return;
+    }
+    turnSecondsLeft = (remainingMs / 1000).ceil().clamp(1, turnSeconds);
+  }
+
+  void _expireTurnTimer() {
+    final player = currentPlayer;
+    currentPlayer = 1 - player;
+    if (state == PoolGameState.placingCue) {
+      _resetCueToLegalSpot();
+    }
+    state = PoolGameState.aiming;
+    power = 0;
+    _charging = false;
+    _aiWait = 0;
+    _aiPlanned = false;
+    _startTurnTimer();
+    message = 'Temps écoulé : la main passe à ${playerName(currentPlayer)}.';
+  }
+
+  void _resetCueToLegalSpot() {
+    const centerY = tableHeight / 2;
+    const minY = rail + ballRadius;
+    const maxY = tableHeight - rail - ballRadius;
+    for (var offset = 0.0; offset <= centerY; offset += ballRadius) {
+      for (final y in offset == 0
+          ? const [centerY]
+          : [centerY - offset, centerY + offset]) {
+        if (y < minY || y > maxY) continue;
+        cueBall
+          ..pocketed = false
+          ..vx = 0
+          ..vy = 0
+          ..x = headStringX
+          ..y = y;
+        if (_canPlaceCue()) {
+          _lastCuePlacementValid = true;
+          return;
+        }
+      }
+    }
+    cueBall
+      ..pocketed = false
+      ..vx = 0
+      ..vy = 0
+      ..x = headStringX
+      ..y = centerY;
+    _lastCuePlacementValid = _canPlaceCue();
+  }
 
   void _tickComputer() {
     if (state == PoolGameState.placingCue) {
@@ -482,8 +563,7 @@ class PoolGame {
           rail +
               ballRadius +
               random.nextDouble() *
-                  (tableWidth - 2 * rail - 2 * ballRadius) *
-                  .45,
+                  (headStringX - (rail + ballRadius)),
           rail +
               ballRadius +
               random.nextDouble() *
@@ -610,6 +690,9 @@ class PoolGame {
   void remotePlace(double x, double y) {
     if (state != PoolGameState.placingCue) return;
     _moveCue(x, y);
+    if (!_canPlaceCue()) {
+      _resetCueToLegalSpot();
+    }
     state = PoolGameState.aiming;
     message = _turnMessage();
   }
@@ -674,12 +757,17 @@ class PoolGame {
       ..[1] = secondGroup;
     winner = gameWinner;
     state = PoolGameState.values[stateCode];
+    if (state == PoolGameState.gameOver) {
+      _stopTurnTimer();
+    } else {
+      _startTurnTimer();
+    }
     _charging = false;
     power = 0;
     message = state == PoolGameState.gameOver
         ? '${playerName(winner)} ${winner == myPlayerIndex ? 'a gagné' : 'a perdu'} !'
         : (state == PoolGameState.placingCue
-            ? 'Faute : replacez la bille blanche.'
+            ? 'Faute : replacez la bille blanche derrière la ligne de départ.'
             : _turnMessage());
     return true;
   }

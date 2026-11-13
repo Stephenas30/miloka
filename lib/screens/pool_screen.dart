@@ -620,6 +620,12 @@ class _PoolGameScreenState extends State<PoolGameScreen>
             onPressed: _confirmCloseGame,
             tooltip: 'Accueil',
           ),
+          if (_game.state == PoolGameState.aiming ||
+              _game.state == PoolGameState.placingCue) ...[
+            const SizedBox(width: 8),
+            _TimerPill(seconds: _game.turnSecondsLeft),
+          ],
+          const SizedBox(width: 8),
           _PlayerBadge(
             title: _game.playerName(0),
             subtitle: _game.groupLabel(0),
@@ -811,6 +817,45 @@ class _HudButton extends StatelessWidget {
   }
 }
 
+class _TimerPill extends StatelessWidget {
+  const _TimerPill({required this.seconds});
+
+  final int seconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final critical = seconds <= 3;
+    final color = critical ? const Color(0xFFFF3B30) : _poolHudText;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _poolHudCard,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: critical ? const Color(0xFFFF3B30) : _poolHudLine,
+          width: 2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 18, color: color),
+          const SizedBox(width: 5),
+          Text(
+            '${seconds}s',
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              fontFamily: _poolBoldFont,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GameOverButton extends StatelessWidget {
   const _GameOverButton({
     required this.label,
@@ -923,6 +968,9 @@ class _PoolTablePainter extends CustomPainter {
     canvas.save();
     canvas.scale(scale);
     _drawTable(canvas);
+    if (game.state == PoolGameState.placingCue) {
+      _drawPlacementZone(canvas);
+    }
     for (final ball in game.balls.where((ball) => ball.id != 0)) {
       _drawBall(canvas, ball);
     }
@@ -938,6 +986,49 @@ class _PoolTablePainter extends CustomPainter {
       _drawPower(canvas);
     }
     canvas.restore();
+  }
+
+  void _drawPlacementZone(Canvas canvas) {
+    const edge = PoolGame.rail;
+    const height = PoolGame.tableHeight;
+    const line = PoolGame.headStringX;
+    canvas.drawRect(
+      const Rect.fromLTRB(edge, edge, line, height - edge),
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0x662ECC71), Color(0x332ECC71)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ).createShader(
+          const Rect.fromLTRB(edge, edge, line, height - edge),
+        ),
+    );
+    final linePaint = Paint()
+      ..color = const Color(0xFFFFFFFF)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+    _drawDashedLine(
+      canvas,
+      const Offset(line, edge),
+      const Offset(line, height - edge),
+      linePaint,
+    );
+    final labelPainter = TextPainter(
+      text: const TextSpan(
+        text: 'LIGNE DE DÉPART',
+        style: TextStyle(
+          color: Color(0xCCFFFFFF),
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    labelPainter.paint(
+      canvas,
+      Offset(line - 8 - labelPainter.width, edge + 6),
+    );
   }
 
   void _drawTable(Canvas canvas) {
