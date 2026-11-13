@@ -535,6 +535,7 @@ class _PoolGameScreenState extends State<PoolGameScreen>
           children: [
             Column(
               children: [
+                const SizedBox(height: 5),
                 _buildHud(),
                 Expanded(
                   child: LayoutBuilder(
@@ -607,8 +608,8 @@ class _PoolGameScreenState extends State<PoolGameScreen>
   Widget _buildHud() {
     final narrow = MediaQuery.sizeOf(context).width < 560;
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      height: 66,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: const BoxDecoration(
         color: _poolInk,
         border: Border(bottom: BorderSide(color: _poolHudLine)),
@@ -908,10 +909,11 @@ class _PlayerBadge extends StatelessWidget {
       constraints: BoxConstraints(
         minWidth: compact ? 56 : 92,
         maxWidth: compact ? 96 : 155,
+        minHeight: compact ? 44 : 48,
       ),
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 6 : 9,
-        vertical: compact ? 4 : 5,
+        vertical: compact ? 6 : 7,
       ),
       decoration: BoxDecoration(
         color: _poolHudCard,

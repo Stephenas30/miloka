@@ -18,6 +18,49 @@ import 'ludo_lobby_screen.dart';
 import 'profile_screen.dart';
 import 'purchase_screen.dart';
 
+class _LudoTokens {
+  static const card = Color(0xFFFFFDF7);
+  static const cardBorder = Color(0xFFE7DAC0);
+  static const ink = Color(0xFF2B2320);
+  static const inkSoft = Color(0xFF6B5D4F);
+  static const inkFaint = Color(0xFF9A8C7C);
+  static const sand = Color(0xFFE4D7BE);
+  static const sandDeep = Color(0xFFCBBB9C);
+  static const cell = Color(0xFFFAF3E4);
+  static const gold = Color(0xFFE3A008);
+  static const goldDeep = Color(0xFFB87A05);
+  static const goldSoft = Color(0xFFF6C453);
+  static const red = Color(0xFFFF5A5F);
+  static const redDeep = Color(0xFFD9484F);
+  static const redLight = Color(0xFFFF8A87);
+  static const green = Color(0xFF2FBF71);
+  static const greenDeep = Color(0xFF1F9A55);
+  static const greenLight = Color(0xFF6FE3A2);
+  static const yellow = Color(0xFFFFC93C);
+  static const yellowDeep = Color(0xFFCF8F0A);
+  static const yellowLight = Color(0xFFFFE28A);
+  static const blue = Color(0xFF3DA5F4);
+  static const blueDeep = Color(0xFF1F7FCC);
+  static const blueLight = Color(0xFF7ECBF9);
+}
+
+class _Candy {
+  final Color light;
+  final Color base;
+  final Color deep;
+  const _Candy(this.light, this.base, this.deep);
+}
+
+const _candyPieces = {
+  LudoColor.red: _Candy(_LudoTokens.redLight, _LudoTokens.red, _LudoTokens.redDeep),
+  LudoColor.green: _Candy(_LudoTokens.greenLight, _LudoTokens.green, _LudoTokens.greenDeep),
+  LudoColor.yellow: _Candy(_LudoTokens.yellowLight, _LudoTokens.yellow, _LudoTokens.yellowDeep),
+  LudoColor.blue: _Candy(_LudoTokens.blueLight, _LudoTokens.blue, _LudoTokens.blueDeep),
+};
+
+const _billardTitre = 'BillardTitre';
+const _billardLora = 'BillardLora';
+
 class LudoScreen extends StatefulWidget {
   final bool beginGame;
   final List<Map<String, dynamic>> playerSubscribe;
@@ -309,14 +352,22 @@ class _LudoScreenState extends State<LudoScreen>
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1a1a2e),
+        backgroundColor: _LudoTokens.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text(
           'Partie terminée',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(
+            color: _LudoTokens.ink,
+            fontFamily: _billardTitre,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         content: const Text(
           'La partie a été interrompue.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(
+            color: _LudoTokens.inkSoft,
+            fontFamily: _billardLora,
+          ),
         ),
         actions: [
           TextButton(
@@ -340,7 +391,14 @@ class _LudoScreenState extends State<LudoScreen>
                 );
               }
             },
-            child: const Text('OK', style: TextStyle(color: Colors.amber)),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: _LudoTokens.goldDeep,
+                fontFamily: _billardLora,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ],
       ),
@@ -686,7 +744,7 @@ class _LudoScreenState extends State<LudoScreen>
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1C1C2E),
+          backgroundColor: _LudoTokens.card,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
@@ -694,10 +752,10 @@ class _LudoScreenState extends State<LudoScreen>
             child: Text(
               'Choisis ta couleur',
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
+                color: _LudoTokens.ink,
+                fontSize: 23,
+                fontWeight: FontWeight.w900,
+                fontFamily: _billardTitre,
               ),
             ),
           ),
@@ -708,7 +766,11 @@ class _LudoScreenState extends State<LudoScreen>
               children: [
                 const Text(
                   'Quelle couleur pour tenter ta chance ?',
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                  style: TextStyle(
+                    color: _LudoTokens.inkSoft,
+                    fontSize: 13,
+                    fontFamily: _billardLora,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -718,7 +780,7 @@ class _LudoScreenState extends State<LudoScreen>
                   alignment: WrapAlignment.center,
                   children: LudoColor.values.map((color) {
                     final isSelected = selectedColor == color;
-                    final baseColor = LudoBoardLayout.colorValues[color]!;
+                    final candy = _candyPieces[color]!;
                     return GestureDetector(
                       onTap: () => setDialogState(() => selectedColor = color),
                       child: AnimatedContainer(
@@ -727,26 +789,29 @@ class _LudoScreenState extends State<LudoScreen>
                         height: 76,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [baseColor, baseColor.withValues(alpha: 0.6)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [candy.light, candy.base, candy.deep],
+                            stops: const [0, 0.45, 1],
                           ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isSelected ? Colors.white : Colors.white24,
-                            width: isSelected ? 3 : 1.5,
+                            color: isSelected
+                                ? _LudoTokens.goldDeep
+                                : Colors.white.withValues(alpha: 0.8),
+                            width: isSelected ? 4 : 2,
                           ),
                           boxShadow: [
                             if (isSelected)
                               BoxShadow(
-                                color: baseColor.withValues(alpha: 0.5),
+                                color: _LudoTokens.gold.withValues(alpha: 0.6),
                                 blurRadius: 16,
                                 spreadRadius: 2,
                               ),
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
+                              color: candy.deep.withValues(alpha: 0.45),
                               blurRadius: 6,
-                              offset: const Offset(0, 2),
+                              offset: const Offset(0, 3),
                             ),
                           ],
                         ),
@@ -755,10 +820,11 @@ class _LudoScreenState extends State<LudoScreen>
                             color.label,
                             style: TextStyle(
                               color: color == LudoColor.yellow
-                                  ? Colors.black87
+                                  ? _LudoTokens.ink
                                   : Colors.white,
                               fontSize: 14,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w800,
+                              fontFamily: _billardLora,
                             ),
                           ),
                         ),
@@ -778,11 +844,11 @@ class _LudoScreenState extends State<LudoScreen>
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: selectedColor != null
-                          ? const Color(0xFFD4A017)
-                          : Colors.grey.shade700,
+                          ? _LudoTokens.gold
+                          : _LudoTokens.sand,
                       foregroundColor: selectedColor != null
-                          ? const Color(0xFF1C1C2E)
-                          : Colors.white38,
+                          ? _LudoTokens.ink
+                          : _LudoTokens.inkFaint,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(30),
@@ -795,11 +861,12 @@ class _LudoScreenState extends State<LudoScreen>
                             _startGame(selectedColor!);
                           }
                         : null,
-                    child: Text(
+                    child: const Text(
                       'C\'est parti !',
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: _billardLora,
                         letterSpacing: 1,
                       ),
                     ),
@@ -821,7 +888,7 @@ class _LudoScreenState extends State<LudoScreen>
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1C1C2E),
+          backgroundColor: _LudoTokens.card,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
@@ -829,10 +896,10 @@ class _LudoScreenState extends State<LudoScreen>
             child: Text(
               'Local multi',
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
+                color: _LudoTokens.ink,
+                fontSize: 23,
+                fontWeight: FontWeight.w900,
+                fontFamily: _billardTitre,
               ),
             ),
           ),
@@ -843,7 +910,11 @@ class _LudoScreenState extends State<LudoScreen>
               children: [
                 const Text(
                   'Choisis 2 à 4 joueurs',
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                  style: TextStyle(
+                    color: _LudoTokens.inkSoft,
+                    fontSize: 13,
+                    fontFamily: _billardLora,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -853,7 +924,7 @@ class _LudoScreenState extends State<LudoScreen>
                   alignment: WrapAlignment.center,
                   children: LudoColor.values.map((color) {
                     final isSelected = selectedColors.contains(color);
-                    final baseColor = LudoBoardLayout.colorValues[color]!;
+                    final candy = _candyPieces[color]!;
                     return GestureDetector(
                       onTap: () {
                         setDialogState(() {
@@ -870,25 +941,34 @@ class _LudoScreenState extends State<LudoScreen>
                         height: 72,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [
-                              baseColor,
-                              baseColor.withValues(alpha: isSelected ? 1 : 0.4),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: isSelected
+                                ? [candy.light, candy.base, candy.deep]
+                                : [candy.base, candy.deep],
+                            stops: isSelected
+                                ? const [0, 0.45, 1]
+                                : const [0, 1],
                           ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isSelected ? Colors.white : Colors.white24,
-                            width: isSelected ? 3 : 1.5,
+                            color: isSelected
+                                ? _LudoTokens.goldDeep
+                                : Colors.white.withValues(alpha: 0.8),
+                            width: isSelected ? 3.5 : 2,
                           ),
                           boxShadow: [
                             if (isSelected)
                               BoxShadow(
-                                color: baseColor.withValues(alpha: 0.5),
-                                blurRadius: 16,
+                                color: _LudoTokens.gold.withValues(alpha: 0.6),
+                                blurRadius: 14,
                                 spreadRadius: 2,
                               ),
+                            BoxShadow(
+                              color: candy.deep.withValues(alpha: 0.35),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
                           ],
                         ),
                         child: Center(
@@ -899,10 +979,11 @@ class _LudoScreenState extends State<LudoScreen>
                                 color.label,
                                 style: TextStyle(
                                   color: color == LudoColor.yellow
-                                      ? Colors.black87
+                                      ? _LudoTokens.ink
                                       : Colors.white,
                                   fontSize: 13,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w800,
+                                  fontFamily: _billardLora,
                                 ),
                               ),
                               if (isSelected)
@@ -910,7 +991,7 @@ class _LudoScreenState extends State<LudoScreen>
                                   '${selectedColors.toList().indexOf(color) + 1}',
                                   style: TextStyle(
                                     color: color == LudoColor.yellow
-                                        ? Colors.black54
+                                        ? _LudoTokens.inkSoft
                                         : Colors.white70,
                                     fontSize: 11,
                                   ),
@@ -922,17 +1003,17 @@ class _LudoScreenState extends State<LudoScreen>
                     );
                   }).toList(),
                 ),
-                if (selectedColors.length < 2)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      'Minimum 2 joueurs',
-                      style: TextStyle(
-                        color: Colors.white38,
-                        fontSize: 12,
+                    if (selectedColors.length < 2)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'Minimum 2 joueurs',
+                          style: TextStyle(
+                            color: _LudoTokens.inkFaint,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
               ],
             ),
           ),
@@ -947,18 +1028,22 @@ class _LudoScreenState extends State<LudoScreen>
                       onPressed: () => Navigator.pop(ctx),
                       child: const Text(
                         'Annuler',
-                        style: TextStyle(color: Colors.white54),
+                        style: TextStyle(
+                          color: _LudoTokens.inkSoft,
+                          fontFamily: _billardLora,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 16),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: selectedColors.length >= 2
-                            ? const Color(0xFFD4A017)
-                            : Colors.grey.shade700,
+                            ? _LudoTokens.gold
+                            : _LudoTokens.sand,
                         foregroundColor: selectedColors.length >= 2
-                            ? const Color(0xFF1C1C2E)
-                            : Colors.white38,
+                            ? _LudoTokens.ink
+                            : _LudoTokens.inkFaint,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
                           vertical: 14,
@@ -966,6 +1051,7 @@ class _LudoScreenState extends State<LudoScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                         ),
+                        elevation: selectedColors.length >= 2 ? 4 : 0,
                       ),
                       onPressed: selectedColors.length >= 2
                           ? () {
@@ -977,7 +1063,8 @@ class _LudoScreenState extends State<LudoScreen>
                         'Jouer',
                         style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w800,
+                          fontFamily: _billardLora,
                           letterSpacing: 1,
                         ),
                       ),
@@ -1120,17 +1207,45 @@ class _LudoScreenState extends State<LudoScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1a1a2e),
-        title: const Text('Quitter la partie ?', style: TextStyle(color: Colors.white)),
-        content: const Text('Êtes-vous sûr de vouloir quitter la partie ?', style: TextStyle(color: Colors.white70)),
+        backgroundColor: _LudoTokens.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text(
+          'Quitter la partie ?',
+          style: TextStyle(
+            color: _LudoTokens.ink,
+            fontFamily: _billardTitre,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: const Text(
+          'Êtes-vous sûr de vouloir quitter la partie ?',
+          style: TextStyle(
+            color: _LudoTokens.inkSoft,
+            fontFamily: _billardLora,
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Annuler', style: TextStyle(color: Colors.white54)),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(
+                color: _LudoTokens.inkSoft,
+                fontFamily: _billardLora,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Quitter', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Quitter',
+              style: TextStyle(
+                color: _LudoTokens.redDeep,
+                fontFamily: _billardLora,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ],
       ),
@@ -1184,10 +1299,13 @@ class _LudoScreenState extends State<LudoScreen>
       floatingActionButton: _beginGame
           ? FloatingActionButton(
               mini: true,
-              backgroundColor: Colors.black.withValues(alpha: 0.6),
-              shape: const CircleBorder(),
+              backgroundColor: _LudoTokens.card,
+              shape: const CircleBorder(
+                side: BorderSide(color: _LudoTokens.cardBorder, width: 1.5),
+              ),
+              elevation: 6,
               onPressed: _confirmLeaveGame,
-              child: const Icon(Icons.arrow_back, color: Colors.white70),
+              child: const Icon(Icons.arrow_back, color: _LudoTokens.ink),
             )
           : null,
       body: Container(
@@ -1295,15 +1413,11 @@ class _LudoScreenState extends State<LudoScreen>
           onTap: () => showFriendsDialog(context),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
+            decoration: const BoxDecoration(
+              color: Colors.black54,
+              shape: BoxShape.circle,
             ),
-            child: const CircleAvatar(
-              radius: 14,
-              backgroundColor: Colors.black54,
-              child: Icon(Icons.people_alt, color: Colors.white, size: 20),
-            ),
+            child: const Icon(Icons.people_alt, color: Colors.white, size: 20),
           ),
         ),
         Row(
@@ -1319,9 +1433,9 @@ class _LudoScreenState extends State<LudoScreen>
                   horizontal: 12,
                   vertical: 6,
                 ),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.all(Radius.circular(20)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1343,7 +1457,10 @@ class _LudoScreenState extends State<LudoScreen>
                     const SizedBox(width: 8),
                     Text(
                       username,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
@@ -1359,9 +1476,9 @@ class _LudoScreenState extends State<LudoScreen>
                   horizontal: 12,
                   vertical: 6,
                 ),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: Colors.black54,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.all(Radius.circular(20)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1374,7 +1491,10 @@ class _LudoScreenState extends State<LudoScreen>
                     const SizedBox(width: 6),
                     Text(
                       '$coins',
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
@@ -1393,42 +1513,123 @@ class _LudoScreenState extends State<LudoScreen>
 
     return Stack(
       children: [
+        Positioned(
+          top: 130,
+          left: 26,
+          child: IgnorePointer(
+            child: Transform.rotate(
+              angle: -0.18,
+              child: _PawnToken(
+                size: 54,
+                candy: _candyPieces[LudoColor.red]!,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 180,
+          right: 30,
+          child: IgnorePointer(
+            child: Transform.rotate(
+              angle: 0.22,
+              child: _PawnToken(
+                size: 46,
+                candy: _candyPieces[LudoColor.blue]!,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 105,
+          left: 36,
+          child: IgnorePointer(
+            child: Transform.rotate(
+              angle: 0.15,
+              child: _PawnToken(
+                size: 48,
+                candy: _candyPieces[LudoColor.green]!,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 150,
+          right: 34,
+          child: IgnorePointer(
+            child: Transform.rotate(
+              angle: -0.2,
+              child: _PawnToken(
+                size: 56,
+                candy: _candyPieces[LudoColor.yellow]!,
+              ),
+            ),
+          ),
+        ),
         Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                '🎲 Ludo',
+                'LUDO',
                 style: TextStyle(
-                  fontSize: 52,
+                  fontFamily: _billardTitre,
+                  fontSize: 74,
                   fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  letterSpacing: 2,
+                  color: _LudoTokens.card,
+                  letterSpacing: 8,
+                  height: 0.95,
                   shadows: [
-                    Shadow(color: Colors.black87, blurRadius: 12),
-                    Shadow(color: Color(0xFFD4A017), blurRadius: 20),
+                    Shadow(
+                      color: _LudoTokens.goldSoft,
+                      offset: Offset(0, 4),
+                      blurRadius: 0,
+                    ),
+                    Shadow(
+                      color: Colors.black54,
+                      offset: Offset(0, 10),
+                      blurRadius: 16,
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFD4A017).withValues(alpha: 0.3)),
-                ),
-                child: const Text(
-                  '💰 Tente ta chance',
-                  style: TextStyle(
-                    color: Color(0xFFD4A017),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 1,
+                  gradient: const LinearGradient(
+                    colors: [_LudoTokens.goldSoft, _LudoTokens.gold],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                   ),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: _LudoTokens.goldDeep, width: 2),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x59B87A05),
+                      blurRadius: 0,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.monetization_on, color: _LudoTokens.ink, size: 17),
+                    SizedBox(width: 8),
+                    Text(
+                      'TENTE TA CHANCE',
+                      style: TextStyle(
+                        color: _LudoTokens.ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: _billardLora,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 38),
               _buildGameChip('Solo', LudoColor.red, Icons.person, () {
                 _showColorPicker();
               }),
@@ -1472,10 +1673,13 @@ class _LudoScreenState extends State<LudoScreen>
           left: 16,
           child: FloatingActionButton(
             mini: true,
-            backgroundColor: Colors.black.withValues(alpha: 0.6),
-            shape: const CircleBorder(),
+            backgroundColor: _LudoTokens.card,
+            shape: const CircleBorder(
+              side: BorderSide(color: _LudoTokens.cardBorder, width: 1.5),
+            ),
+            elevation: 6,
             onPressed: _quitGame,
-            child: const Icon(Icons.arrow_back, color: Colors.white70),
+            child: const Icon(Icons.arrow_back, color: _LudoTokens.ink),
           ),
         ),
       ],
@@ -1483,52 +1687,96 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildGameChip(String label, LudoColor color, IconData icon, VoidCallback onTap) {
-    final baseColor = LudoBoardLayout.colorValues[color]!;
+    final candy = _candyPieces[color]!;
+    final darkText = color == LudoColor.yellow;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 200,
-        height: 64,
+        width: 222,
+        height: 66,
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              baseColor.withValues(alpha: 0.8),
-              baseColor.withValues(alpha: 0.4),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            colors: [candy.light, candy.base, candy.deep],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const [0, 0.45, 1],
           ),
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(33),
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.3),
+            color: Colors.white.withValues(alpha: 0.75),
             width: 2,
           ),
           boxShadow: [
             BoxShadow(
-              color: baseColor.withValues(alpha: 0.4),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
+              color: candy.deep,
+              blurRadius: 0,
+              offset: const Offset(0, 5),
             ),
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: candy.deep.withValues(alpha: 0.4),
+              blurRadius: 18,
+              offset: const Offset(0, 9),
             ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
           children: [
-            Icon(icon, color: Colors.white, size: 22),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 1,
+            Positioned(
+              left: 6,
+              right: 6,
+              top: 3,
+              child: Container(
+                height: 24,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.45),
+                      Colors.white.withValues(alpha: 0),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
               ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: darkText ? _LudoTokens.ink : Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: darkText ? _LudoTokens.ink : Colors.white,
+                    fontFamily: _billardLora,
+                    letterSpacing: 1.2,
+                    shadows: darkText
+                        ? null
+                        : const [
+                            Shadow(
+                              color: Color(0x55000000),
+                              offset: Offset(0, 2),
+                              blurRadius: 2,
+                            ),
+                          ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1540,17 +1788,33 @@ class _LudoScreenState extends State<LudoScreen>
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 340),
+          padding: const EdgeInsets.fromLTRB(28, 26, 28, 26),
+          decoration: BoxDecoration(
+            color: _LudoTokens.card,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: _LudoTokens.cardBorder, width: 1.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x2E2B2320),
+                blurRadius: 24,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
             Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
+              width: 76,
+              height: 76,
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFD4A017).withValues(alpha: 0.3),
-                  width: 2,
+                color: _LudoTokens.goldSoft,
+                border: Border.fromBorderSide(
+                  BorderSide(color: _LudoTokens.gold, width: 3),
                 ),
               ),
               child: const Center(
@@ -1558,31 +1822,35 @@ class _LudoScreenState extends State<LudoScreen>
                   width: 28,
                   height: 28,
                   child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4A017)),
+                    strokeWidth: 3.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(_LudoTokens.goldDeep),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 22),
             const Text(
               'En attente du host...',
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
+                color: _LudoTokens.ink,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                fontFamily: _billardTitre,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
               _roomCode.isNotEmpty
                   ? 'Salle : $_roomCode'
                   : 'Connexion en cours...',
-              style: const TextStyle(color: Colors.white54, fontSize: 15),
+              style: const TextStyle(
+                color: _LudoTokens.inkSoft,
+                fontSize: 15,
+                fontFamily: _billardLora,
+              ),
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 22),
             ValueListenableBuilder<List<String>>(
               valueListenable: _participantsNotifier,
               builder: (context, list, _) {
@@ -1590,19 +1858,23 @@ class _LudoScreenState extends State<LudoScreen>
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                        horizontal: 18,
                         vertical: 6,
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(20),
+                      decoration: const BoxDecoration(
+                        color: _LudoTokens.cell,
+                        borderRadius: BorderRadius.all(Radius.circular(20)),
+                        border: Border.fromBorderSide(
+                          BorderSide(color: _LudoTokens.sand, width: 1.5),
+                        ),
                       ),
                       child: Text(
                         'Participants (${list.length})',
                         style: const TextStyle(
-                          color: Colors.white54,
+                          color: _LudoTokens.inkSoft,
                           fontSize: 14,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: _billardLora,
                         ),
                       ),
                     ),
@@ -1612,7 +1884,7 @@ class _LudoScreenState extends State<LudoScreen>
                         padding: EdgeInsets.only(top: 8),
                         child: Text(
                           'Aucun participant détecté',
-                          style: TextStyle(color: Colors.white38, fontSize: 14),
+                          style: TextStyle(color: _LudoTokens.inkFaint, fontSize: 14),
                         ),
                       )
                     else
@@ -1620,20 +1892,21 @@ class _LudoScreenState extends State<LudoScreen>
                         (name) => Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               const Icon(
                                 Icons.person,
                                 size: 16,
-                                color: Colors.white38,
+                                color: _LudoTokens.inkFaint,
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 name,
                                 style: const TextStyle(
-                                  color: Colors.white70,
+                                  color: _LudoTokens.ink,
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w400,
+                                  fontFamily: _billardLora,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
@@ -1647,12 +1920,18 @@ class _LudoScreenState extends State<LudoScreen>
             const SizedBox(height: 32),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.1),
-                foregroundColor: Colors.white54,
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                backgroundColor: _LudoTokens.sand,
+                foregroundColor: _LudoTokens.ink,
+                side: const BorderSide(color: _LudoTokens.sandDeep),
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
+                ),
+                elevation: 0,
+                textStyle: const TextStyle(
+                  fontFamily: _billardLora,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
                 ),
               ),
               onPressed: () {
@@ -1670,7 +1949,8 @@ class _LudoScreenState extends State<LudoScreen>
               },
               child: const Text('Quitter'),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1682,32 +1962,56 @@ class _LudoScreenState extends State<LudoScreen>
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
+              color: _LudoTokens.card,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(
+                color: _candyPieces[_engine.currentPlayer.color]!.base,
+                width: 2,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x2B2B2320),
+                  blurRadius: 14,
+                  offset: Offset(0, 5),
+                ),
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  _engine.currentPlayer.isHuman
-                      ? Icons.person
-                      : Icons.smart_toy,
-                  size: 16,
-                  color: LudoBoardLayout
-                      .colorValues[_engine.currentPlayer.color]!
-                      .withValues(alpha: 0.8),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        _candyPieces[_engine.currentPlayer.color]!.light,
+                        _candyPieces[_engine.currentPlayer.color]!.deep,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _engine.currentPlayer.isHuman
+                        ? Icons.person
+                        : Icons.smart_toy,
+                    size: 17,
+                    color: Colors.white,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 9),
                 Flexible(
                   child: Text(
                     _engine.message,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: _LudoTokens.ink,
                       fontSize: 13,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: _billardLora,
                     ),
                     textAlign: TextAlign.center,
                     maxLines: 2,
@@ -1761,15 +2065,18 @@ class _LudoScreenState extends State<LudoScreen>
       for (final pawn in player.pawns) {
         final isAnimating =
             _movingPawnId == pawn.id && _movingPawnColor == pawn.color;
-        Offset pos;
+        var pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+        var hop = 0.0;
+        var squash = 1.0;
         if (isAnimating && _movePath.isNotEmpty) {
           final t = (_moveController.value * (_movePath.length - 1))
               .clamp(0.0, (_movePath.length - 1).toDouble());
           final idx = t.floor();
           final next = idx + 1 < _movePath.length ? idx + 1 : idx;
-          pos = Offset.lerp(_movePath[idx], _movePath[next], t - idx)!;
-        } else {
-          pos = LudoBoardLayout.pawnPosition(pawn, cellSize);
+          final segment = t - idx;
+          pos = Offset.lerp(_movePath[idx], _movePath[next], segment)!;
+          hop = math.sin(segment * math.pi) * cellSize * 0.22;
+          squash = 1 - 0.16 * math.sin(segment * math.pi);
         }
 
         final isSelectable =
@@ -1790,6 +2097,8 @@ class _LudoScreenState extends State<LudoScreen>
           isSelected: isSelected,
           isAnimating: isAnimating,
           playerColor: player.color,
+          hop: hop,
+          squash: squash,
         ));
       }
     }
@@ -1809,58 +2118,21 @@ class _LudoScreenState extends State<LudoScreen>
           renderPos = info.pos;
         }
 
-        final pawnColor = LudoBoardLayout.colorValues[info.playerColor]!;
+        final pawnSize = cellSize * 0.64;
         widgets.add(
           Positioned(
-            left: renderPos.dx - cellSize * 0.32,
-            top: renderPos.dy - cellSize * 0.32,
+            left: renderPos.dx - pawnSize / 2,
+            top: renderPos.dy - pawnSize / 2,
             child: GestureDetector(
               onTap: info.isSelectable ? () => _onPawnTap(info.pawn) : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: cellSize * 0.64,
-                height: cellSize * 0.64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [pawnColor, pawnColor.withValues(alpha: 0.7)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(
-                    color: info.isSelected
-                        ? Colors.white
-                        : info.isSelectable
-                        ? const Color(0xFFD4A017)
-                        : Colors.black87,
-                    width: info.isSelected || info.isSelectable ? 3 : 1.5,
-                  ),
-                  boxShadow: [
-                    if (info.isSelectable)
-                      BoxShadow(
-                        color: const Color(0xFFD4A017).withValues(alpha: 0.5),
-                        blurRadius: 12,
-                        spreadRadius: 2,
-                      ),
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 4,
-                      offset: const Offset(1, 2),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: info.pawn.finished
-                      ? const Icon(Icons.star, color: Colors.white, size: 12)
-                      : Container(
-                          width: cellSize * 0.2,
-                          height: cellSize * 0.2,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                ),
+              child: _PawnToken(
+                size: pawnSize,
+                candy: _candyPieces[info.playerColor]!,
+                isSelected: info.isSelected,
+                isSelectable: info.isSelectable,
+                finished: info.pawn.finished,
+                lift: info.hop,
+                squash: info.squash,
               ),
             ),
           ),
@@ -1896,36 +2168,98 @@ class _LudoScreenState extends State<LudoScreen>
         avatar = const Icon(Icons.smart_toy, color: Colors.white, size: 14);
       }
 
+      final candy = _candyPieces[color]!;
+      final isActive =
+          _engine.players.isNotEmpty &&
+          _engine.currentPlayer.color == color &&
+          _engine.winner == null;
+      final finishedCount = player.pawns.where((p) => p.finished).length;
+      final darkChip = color == LudoColor.yellow;
+      final chipTextColor = darkChip ? _LudoTokens.ink : Colors.white;
+
       return Positioned(
-        left: color == LudoColor.green || color == LudoColor.red ? 4 : null,
-        right: color == LudoColor.yellow || color == LudoColor.blue ? 4 : null,
-        top: color == LudoColor.green || color == LudoColor.yellow ? 4 : null,
-        bottom: color == LudoColor.red || color == LudoColor.blue ? 4 : null,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            color: LudoBoardLayout.colorValues[color]!.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white, width: 1.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              avatar,
-              if (displayName.isNotEmpty) ...[
-                const SizedBox(width: 4),
-                Text(
-                  displayName,
-                  style: TextStyle(
-                    color: color == LudoColor.yellow
-                        ? Colors.black87
-                        : Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
+        left: color == LudoColor.green || color == LudoColor.red ? 6 : null,
+        right: color == LudoColor.yellow || color == LudoColor.blue ? 6 : null,
+        top: color == LudoColor.green || color == LudoColor.yellow ? 6 : null,
+        bottom: color == LudoColor.red || color == LudoColor.blue ? 6 : null,
+        child: Transform.scale(
+          scale: isActive ? 1.08 : 1,
+          alignment: color == LudoColor.green || color == LudoColor.yellow
+              ? Alignment.topLeft
+              : Alignment.bottomLeft,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [candy.light, candy.base, candy.deep],
+                stops: const [0, 0.5, 1],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isActive ? _LudoTokens.gold : Colors.white.withValues(alpha: 0.7),
+                width: isActive ? 2.5 : 1.5,
+              ),
+              boxShadow: [
+                if (isActive)
+                  BoxShadow(
+                    color: _LudoTokens.gold.withValues(alpha: 0.65),
+                    blurRadius: 14,
+                    spreadRadius: 1,
+                  ),
+                const BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    avatar,
+                    if (displayName.isNotEmpty) ...[
+                      const SizedBox(width: 5),
+                      Text(
+                        displayName,
+                        style: TextStyle(
+                          color: chipTextColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          fontFamily: _billardLora,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    4,
+                    (i) => Container(
+                      margin: const EdgeInsets.only(right: 3),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: i < finishedCount
+                            ? _LudoTokens.goldSoft
+                            : Colors.white.withValues(alpha: 0.35),
+                        border: i < finishedCount
+                            ? Border.all(color: _LudoTokens.goldDeep, width: 1)
+                            : null,
+                      ),
+                    ),
                   ),
                 ),
               ],
-            ],
+            ),
           ),
         ),
       );
@@ -1933,40 +2267,243 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   Widget _buildDice(bool canRoll, LudoEngine engine) {
+    final candy = _candyPieces[engine.currentPlayer.color]!;
     return AnimatedBuilder(
       animation: _diceController,
       builder: (context, child) {
+        final bump = 1 + 0.22 * math.sin(_diceController.value * math.pi);
         return Transform.rotate(
           angle: _diceController.value * math.pi * 2,
-          child: Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              color: canRoll ? Colors.white : Colors.grey.shade700,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: /* canRoll
-                    ? */
-                    LudoBoardLayout.colorValues[engine.currentPlayer.color]!,
-                /* : Colors.grey, */
-                width: 3,
-              ),
-              boxShadow: [
-                  BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 6,
-                  offset: const Offset(2, 3),
+          child: Transform.scale(
+            scale: bump,
+            child: Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: canRoll
+                      ? const [_LudoTokens.card, Color(0xFFEDE6D6)]
+                      : const [Color(0xFF8A8175), Color(0xFF5F584E)],
                 ),
-              ],
-            ),
-            child: Center(
-              child: _displayDice.value > 0
-                  ? _DiceFace(value: _displayDice.value, dark: !canRoll)
-                  : const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: canRoll ? candy.base : _LudoTokens.sandDeep,
+                  width: 3,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: candy.deep.withValues(alpha: canRoll ? 0.55 : 0.2),
+                    blurRadius: 14,
+                    spreadRadius: 1,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 6,
+                    offset: const Offset(2, 4),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 8,
+                    right: 8,
+                    top: 4,
+                    child: Container(
+                      height: 18,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withValues(alpha: canRoll ? 0.9 : 0.25),
+                            Colors.white.withValues(alpha: 0),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: _displayDice.value > 0
+                        ? _DiceFace(value: _displayDice.value, dark: !canRoll)
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _PawnToken extends StatelessWidget {
+  const _PawnToken({
+    required this.size,
+    required this.candy,
+    this.isSelected = false,
+    this.isSelectable = false,
+    this.finished = false,
+    this.lift = 0,
+    this.squash = 1,
+  });
+
+  final double size;
+  final _Candy candy;
+  final bool isSelected;
+  final bool isSelectable;
+  final bool finished;
+  final double lift;
+  final double squash;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          if (isSelectable)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _LudoTokens.gold,
+                    width: 2.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _LudoTokens.gold.withValues(alpha: 0.55),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Positioned(
+            bottom: 0,
+            left: size * 0.14,
+            right: size * 0.14,
+            child: Container(
+              height: size * 0.17,
+              decoration: const BoxDecoration(
+                color: Color(0x332B2320),
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+              ),
+            ),
+          ),
+          Positioned(
+            left: size * 0.15,
+            bottom: size * 0.09,
+            child: Container(
+              width: size * 0.70,
+              height: size * 0.56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [candy.light, candy.base, candy.deep],
+                  stops: const [0, 0.35, 1],
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(size * 0.32),
+                  topRight: Radius.circular(size * 0.32),
+                  bottomLeft: Radius.circular(size * 0.17),
+                  bottomRight: Radius.circular(size * 0.17),
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.65),
+                  width: 1.3,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: size * 0.26,
+            bottom: size * 0.50,
+            child: Container(
+              width: size * 0.48,
+              height: size * 0.12,
+              decoration: BoxDecoration(
+                color: candy.deep,
+                borderRadius: BorderRadius.circular(size * 0.06),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x40000000),
+                    blurRadius: 1.5,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: size * 0.03,
+            left: size * 0.27,
+            child: Container(
+              width: size * 0.46,
+              height: size * 0.46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  center: const Alignment(-0.38, -0.42),
+                  radius: 1.0,
+                  colors: [
+                    Colors.white,
+                    candy.light,
+                    candy.base,
+                    candy.deep,
+                  ],
+                  stops: const [0, 0.22, 0.68, 1],
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  width: 1,
+                ),
+              ),
+            ),
+          ),
+          if (finished)
+            Positioned(
+              top: size * 0.13,
+              left: size * 0.375,
+              child: Icon(
+                Icons.star_rounded,
+                color: Colors.white,
+                size: size * 0.25,
+                shadows: const [
+                  Shadow(
+                    color: Color(0x66000000),
+                    blurRadius: 1.5,
+                    offset: Offset(0, 0.5),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+
+    return Transform.translate(
+      offset: Offset(0, -lift),
+      child: Transform.scale(
+        scaleX: 1 + (1 - squash) * 0.85,
+        scaleY: squash,
+        alignment: Alignment.bottomCenter,
+        child: AnimatedScale(
+          scale: isSelected ? 1.16 : 1,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutBack,
+          child: body,
+        ),
+      ),
     );
   }
 }
@@ -1978,6 +2515,8 @@ class _PawnRenderInfo {
   final bool isSelected;
   final bool isAnimating;
   final LudoColor playerColor;
+  final double hop;
+  final double squash;
 
   const _PawnRenderInfo({
     required this.pawn,
@@ -1986,6 +2525,8 @@ class _PawnRenderInfo {
     required this.isSelected,
     required this.isAnimating,
     required this.playerColor,
+    this.hop = 0,
+    this.squash = 1,
   });
 }
 
@@ -2031,16 +2572,31 @@ class _DiceFace extends StatelessWidget {
         return Stack(
           children: dotPositions[value]!.map((p) {
             return Positioned(
-              left: p.dx * w - 5,
-              top: p.dy * h - 5,
-                child: Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: dark ? Colors.white54 : Colors.black87,
-                    shape: BoxShape.circle,
+              left: p.dx * w - 6,
+              top: p.dy * h - 6,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.35, -0.4),
+                    radius: 0.95,
+                    colors: dark
+                        ? const [Colors.white70, Colors.white38, Color(0x55FFFFFF)]
+                        : const [Color(0xFF5A4F42), _LudoTokens.ink, Color(0xFF171009)],
                   ),
+                  boxShadow: dark
+                      ? null
+                      : const [
+                          BoxShadow(
+                            color: Color(0x40000000),
+                            blurRadius: 1.5,
+                            offset: Offset(0.5, 1),
+                          ),
+                        ],
                 ),
+              ),
             );
           }).toList(),
         );
@@ -2087,12 +2643,12 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
         children: [
           Text(
             "Vous n'avez pas d'amis",
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: _LudoTokens.inkSoft),
           ),
           SizedBox(height: 8),
           Text(
             'Ajoute des amis pour jouer',
-            style: TextStyle(color: Colors.white38, fontSize: 12),
+            style: TextStyle(color: _LudoTokens.inkFaint, fontSize: 12),
           ),
         ],
       );
@@ -2104,7 +2660,7 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
           padding: EdgeInsets.only(bottom: 8),
           child: Text(
             'Invite des amis à rejoindre',
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+            style: TextStyle(color: _LudoTokens.inkSoft, fontSize: 13),
           ),
         ),
         ..._friends!.map((f) {
@@ -2113,23 +2669,23 @@ class _FriendsInviteListState extends State<_FriendsInviteList> {
           return ListTile(
             leading: CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.white24,
+              backgroundColor: _LudoTokens.sand,
               backgroundImage:
                   avatarUrl != null && avatarUrl.isNotEmpty
                       ? cachedNetworkImage(avatarUrl)
                       : null,
               child: avatarUrl == null || avatarUrl.isEmpty
-                  ? const Icon(Icons.person, color: Colors.white)
+                  ? const Icon(Icons.person, color: _LudoTokens.ink)
                   : null,
             ),
             title: Text(
               f['username'] ?? '',
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: _LudoTokens.ink),
             ),
             trailing: IconButton(
               icon: Icon(
                 Icons.person_add,
-                color: isOnline ? Colors.amber : Colors.white24,
+                color: isOnline ? _LudoTokens.goldDeep : _LudoTokens.sandDeep,
               ),
               onPressed: isOnline
                   ? () => widget.onInvite(f)
@@ -2149,140 +2705,232 @@ class _LudoBoardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint();
+    final frame = cellSize * 0.32;
 
-    // Fond sombre du plateau pour vibe casino
-    paint.color = const Color(0xFF1C1C2E);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
-
-    // Fond central plus clair
-    paint.color = const Color(0xFF2A2A40);
+    final frameRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Radius.circular(cellSize * 0.55),
+    );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(6 * cellSize, 6 * cellSize, 3 * cellSize, 3 * cellSize),
-        Radius.circular(cellSize * 0.2),
-      ),
-      paint,
+      frameRect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFEDE1C8), Color(0xFFCDBFA0)],
+        ).createShader(frameRect.outerRect),
+    );
+    canvas.drawRRect(
+      frameRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = cellSize * 0.05
+        ..color = _LudoTokens.sandDeep,
     );
 
-    // Bases colorées avec dégradé
+    final playRect = Rect.fromLTWH(
+      frame,
+      frame,
+      size.width - 2 * frame,
+      size.height - 2 * frame,
+    );
+    final playRRect = RRect.fromRectAndRadius(
+      playRect,
+      Radius.circular(cellSize * 0.34),
+    );
+    canvas.drawRRect(
+      playRRect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.18),
+          radius: 1.15,
+          colors: const [Color(0xFFFFFDF6), Color(0xFFF3EADA)],
+        ).createShader(playRect),
+    );
+
+    canvas.save();
+    canvas.clipRRect(playRRect);
+    final dotPaint = Paint()..color = const Color(0x141F1810);
+    for (var row = 0; row < LudoBoardLayout.gridSize; row++) {
+      for (var col = 0; col < LudoBoardLayout.gridSize; col++) {
+        canvas.drawCircle(
+          Offset((col + 0.5) * cellSize, (row + 0.5) * cellSize),
+          cellSize * 0.05,
+          dotPaint,
+        );
+      }
+    }
+    canvas.restore();
+
     _drawBase(canvas, LudoColor.red, 9, 0);
     _drawBase(canvas, LudoColor.green, 0, 0);
     _drawBase(canvas, LudoColor.yellow, 0, 9);
     _drawBase(canvas, LudoColor.blue, 9, 9);
 
-    // Couloirs maison
     _drawHomeStretch(canvas, LudoColor.green);
     _drawHomeStretch(canvas, LudoColor.red);
     _drawHomeStretch(canvas, LudoColor.yellow);
     _drawHomeStretch(canvas, LudoColor.blue);
 
-    // Chemin principal
+    final cellRadius = Radius.circular(cellSize * 0.18);
     for (var i = 0; i < LudoBoardLayout.pathCoords.length; i++) {
       final c = LudoBoardLayout.pathCoords[i];
       final isSafe = LudoEngine.safeTrackIndices.contains(i);
-      paint.color = isSafe
-          ? const Color(0xFF3A3A55)
-          : const Color(0xFF2A2A40);
-      canvas.drawRect(
-        Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
-        paint,
+      final cellRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          c[0] * cellSize + cellSize * 0.04,
+          c[1] * cellSize + cellSize * 0.04,
+          cellSize * 0.92,
+          cellSize * 0.92,
+        ),
+        cellRadius,
       );
-      paint.color = const Color(0xFF4A4A65);
-      paint.style = PaintingStyle.stroke;
-      paint.strokeWidth = 0.5;
-      canvas.drawRect(
-        Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
-        paint,
+      canvas.drawRRect(
+        cellRect,
+        Paint()..color = isSafe ? const Color(0xFFFFE9AC) : _LudoTokens.cell,
       );
-      paint.style = PaintingStyle.fill;
+      canvas.drawRRect(
+        cellRect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = isSafe ? _LudoTokens.gold : _LudoTokens.sandDeep,
+      );
 
       if (isSafe) {
-        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.6);
+        final center =
+            Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize);
         canvas.drawCircle(
-          Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
-          cellSize * 0.14,
-          paint,
+          center,
+          cellSize * 0.34,
+          Paint()..color = _LudoTokens.gold.withValues(alpha: 0.22),
         );
-        paint.color = const Color(0xFFD4A017).withValues(alpha: 0.2);
-        canvas.drawCircle(
-          Offset((c[0] + 0.5) * cellSize, (c[1] + 0.5) * cellSize),
-          cellSize * 0.28,
-          paint,
+        _drawStar(
+          canvas,
+          center,
+          cellSize * 0.17,
+          Paint()..color = _LudoTokens.goldDeep,
         );
       }
     }
 
-    // Centre triangulaire
     _drawCenter(canvas);
+
+    canvas.drawRRect(
+      playRRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = cellSize * 0.035
+        ..color = _LudoTokens.gold.withValues(alpha: 0.85),
+    );
+  }
+
+  void _drawStar(Canvas canvas, Offset center, double radius, Paint paint) {
+    final path = Path();
+    for (var i = 0; i < 10; i++) {
+      final r = i.isEven ? radius : radius * 0.45;
+      final angle = -math.pi / 2 + i * math.pi / 5;
+      final point = Offset(
+        center.dx + math.cos(angle) * r,
+        center.dy + math.sin(angle) * r,
+      );
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
   }
 
   void _drawBase(Canvas canvas, LudoColor color, int row, int col) {
-    final baseColor = LudoBoardLayout.colorValues[color]!;
-    final paint = Paint()
-      ..shader = LinearGradient(
-        colors: [baseColor.withValues(alpha: 0.7), baseColor.withValues(alpha: 0.35)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ).createShader(Rect.fromLTWH(
-        col * cellSize,
-        row * cellSize,
-        6 * cellSize,
-        6 * cellSize,
-      ));
+    final candy = _candyPieces[color]!;
+    final baseRect = Rect.fromLTWH(
+      col * cellSize,
+      row * cellSize,
+      6 * cellSize,
+      6 * cellSize,
+    );
+    final baseRRect = RRect.fromRectAndRadius(
+      baseRect,
+      Radius.circular(cellSize * 0.42),
+    );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
-        ),
-        Radius.circular(cellSize * 0.3),
-      ),
-      paint,
+      baseRRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [candy.light, candy.base, candy.deep],
+          stops: const [0, 0.52, 1],
+        ).createShader(baseRect),
+    );
+    canvas.drawRRect(
+      baseRRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = cellSize * 0.07
+        ..color = Colors.white.withValues(alpha: 0.7),
+    );
+    canvas.drawRRect(
+      baseRRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = candy.deep.withValues(alpha: 0.55),
     );
 
-    paint
-      ..shader = null
-      ..color = Colors.white.withValues(alpha: 0.15)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          col * cellSize, row * cellSize, 6 * cellSize, 6 * cellSize,
-        ),
-        Radius.circular(cellSize * 0.3),
-      ),
-      paint,
-    );
-    paint
-      ..style = PaintingStyle.fill
-      ..strokeWidth = 0;
-
-    paint.color = Colors.white.withValues(alpha: 0.25);
     for (final coords in LudoBoardLayout.baseCoords[color]!) {
+      final center =
+          Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize);
       canvas.drawCircle(
-        Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
-        cellSize * 0.32,
-        paint,
+        center + Offset(0, cellSize * 0.05),
+        cellSize * 0.36,
+        Paint()..color = candy.deep.withValues(alpha: 0.5),
       );
-      paint.color = Colors.white.withValues(alpha: 0.1);
       canvas.drawCircle(
-        Offset((coords[0] + 0.5) * cellSize, (coords[1] + 0.5) * cellSize),
-        cellSize * 0.38,
-        paint,
+        center,
+        cellSize * 0.36,
+        Paint()..color = Colors.white.withValues(alpha: 0.9),
       );
-      paint.color = Colors.white.withValues(alpha: 0.25);
+      canvas.drawCircle(
+        center,
+        cellSize * 0.23,
+        Paint()..color = candy.base.withValues(alpha: 0.4),
+      );
     }
   }
 
   void _drawHomeStretch(Canvas canvas, LudoColor color) {
-    final baseColor = LudoBoardLayout.colorValues[color]!;
-    final paint = Paint()
-      ..color = baseColor.withValues(alpha: 0.3);
-    for (final c in LudoBoardLayout.homeStretchCoords[color]!) {
-      canvas.drawRect(
-        Rect.fromLTWH(c[0] * cellSize, c[1] * cellSize, cellSize, cellSize),
-        paint,
+    final candy = _candyPieces[color]!;
+    final coords = LudoBoardLayout.homeStretchCoords[color]!;
+    final horizontal = coords.first[0] != coords.last[0];
+    for (final c in coords) {
+      final rect = Rect.fromLTWH(
+        c[0] * cellSize + cellSize * 0.04,
+        c[1] * cellSize + cellSize * 0.04,
+        cellSize * 0.92,
+        cellSize * 0.92,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cellSize * 0.18)),
+        Paint()
+          ..shader = LinearGradient(
+            begin: horizontal ? Alignment.centerLeft : Alignment.topCenter,
+            end: horizontal ? Alignment.centerRight : Alignment.bottomCenter,
+            colors: [
+              candy.base.withValues(alpha: 0.75),
+              candy.light.withValues(alpha: 0.35),
+            ],
+          ).createShader(rect),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cellSize * 0.18)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = candy.deep.withValues(alpha: 0.5),
       );
     }
   }
@@ -2291,14 +2939,13 @@ class _LudoBoardPainter extends CustomPainter {
     final center = Offset(7.5 * cellSize, 7.5 * cellSize);
     final r = cellSize * 1.5;
     final colors = [
-      LudoBoardLayout.colorValues[LudoColor.blue]!,
-      LudoBoardLayout.colorValues[LudoColor.red]!,
-      LudoBoardLayout.colorValues[LudoColor.green]!,
-      LudoBoardLayout.colorValues[LudoColor.yellow]!,
+      _candyPieces[LudoColor.blue]!.base,
+      _candyPieces[LudoColor.red]!.base,
+      _candyPieces[LudoColor.green]!.base,
+      _candyPieces[LudoColor.yellow]!.base,
     ];
 
     for (var i = 0; i < 4; i++) {
-      final paint = Paint()..color = colors[i].withValues(alpha: 0.7);
       final path = Path();
       final angle = -math.pi / 4 + i * math.pi / 2;
       path.moveTo(center.dx, center.dy);
@@ -2309,16 +2956,36 @@ class _LudoBoardPainter extends CustomPainter {
         false,
       );
       path.close();
-      canvas.drawPath(path, paint);
+      canvas.drawPath(path, Paint()..color = colors[i]);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..strokeJoin = StrokeJoin.round
+          ..color = Colors.white.withValues(alpha: 0.85),
+      );
     }
 
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.1);
-    canvas.drawCircle(center, cellSize * 0.8, paint);
-    paint.color = const Color(0xFFD4A017).withValues(alpha: 0.3);
-    canvas.drawCircle(center, cellSize * 0.5, paint);
-    paint.color = const Color(0xFFD4A017).withValues(alpha: 0.6);
-    canvas.drawCircle(center, cellSize * 0.2, paint);
+    canvas.drawCircle(
+      center,
+      cellSize * 0.78,
+      Paint()..color = _LudoTokens.card,
+    );
+    canvas.drawCircle(
+      center,
+      cellSize * 0.78,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = cellSize * 0.07
+        ..color = _LudoTokens.gold,
+    );
+    _drawStar(
+      canvas,
+      center,
+      cellSize * 0.42,
+      Paint()..color = _LudoTokens.goldDeep,
+    );
   }
 
   @override
@@ -2364,12 +3031,20 @@ class _LudoForfeitWarningDialogState extends State<_LudoForfeitWarningDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: Colors.orange.shade900,
+      backgroundColor: _LudoTokens.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: const Row(
         children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
+          Icon(Icons.warning_amber_rounded, color: _LudoTokens.redDeep, size: 28),
           SizedBox(width: 8),
-          Text('Inactivité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Text(
+            'Inactivité',
+            style: TextStyle(
+              color: _LudoTokens.ink,
+              fontWeight: FontWeight.w900,
+              fontFamily: _billardTitre,
+            ),
+          ),
         ],
       ),
       content: Column(
@@ -2378,26 +3053,50 @@ class _LudoForfeitWarningDialogState extends State<_LudoForfeitWarningDialog> {
           const Text(
             'Vous n\'avez pas joué depuis 50s.\nJouez votre coup dans les',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white, fontSize: 15),
+            style: TextStyle(
+              color: _LudoTokens.inkSoft,
+              fontSize: 15,
+              fontFamily: _billardLora,
+            ),
           ),
           const SizedBox(height: 12),
-          Text(
-            '$_seconds',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 48,
-              fontWeight: FontWeight.bold,
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _LudoTokens.redDeep.withValues(alpha: 0.12),
+              border: Border.all(color: _LudoTokens.redDeep, width: 2.5),
+            ),
+            child: Center(
+              child: Text(
+                '$_seconds',
+                style: const TextStyle(
+                  color: _LudoTokens.redDeep,
+                  fontSize: 40,
+                  fontWeight: FontWeight.w900,
+                  fontFamily: _billardTitre,
+                ),
+              ),
             ),
           ),
           const Text(
             'secondes',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
+            style: TextStyle(
+              color: _LudoTokens.inkSoft,
+              fontSize: 14,
+              fontFamily: _billardLora,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
             'sinon vous perdez la partie par forfait.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+            style: TextStyle(
+              color: _LudoTokens.inkFaint,
+              fontSize: 13,
+              fontFamily: _billardLora,
+            ),
           ),
         ],
       ),
