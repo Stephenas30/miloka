@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -67,15 +68,24 @@ class _GameScreenState extends State<GameScreen>
   bool dealCardAtTarget = false;
   CardModel? animatingPlayCard;
   String? animatingPlayPlayer;
-  bool playCardAtCenter = false;
+  Offset _playFrom = Offset.zero;
+  Offset _playTo = Offset.zero;
+  bool _playDropAndSettle = false;
+  late final AnimationController _playController;
   final Duration dealAnimationDuration = const Duration(milliseconds: 500);
-  final Duration playAnimationDuration = const Duration(milliseconds: 450);
+  final Duration playAnimationDuration = const Duration(milliseconds: 820);
 
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
   CardModel? _draggingCard;
+  String? _draggingCardPlayer;
+  bool _dropResolveInProgress = false;
+  bool _dragHasMoved = false;
   final ValueNotifier<Offset> _dragPos = ValueNotifier<Offset>(Offset.zero);
+  AnimationController? _returnController;
+  Animation<Offset>? _returnAnimation;
   final GlobalKey _dragStackKey = GlobalKey();
+  final Map<String, GlobalKey> _cardKeys = {};
 
   bool _hostReady = false;
   bool _guestReady = false;
@@ -104,6 +114,12 @@ class _GameScreenState extends State<GameScreen>
   @override
   void initState() {
     super.initState();
+    _playController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 820),
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
     gameLogic = BeloteGameLogic(players: players);
 
     if (widget.teamId != null) {
@@ -144,6 +160,8 @@ class _GameScreenState extends State<GameScreen>
     _autoCloseTimer?.cancel();
     _inactivityTimer?.cancel();
     _inactivityWarningTimer?.cancel();
+    _playController.dispose();
+    _returnController?.dispose();
     _dragPos.dispose();
     if (widget.teamId != null) {
       GameChannelService().disconnect();
@@ -424,11 +442,22 @@ class _GameScreenState extends State<GameScreen>
     final cardData = event['card'] as Map<String, dynamic>?;
     if (cardData == null) return;
     final card = CardModel.fromMap(cardData);
+    final posData = event['pos'] as Map<String, dynamic>?;
+    final position = posData == null
+        ? null
+        : Offset(
+            (posData['x'] as num?)?.toDouble() ?? 0.5,
+            (posData['y'] as num?)?.toDouble() ?? 0.42,
+          );
     final hand = _handFor(player);
     hand.removeWhere((c) => c.suit == card.suit && c.rank == card.rank);
     setState(() {
-      gameLogic.currentTrick.add(PlayedCard(player, card));
-      gameLogic.callSystem.setCurrentPlayer(event['next_player'] as String? ?? _nextPlayer(player));
+      gameLogic.currentTrick.add(
+        PlayedCard(player, card, position: position),
+      );
+      gameLogic.callSystem.setCurrentPlayer(
+        event['next_player'] as String? ?? _nextPlayer(player),
+      );
     });
   }
 
@@ -523,32 +552,48 @@ class _GameScreenState extends State<GameScreen>
     final player = event['player'] as String? ?? 'Nord';
     final hand = _handFor(player);
     final contains = hand.contains(card);
+    final posData = event['pos'] as Map<String, dynamic>?;
+    final position = posData == null
+        ? null
+        : Offset(
+            (posData['x'] as num?)?.toDouble() ?? 0.5,
+            (posData['y'] as num?)?.toDouble() ?? 0.42,
+          );
     print('[${widget.teamId}] _handleGuestPlay player=$player card=${card.suit.name}-${card.rank.name} handSize=${hand.length} contains=$contains');
     if (contains) {
-      _playCardFromNetwork(player, card);
+      _playCardFromNetwork(player, card, position: position);
     } else {
       print('[${widget.teamId}] ⚠️ _handleGuestPlay: card not in hand. Hand: ${hand.map((c) => "${c.suit.name}-${c.rank.name}").join(", ")}');
     }
   }
 
-  Future<void> _playCardFromNetwork(String player, CardModel card) async {
+  Future<void> _playCardFromNetwork(String player, CardModel card,
+      {Offset? position}) async {
     if (_isPlayingCard) return;
     _isPlayingCard = true;
     final hand = _handFor(player);
+    final board = _boardSize();
+    final relative =
+        position ?? _randomDropPos();
+    _playFrom = _cardStackOffset(card) ?? _edgeStart(player);
+    _playTo = Offset(
+      relative.dx * board.width - cardWidthValue / 2,
+      relative.dy * board.height - cardHeightValue / 2,
+    );
+    _playDropAndSettle = false;
     setState(() {
       hand.remove(card);
       animatingPlayCard = card;
       animatingPlayPlayer = player;
-      playCardAtCenter = false;
     });
-    await Future.delayed(const Duration(milliseconds: 20));
-    setState(() => playCardAtCenter = true);
-    await Future.delayed(playAnimationDuration + const Duration(milliseconds: 50));
+    _playController.duration = playAnimationDuration;
+    await _playController.forward(from: 0);
     setState(() {
-      gameLogic.currentTrick.add(PlayedCard(player, card));
+      gameLogic.currentTrick.add(
+        PlayedCard(player, card, position: relative),
+      );
       animatingPlayCard = null;
       animatingPlayPlayer = null;
-      playCardAtCenter = false;
     });
 
     if (widget.teamId != null && widget.isHost) {
@@ -840,44 +885,60 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
-  Future<void> _playCard(String player, CardModel card) async {
+  Future<void> _playCard(String player, CardModel card,
+      {Offset? dropPos}) async {
     if (_isPlayingCard) return;
     _isPlayingCard = true;
+    _draggingCard = null;
+    _returnAnimation = null;
+    _dragPos.value = Offset.zero;
     print('🃏 $player joue ${card.assetPath}');
     final hand = _handFor(player);
+    final board = _boardSize();
+    // Position fractionnelle où la carte va atterrir (relâchement du doigt, ou emplacement aléatoire)
+    final relative = dropPos != null
+        ? Offset(
+            dropPos.dx / board.width,
+            dropPos.dy / board.height,
+          )
+        : _randomDropPos();
+    _playFrom = dropPos ?? _cardStackOffset(card) ?? _edgeStart(player);
+    _playTo = Offset(
+      relative.dx * board.width - cardWidthValue / 2,
+      relative.dy * board.height - cardHeightValue / 2,
+    );
+    _playDropAndSettle = dropPos != null;
     setState(() {
       hand.remove(card);
       animatingPlayCard = card;
       animatingPlayPlayer = player;
-      playCardAtCenter = false;
     });
-
-    await Future.delayed(const Duration(milliseconds: 20));
-    setState(() {
-      playCardAtCenter = true;
-    });
-    await Future.delayed(playAnimationDuration + const Duration(milliseconds: 50));
+    _playController.duration = dropPos != null
+        ? const Duration(milliseconds: 280)
+        : playAnimationDuration;
+    await _playController.forward(from: 0);
 
     if (widget.teamId != null && !widget.isHost) {
       // Guest : envoie au host, ne fait rien d'autre (host broadcast card_played)
       setState(() {
         animatingPlayCard = null;
         animatingPlayPlayer = null;
-        playCardAtCenter = false;
       });
       GameChannelService().send('play_card', {
         'player': player,
         'card': card.toMap(),
+        'pos': {'x': relative.dx, 'y': relative.dy},
       });
       _isPlayingCard = false;
       return;
     }
 
     setState(() {
-      gameLogic.currentTrick.add(PlayedCard(player, card));
+      gameLogic.currentTrick.add(
+        PlayedCard(player, card, position: relative),
+      );
       animatingPlayCard = null;
       animatingPlayPlayer = null;
-      playCardAtCenter = false;
     });
 
     if (widget.teamId != null && widget.isHost) {
@@ -885,6 +946,7 @@ class _GameScreenState extends State<GameScreen>
         'player': player,
         'card': card.toMap(),
         'next_player': _nextPlayer(player),
+        'pos': {'x': relative.dx, 'y': relative.dy},
       });
     }
 
@@ -962,168 +1024,333 @@ class _GameScreenState extends State<GameScreen>
     return gameLogic.canPlayCard(card, player: player);
   }
 
-  void _onDragStart(CardModel card, String playerName, LongPressStartDetails details) {
-    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+  GlobalKey _cardKeyFor(CardModel card) =>
+      _cardKeys.putIfAbsent(card.assetPath, () => GlobalKey());
+
+  Size _boardSize() {
+    final renderBox =
+        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    return renderBox?.size ?? const Size(400, 700);
+  }
+
+  /// Position de la carte dans les coordonnées du Stack de la table.
+  Offset? _cardStackOffset(CardModel card) {
+    final cardKey = _cardKeys[card.assetPath];
+    final stackBox =
+        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final cardBox =
+        cardKey?.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null || cardBox == null) return null;
+    final stackOrigin = stackBox.localToGlobal(Offset.zero);
+    return cardBox.localToGlobal(Offset.zero) - stackOrigin;
+  }
+
+  /// Position fractionnelle aléatoire naturelle près du centre de la table.
+  Offset _randomDropPos() {
+    final random = math.Random();
+    return Offset(
+      0.36 + random.nextDouble() * 0.28,
+      0.28 + random.nextDouble() * 0.22,
+    );
+  }
+
+  /// Position de repos de la carte pour un joueur sans GlobalKey (IA/joueurs non humains).
+  Offset _edgeStart(String player) {
+    final origin = _playOrigin(player);
+    final size = _boardSize();
+    if (origin.y > 0.5) {
+      return Offset(size.width / 2 - cardWidthValue / 2, size.height + 40);
+    }
+    if (origin.y < -0.5) {
+      return Offset(size.width / 2 - cardWidthValue / 2, -120);
+    }
+    if (origin.x > 0.5) {
+      return Offset(size.width + 40, size.height / 2 - cardHeightValue / 2);
+    }
+    return Offset(-100, size.height / 2 - cardHeightValue / 2);
+  }
+
+  static const double cardWidthValue = 80.0;
+  static const double cardHeightValue = 100.0;
+  void _onDragStart(CardModel card, String playerName, DragDownDetails details) {
+    final RenderBox? box =
+        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(details.globalPosition);
     setState(() {
       _draggingCard = card;
+      _draggingCardPlayer = playerName;
+      _dropResolveInProgress = false;
+      _dragHasMoved = false;
       _dragPos.value = local;
     });
   }
 
-  void _onDragUpdate(LongPressMoveUpdateDetails details) {
-    final RenderBox? box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+  void _onDragUpdate(DragUpdateDetails details) {
+    final RenderBox? box =
+        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(details.globalPosition);
+    _dragHasMoved = true;
     _dragPos.value = local;
   }
 
-  void _onDragEnd(CardModel card, String playerName) {
-    if (!_canPlayCard(card, player: playerName)) {
-      setState(() => _draggingCard = null);
-      return;
-    }
-    final screenHeight = MediaQuery.of(context).size.height;
-    if (_dragPos.value.dy < screenHeight * 0.5) {
-      final playCard = card;
-      setState(() => _draggingCard = null);
-      _playCard(playerName, playCard);
-    } else {
-      setState(() => _draggingCard = null);
-    }
+  Rect _dropZoneRect() {
+    final size = MediaQuery.of(context).size;
+    const handZoneHeight = 150.0; // hauteur de la zone des deux mains basses
+    return Rect.fromLTWH(0, 0, size.width, size.height - handZoneHeight);
   }
 
+  bool _isOverDropZone(Offset pos) => _dropZoneRect().contains(pos);
+
+  void _onReturnTick() {
+    final animation = _returnAnimation;
+    if (animation == null) return;
+    _dragPos.value = animation.value;
+  }
+
+  void _onReturnDone(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    setState(() {
+      _draggingCard = null;
+      _dragPos.value = Offset.zero;
+      _returnAnimation = null;
+    });
+  }
+
+  /// Relâche du doigt : déclenché par onPanEnd OU par le Listener global du Stack
+  /// (quel que soit le résultat de la scène de gestes).
+  void _tryResolveDragDrop() {
+    print('[drag] pointerUp card=${_draggingCard?.assetPath}');
+    final card = _draggingCard;
+    final playerName = _draggingCardPlayer;
+    if (card == null || playerName == null) return;
+    _resolveDragDrop(card, playerName);
+  }
+
+  void _onDragEnd(CardModel card, String playerName) {
+    print('[drag] onPanEnd fired');
+    _resolveDragDrop(card, playerName);
+  }
+
+  void _flyBackToHand(CardModel card) {
+    final rest = _cardStackOffset(card);
+    if (rest == null) {
+      setState(() {
+        _draggingCard = null;
+        _dragPos.value = Offset.zero;
+      });
+      return;
+    }
+    _returnController ??= AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 230),
+    )
+      ..addListener(_onReturnTick)
+      ..addStatusListener(_onReturnDone);
+    _returnAnimation = Tween<Offset>(begin: _dragPos.value, end: rest).animate(
+      CurvedAnimation(
+        parent: _returnController!,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _returnController!.forward(from: 0);
+  }
+
+  void _resolveDragDrop(CardModel card, String playerName) {
+    if (_dropResolveInProgress) return;
+    if (_draggingCard == null) return;
+    if (!_dragHasMoved) {
+      setState(() => _draggingCard = null);
+      _draggingCardPlayer = null;
+      return;
+    }
+    _dropResolveInProgress = true;
+
+    if (!_canPlayCard(card, player: playerName)) {
+      // Carte non jouable maintenant → retour en main + message
+      _flyBackToHand(card);
+      _draggingCardPlayer = null;
+      _dropResolveInProgress = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Carte non jouable — suivez la couleur jouée'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    if (_isOverDropZone(_dragPos.value)) {
+      final dropPos = _dragPos.value;
+      setState(() => _draggingCard = null);
+      _draggingCardPlayer = null;
+      _dropResolveInProgress = false;
+      _playCard(playerName, card, dropPos: dropPos);
+      return;
+    }
+    // Ailleurs : retour animé de la carte vers sa place dans la main
+    _flyBackToHand(card);
+    _draggingCardPlayer = null;
+    _dropResolveInProgress = false;
+  }
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
     const cardWidth = 80.0;
     const cardHeight = 100.0;
-    const overlap = 36.0;
-    final width = cards.isEmpty
-        ? 0.0
-        : cardWidth + (cards.length - 1) * overlap;
-
-    return SizedBox(
-      height: cardHeight,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: width,
-          child: Stack(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.maxWidth;
+        final overlap = cards.length <= 1
+            ? 0.0
+            : math.min(36.0, (available - cardWidth) / (cards.length - 1));
+        final width = cards.isEmpty
+            ? 0.0
+            : math.min(available, cardWidth + (cards.length - 1) * overlap);
+        final canPlay = _isHuman(playerName);
+        return SizedBox(
+          height: cardHeight,
+          child: Align(
             alignment: Alignment.centerRight,
-            children: [
-              for (var i = 0; i < cards.length; i++)
-                Positioned(
-                  right: (cards.length - 1 - i) * overlap,
-                  child: GestureDetector(
-                    onTap: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
-                        ? () => _playCard(playerName, cards[i])
-                        : null,
-                    onLongPressStart: _isHuman(playerName) && _canPlayCard(cards[i], player: playerName)
-                        ? (d) => _onDragStart(cards[i], playerName, d)
-                        : null,
-                    onLongPressMoveUpdate: _isHuman(playerName)
-                        ? _onDragUpdate
-                        : null,
-                    onLongPressEnd: _isHuman(playerName) && _draggingCard != null
-                        ? (_) => _onDragEnd(cards[i], playerName)
-                        : null,
-                    child: SvgPicture.asset(
-                      cards[i].assetPath,
-                      width: cardWidth,
-                      height: cardHeight,
+            child: SizedBox(
+              width: width,
+              child: Stack(
+                alignment: Alignment.centerRight,
+                children: [
+                  for (var i = 0; i < cards.length; i++)
+                    Positioned(
+                      key: _cardKeyFor(cards[i]),
+                      right: (cards.length - 1 - i) * overlap,
+                      child: GestureDetector(
+                        onTap: canPlay && _canPlayCard(cards[i], player: playerName)
+                            ? () => _playCard(playerName, cards[i])
+                            : null,
+                        onPanDown: canPlay &&
+                                _canPlayCard(cards[i], player: playerName)
+                            ? (details) => _onDragStart(cards[i], playerName, details)
+                            : null,
+                        onPanStart: canPlay &&
+                                _canPlayCard(cards[i], player: playerName)
+                            ? (_) => print('[drag] onPanStart ${_draggingCard == null}')
+                            : null,
+                        onPanUpdate: canPlay ? _onDragUpdate : null,
+                        onPanEnd: canPlay && _draggingCard != null
+                            ? (_) => _onDragEnd(cards[i], playerName)
+                            : null,
+                        onPanCancel: canPlay && _draggingCard != null
+                            ? () => _onDragEnd(cards[i], playerName)
+                            : null,
+                        child: Opacity(
+                          opacity: identical(_draggingCard, cards[i]) ? 0.0 : 1.0,
+                          child: SvgPicture.asset(
+                            cards[i].assetPath,
+                            width: cardWidth,
+                            height: cardHeight,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  PlayedCard? _playedCardFor(String player) {
-    for (final played in gameLogic.currentTrick) {
-      if (played.player == player) return played;
-    }
-    return null;
+  Widget _buildDropZoneHighlight() {
+    if (_draggingCard == null) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _dragPos,
+      builder: (context, _) {
+        final over = _isOverDropZone(_dragPos.value);
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: over
+                      ? const Color(0x14FFC107)
+                      : Colors.black.withValues(alpha: 0.12),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 70,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      over ? Icons.touch_app : Icons.touch_app_outlined,
+                      color: over
+                          ? const Color(0xFFFFC107)
+                          : Colors.white54,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      over
+                          ? 'Relâchez la carte !'
+                          : 'Déposez la carte n\'importe où sur la table',
+                      style: TextStyle(
+                        color: over
+                            ? const Color(0xFFFFC107)
+                            : Colors.white70,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 4),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _showTrickArea() {
-    final playedMap = {
-      for (final player in ['Nord', 'Est', 'Sud', 'Ouest'])
-        player: _playedCardFor(player),
-    };
-
-    if (widget.teamId != null && !widget.isHost) {
-      return SizedBox(
-        height: 200,
-        child: Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            Align(
-              alignment: const Alignment(0, -0.45),
-              child: _buildTrickCard(playedMap['Sud']),
-            ),
-            Align(
-              alignment: const Alignment(0.33, -0.05),
-              child: _buildTrickCard(playedMap['Ouest']),
-            ),
-            Align(
-              alignment: const Alignment(-0.33, -0.05),
-              child: _buildTrickCard(playedMap['Est']),
-            ),
-            Align(
-              alignment: const Alignment(0, 0.45),
-              child: _buildTrickCard(playedMap['Nord']),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: 200,
+    final size = MediaQuery.of(context).size;
+    final played = gameLogic.currentTrick;
+    return SizedBox.expand(
       child: Stack(
-        alignment: Alignment.center,
         clipBehavior: Clip.none,
         children: [
-          Align(
-            alignment: const Alignment(0, -0.45),
-            child: _buildTrickCard(playedMap['Nord']),
-          ),
-          Align(
-            alignment: const Alignment(0.33, -0.05),
-            child: _buildTrickCard(playedMap['Est']),
-          ),
-          Align(
-            alignment: const Alignment(-0.33, -0.05),
-            child: _buildTrickCard(playedMap['Ouest']),
-          ),
-          Align(
-            alignment: const Alignment(0, 0.45),
-            child: _buildTrickCard(playedMap['Sud']),
-          ),
+          _buildDropZoneHighlight(),
+          for (final playedCard in played) _buildPlacedCard(playedCard, size),
         ],
       ),
     );
   }
 
-  Widget _buildTrickCard(PlayedCard? playedCard) {
-    if (playedCard == null) {
-      return Container(
-        width: 60,
-        height: 76,
-        decoration: BoxDecoration(
-          color: Colors.white12,
-          borderRadius: BorderRadius.circular(8),
+  Widget _buildPlacedCard(PlayedCard playedCard, Size size) {
+    final position = playedCard.position;
+    final left = position != null
+        ? position.dx * size.width - 30
+        : size.width / 2 - 30;
+    final top = position != null
+        ? position.dy * size.height - 38
+        : size.height * 0.32;
+    return Positioned(
+      left: left,
+      top: top,
+      child: Transform.rotate(
+        angle: playedCard.rotation * math.pi / 180,
+        child: SvgPicture.asset(
+          playedCard.card.assetPath,
+          width: 60,
+          height: 76,
         ),
-      );
-    }
-    return SvgPicture.asset(
-      playedCard.card.assetPath,
-      width: 60,
-      height: 76,
+      ),
     );
   }
 
@@ -1863,11 +2090,28 @@ class _GameScreenState extends State<GameScreen>
                   left: pos.dx - 40,
                   top: pos.dy - 50,
                   child: Transform.rotate(
-                    angle: 0.05,
-                    child: SvgPicture.asset(
-                      card.assetPath,
-                      width: 80,
-                      height: 100,
+                    angle: 0.04,
+                    child: Transform.scale(
+                      scale: 1.07,
+                      child: Container(
+                        width: cardWidthValue,
+                        height: cardHeightValue,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(9),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 18,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: SvgPicture.asset(
+                          card.assetPath,
+                          width: cardWidthValue,
+                          height: cardHeightValue,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1894,18 +2138,142 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  double _handAngle(String player) {
+    final origin = _playOrigin(player);
+    return math.atan2(-origin.x, origin.y);
+  }
+
+  double _phase(double t, double start, double end) =>
+      ((t - start) / (end - start)).clamp(0.0, 1.0);
+
+  Offset _handStart(String player) {
+    final board = _boardSize();
+    final o = _playOrigin(player);
+    if (o.y > 0.5) return Offset(board.width / 2 - 44, board.height + 60);
+    if (o.y < -0.5) return Offset(board.width / 2 - 44, -120);
+    if (o.x > 0.5) return Offset(board.width + 60, board.height / 2);
+    return Offset(-100, board.height / 2);
+  }
+
   Widget _buildPlayAnimation() {
-    return AnimatedAlign(
-      alignment: playCardAtCenter
-          ? Alignment.center
-          : _playOrigin(animatingPlayPlayer!),
-      duration: playAnimationDuration,
-      curve: Curves.easeInOut,
-      child: SvgPicture.asset(
-        animatingPlayCard!.assetPath,
-        width: 80,
-        height: 100,
-      ),
+    final card = animatingPlayCard!;
+    final player = animatingPlayPlayer!;
+    return AnimatedBuilder(
+      animation: _playController,
+      builder: (context, _) {
+        final t = _playController.value.clamp(0.0, 1.0);
+        final rest = _playFrom;
+        final target = _playTo;
+
+        Offset cardPos;
+        double cardScale;
+        double cardRotation = 0;
+        if (_playDropAndSettle) {
+          cardPos = target;
+          cardScale =
+              1.24 - 0.24 * Curves.easeOutBack.transform(t);
+        } else if (t < 0.17) {
+          cardPos = rest;
+          cardScale = 1.0;
+        } else if (t < 0.28) {
+          cardPos = rest;
+          cardScale =
+              1.0 + 0.09 * Curves.easeOut.transform(_phase(t, 0.17, 0.28));
+        } else if (t < 0.80) {
+          final p = _phase(t, 0.28, 0.80);
+          final eased = Curves.easeInOutCubic.transform(p);
+          cardPos = Offset(
+            rest.dx + (target.dx - rest.dx) * eased,
+            rest.dy + (target.dy - rest.dy) * eased -
+                math.sin(p * math.pi) * 110,
+          );
+          cardScale = 1.09;
+          cardRotation = math.sin(p * math.pi) * 0.15 *
+              (target.dx >= rest.dx ? 1 : -1);
+        } else {
+          cardPos = target;
+          cardScale =
+              1.09 - 0.09 * Curves.easeOutBack.transform(_phase(t, 0.80, 1.0));
+        }
+
+        final liftFactor = _playDropAndSettle
+            ? 0.0
+            : (t < 0.17
+                ? 0.0
+                : t < 0.80
+                    ? _phase(t, 0.17, 0.45)
+                    : 1.0 - _phase(t, 0.80, 1.0));
+
+        Offset handPos;
+        double handOpacity = 1.0;
+        final gripOffset = const Offset(-4, 46);
+        if (_playDropAndSettle) {
+          handPos = const Offset(0, -300);
+          handOpacity = 0.0;
+        } else if (t < 0.17) {
+          final p = Curves.easeOutCubic.transform(_phase(t, 0.0, 0.17));
+          handPos = Offset.lerp(_handStart(player), rest + gripOffset, p)!;
+        } else if (t < 0.80) {
+          handPos = cardPos + gripOffset;
+        } else {
+          final p = _phase(t, 0.80, 1.0);
+          handPos = Offset.lerp(
+            target + gripOffset,
+            _handStart(player),
+            Curves.easeInCubic.transform(p),
+          )!;
+          handOpacity = 1.0 - p;
+        }
+
+        return Stack(
+          children: [
+            Positioned(
+              left: cardPos.dx,
+              top: cardPos.dy,
+              child: Transform.rotate(
+                angle: cardRotation,
+                child: Transform.scale(
+                  scale: cardScale,
+                  child: Container(
+                    width: cardWidthValue,
+                    height: cardHeightValue,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(9),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black
+                              .withValues(alpha: 0.3 + 0.25 * liftFactor),
+                          blurRadius: 6 + 12 * liftFactor,
+                          offset: Offset(0, 2 + 8 * liftFactor),
+                        ),
+                      ],
+                    ),
+                    child: SvgPicture.asset(
+                      card.assetPath,
+                      width: cardWidthValue,
+                      height: cardHeightValue,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: handPos.dx,
+              top: handPos.dy,
+              child: Opacity(
+                opacity: handOpacity,
+                child: Transform.rotate(
+                  angle: _handAngle(player),
+                  child: CustomPaint(
+                    size: const Size(88, 116),
+                    painter: const _PlayHandPainter(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1921,6 +2289,16 @@ class _GameScreenState extends State<GameScreen>
       body: Stack(
         key: _dragStackKey,
         children: [
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => print('[drag] pointerDown'),
+            onPointerUp: (_) => _tryResolveDragDrop(),
+            onPointerCancel: (_) {
+              print('[drag] pointerCancel');
+              _tryResolveDragDrop();
+            },
+            child: const SizedBox.expand(),
+          ),
           Positioned.fill(
             child: RepaintBoundary(
               child: Image.asset(
@@ -1929,9 +2307,6 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
           ),
-          if (animatingDealCard != null) _buildDealAnimation(),
-          if (animatingPlayCard != null) _buildPlayAnimation(),
-          if (_draggingCard != null) _buildDragOverlay(),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2005,16 +2380,16 @@ class _GameScreenState extends State<GameScreen>
             ),
           ),
 
-          // Afficher la zone de pli en overlay pour ne pas impacter le layout des mains
-          Positioned(
-            top: MediaQuery.of(context).size.height * 0.33,
-            left: 0,
-            right: 0,
+          // Zone de pli en overlay plein écran — chaque carte reste où elle est jouée
+          Positioned.fill(
             child: IgnorePointer(
               ignoring: true,
               child: RepaintBoundary(child: _showTrickArea()),
             ),
           ),
+          if (animatingDealCard != null) _buildDealAnimation(),
+          if (animatingPlayCard != null) _buildPlayAnimation(),
+          if (_draggingCard != null) _buildDragOverlay(),
 
           if (_guestDealing)
             Positioned.fill(
@@ -2299,4 +2674,151 @@ class _ForfeitWarningDialogState extends State<_ForfeitWarningDialog> {
       ),
     );
   }
+}
+
+class _PlayHandPainter extends CustomPainter {
+  const _PlayHandPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.translate(size.width / 2, size.height);
+
+    const outline = Color(0xFF9A6444);
+    const crease = Color(0xFFA96F46);
+    const nail = Color(0xFFF6DCC9);
+
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(1, -8), width: 84, height: 22),
+      Paint()..color = Colors.black.withValues(alpha: 0.25),
+    );
+
+    final gradTop = const Color(0xFFF3C6A3);
+    final gradBase = const Color(0xFFDEA174);
+    Paint skinShaderFor(Rect rect) => Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [gradTop, gradBase],
+      ).createShader(rect);
+
+    RRect rounded(double x, double y, double w, double h, double r) =>
+        RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(r));
+
+    final palm = rounded(-27, -68, 54, 48, 15);
+    canvas.drawRRect(palm, skinShaderFor(palm.outerRect));
+    canvas.drawRRect(
+      palm,
+      Paint()
+        ..color = outline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.7,
+    );
+
+    final crease1 = Path()
+      ..moveTo(-21, -42)
+      ..quadraticBezierTo(-6, -34, 12, -46)
+      ..quadraticBezierTo(18, -49, 24, -44);
+    canvas.drawPath(
+      crease1,
+      Paint()
+        ..color = crease
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.3,
+    );
+    final crease2 = Path()
+      ..moveTo(-17, -27)
+      ..quadraticBezierTo(2, -21, 20, -31);
+    canvas.drawPath(
+      crease2,
+      Paint()
+        ..color = crease
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+
+    const fingers = [
+      (-19.0, 9.2, 24.0),
+      (-6.3, 10.4, 29.0),
+      (6.3, 10.8, 32.0),
+      (19.0, 9.8, 26.5),
+    ];
+    for (final (fx, fw, total) in fingers) {
+      final seg1 = total * 0.55;
+      final seg2 = total - seg1;
+      final r1 = rounded(fx - fw / 2, -68 - seg1, fw, seg1 + 1.5, fw / 2);
+      canvas.drawRRect(r1, skinShaderFor(r1.outerRect));
+      final r2 = rounded(
+        fx - fw / 2,
+        -68 - seg1 - seg2,
+        fw,
+        seg2 + 1.0,
+        fw / 2,
+      );
+      canvas.drawRRect(r2, skinShaderFor(r2.outerRect));
+      canvas.drawRRect(
+        r1,
+        Paint()
+          ..color = outline
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.3,
+      );
+      canvas.drawRRect(
+        r2,
+        Paint()
+          ..color = outline
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.1,
+      );
+      canvas.drawLine(
+        Offset(fx - fw / 2 + 1.5, -68 - seg1),
+        Offset(fx + fw / 2 - 1.5, -68 - seg1),
+        Paint()
+          ..color = crease
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(fx, -68 - total + fw * 0.32),
+          width: fw * 0.5,
+          height: fw * 0.33,
+        ),
+        Paint()..color = nail,
+      );
+    }
+
+    canvas.save();
+    canvas.translate(-26, -24);
+    canvas.rotate(-0.55);
+    final thumb1 = rounded(-6.2, -15, 12.4, 17, 6.2);
+    canvas.drawRRect(thumb1, skinShaderFor(thumb1.outerRect));
+    canvas.drawRRect(
+      thumb1,
+      Paint()
+        ..color = outline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    final thumb2 = rounded(-5, -25, 10, 12, 5);
+    canvas.drawRRect(thumb2, skinShaderFor(thumb2.outerRect));
+    canvas.drawRRect(
+      thumb2,
+      Paint()
+        ..color = outline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+    canvas.drawLine(
+      const Offset(-6.2, -15),
+      const Offset(6.2, -15),
+      Paint()
+        ..color = crease
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlayHandPainter oldDelegate) => false;
 }
