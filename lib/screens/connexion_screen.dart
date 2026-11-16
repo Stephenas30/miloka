@@ -31,7 +31,7 @@ class _ConnexionScreenState extends State<ConnexionScreen> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 image: DecorationImage(
-                  image: AssetImage("assets/images/bkg-con.png"),
+                  image: AssetImage("assets/images/bkg-con.jpg"),
                   fit: BoxFit.cover,
                 ),
               ),

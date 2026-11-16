@@ -16,7 +16,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> startLoading() async {
 
-    await Future.delayed(const Duration(seconds: 5));
+    await Future.delayed(const Duration(milliseconds: 1500));
 
     if(mounted){
       Navigator.pushReplacement(context, 
@@ -45,14 +45,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         color: Colors.black,
         child: ConstrainedBox(
         constraints: BoxConstraints(
-          minHeight: MediaQuery.of(context).size.height,
-          maxHeight: MediaQuery.of(context).size.height,
+          minHeight: MediaQuery.sizeOf(context).height,
+          maxHeight: MediaQuery.sizeOf(context).height,
         ),
         child: Stack( 
           children: [
             Positioned.fill(child: ClipRRect(
               child: Image.asset(
-                'assets/images/poster.png',
+                'assets/images/poster.jpg',
               
                 fit: BoxFit.contain,
               ),

@@ -62,7 +62,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/background.png'),
+            image: AssetImage('assets/images/background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -70,9 +70,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           child: SingleChildScrollView(
             child: Container(
               constraints: BoxConstraints(
-                minHeight: MediaQuery.of(context).size.height -
-                    MediaQuery.of(context).padding.top -
-                    MediaQuery.of(context).padding.bottom,
+                minHeight: MediaQuery.sizeOf(context).height -
+                    MediaQuery.paddingOf(context).vertical,
               ),
               padding: const EdgeInsets.all(16),
               child: Form(

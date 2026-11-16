@@ -10,8 +10,10 @@ import 'package:provider/provider.dart';
 import '../game/pool_game.dart';
 import '../providers/auth_provider.dart';
 import '../utils/image_cache.dart';
+import '../utils/game_wake_lock.dart';
 import '../widgets/friends_dialog.dart';
 import 'pool_online_lobby_screen.dart';
+import 'home_screen.dart';
 
 const _poolInk = Color(0xFF17110C);
 const _poolHudCard = Color(0xFF261A10);
@@ -49,7 +51,7 @@ class _PoolScreenState extends State<PoolScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/background.png', fit: BoxFit.cover),
+          Image.asset('assets/images/background.jpg', fit: BoxFit.cover),
           Padding(
             padding: const EdgeInsets.all(22),
             child: LayoutBuilder(
@@ -382,6 +384,11 @@ class _PoolGameScreenState extends State<PoolGameScreen>
   late final Ticker _ticker;
   StreamSubscription<String>? _remoteSubscription;
   bool _gameOverReported = false;
+  int _lastTickSeconds = -1;
+  String _lastTickMessage = '';
+  PoolGameState _lastState = PoolGameState.aiming;
+  int _lastCurrentPlayer = 0;
+  late final ValueNotifier<int> _tableTick = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -404,14 +411,37 @@ class _PoolGameScreenState extends State<PoolGameScreen>
         ..ready = true;
       _remoteSubscription = kadri.remoteLines.listen(_onRemoteLine);
     }
+    GameWakeLock.acquire();
     _ticker = createTicker((_) {
       _game.tick();
       final session = widget.kadri;
       if (session != null && _game.isGameOver && !_gameOverReported) {
         _gameOverReported = true;
         session.onGameFinished(_game.winner);
+        _lastTickMessage = _game.message;
+        _lastTickSeconds = _game.turnSecondsLeft;
+        if (mounted) setState(() {});
+        return;
       }
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      final fastState = _game.state == PoolGameState.moving ||
+          _game.state == PoolGameState.striking;
+      final aiCharging = widget.mode == PoolMode.solo &&
+          _game.currentPlayer == 1 &&
+          (_game.state == PoolGameState.aiming ||
+              _game.state == PoolGameState.placingCue);
+      if (fastState || aiCharging) _tableTick.value++;
+      final secondsChanged = _game.turnSecondsLeft != _lastTickSeconds;
+      final messageChanged = _game.message != _lastTickMessage;
+      final stateChanged = _game.state != _lastState;
+      final turnChanged = _game.currentPlayer != _lastCurrentPlayer;
+      _lastTickSeconds = _game.turnSecondsLeft;
+      _lastTickMessage = _game.message;
+      _lastState = _game.state;
+      _lastCurrentPlayer = _game.currentPlayer;
+      if (secondsChanged || messageChanged || stateChanged || turnChanged) {
+        setState(() {});
+      }
     })..start();
   }
 
@@ -448,12 +478,10 @@ class _PoolGameScreenState extends State<PoolGameScreen>
   }
 
   void _closeGame() {
-    final kadri = widget.kadri;
-    if (kadri != null) {
-      kadri.onClosed();
-    } else {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _confirmCloseGame() async {
@@ -492,7 +520,9 @@ class _PoolGameScreenState extends State<PoolGameScreen>
 
   @override
   void dispose() {
+    GameWakeLock.release();
     _ticker.dispose();
+    _tableTick.dispose();
     _remoteSubscription?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations(const [
@@ -531,23 +561,30 @@ class _PoolGameScreenState extends State<PoolGameScreen>
       },
       child: Scaffold(
         backgroundColor: _poolInk,
-        body: Stack(
+        body: SafeArea(
+          top: false,
+          bottom: true,
+          left: true,
+          right: true,
+          child: Stack(
           children: [
             Column(
               children: [
                 const SizedBox(height: 5),
                 _buildHud(),
                 Expanded(
-                  child: LayoutBuilder(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 15),
+                    child: LayoutBuilder(
                     builder: (context, constraints) {
                       final scale = math
                           .min(
-                            (constraints.maxWidth - 36).clamp(
+                            (constraints.maxWidth - 12).clamp(
                                   0,
                                   double.infinity,
                                 ) /
                                 PoolGame.tableWidth,
-                            (constraints.maxHeight - 36).clamp(
+                            (constraints.maxHeight - 12).clamp(
                                   0,
                                   double.infinity,
                                 ) /
@@ -569,7 +606,11 @@ class _PoolGameScreenState extends State<PoolGameScreen>
                                 scale,
                               );
                               _game.pointerDown(point.dx, point.dy);
-                              setState(() {});
+                              if (_game.state == PoolGameState.aiming ||
+                                  _game.state == PoolGameState.placingCue) {
+                                _tableTick.value++;
+                                setState(() {});
+                              }
                             },
                             onPointerMove: (event) {
                               final point = _toBoard(
@@ -577,26 +618,38 @@ class _PoolGameScreenState extends State<PoolGameScreen>
                                 scale,
                               );
                               _game.pointerMove(point.dx, point.dy);
-                              setState(() {});
+                              if (_game.state == PoolGameState.aiming ||
+                                  _game.state == PoolGameState.placingCue) {
+                                _tableTick.value++;
+                                setState(() {});
+                              }
                             },
                             onPointerUp: (_) {
                               _game.pointerUp();
+                              _tableTick.value++;
                               setState(() {});
                             },
-                            child: CustomPaint(
-                              painter: _PoolTablePainter(_game),
-                              size: boardSize,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _tableTick,
+                              builder: (context, _, _) => RepaintBoundary(
+                                child: CustomPaint(
+                                  painter: _PoolTablePainter(_game),
+                                  size: boardSize,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       );
                     },
                   ),
+                  ),
                 ),
               ],
             ),
             if (_game.isGameOver) Positioned.fill(child: _buildGameOver()),
           ],
+        ),
         ),
       ),
     );
@@ -954,12 +1007,43 @@ class _PlayerBadge extends StatelessWidget {
 }
 
 class _PoolTablePainter extends CustomPainter {
-  _PoolTablePainter(this.game);
+  _PoolTablePainter(this.game) : _signature = _computeSignature(game);
 
   final PoolGame game;
+  final int _signature;
+
+  static int _computeSignature(PoolGame g) {
+    final parts = <num>[
+      g.aim,
+      g.power,
+      g.state.index.toDouble(),
+      g.currentPlayer.toDouble(),
+      g.winner.toDouble(),
+      if (g.cuePlacementValid) 1 else 0,
+    ];
+    for (final ball in g.balls) {
+      parts
+        ..add(ball.x)
+        ..add(ball.y)
+        ..add(ball.pocketed ? 1 : 0);
+    }
+    return Object.hashAll(parts);
+  }
   static const _felt = Color(0xFF0D7D25);
   static const _railLight = Color(0xFF9A5424);
   static const _railDark = Color(0xFF4A2410);
+
+  static Paint? _framePaint;
+  static Paint? _feltPaint;
+  static Paint? _diamondPaint;
+  static Paint? _pocketGoldPaint;
+  static Paint? _pocketBlackPaint;
+  static Paint? _cushionPaint;
+  static Paint? _zonePaint;
+  static Paint? _shadowPaint;
+  static final Map<Color, Paint> _fillPaints = {};
+  static TextPainter? _lineLabelPainter;
+  static final Map<int, TextPainter> _numberPainters = {};
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -994,16 +1078,17 @@ class _PoolTablePainter extends CustomPainter {
     const edge = PoolGame.rail;
     const height = PoolGame.tableHeight;
     const line = PoolGame.headStringX;
+    _zonePaint ??= Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0x662ECC71), Color(0x332ECC71)],
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+      ).createShader(
+        const Rect.fromLTRB(edge, edge, line, height - edge),
+      );
     canvas.drawRect(
       const Rect.fromLTRB(edge, edge, line, height - edge),
-      Paint()
-        ..shader = const LinearGradient(
-          colors: [Color(0x662ECC71), Color(0x332ECC71)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ).createShader(
-          const Rect.fromLTRB(edge, edge, line, height - edge),
-        ),
+      _zonePaint!,
     );
     final linePaint = Paint()
       ..color = const Color(0xFFFFFFFF)
@@ -1015,21 +1100,21 @@ class _PoolTablePainter extends CustomPainter {
       const Offset(line, height - edge),
       linePaint,
     );
-    final labelPainter = TextPainter(
-      text: const TextSpan(
-        text: 'LIGNE DE DÉPART',
-        style: TextStyle(
-          color: Color(0xCCFFFFFF),
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    labelPainter.paint(
+    final lineLabel = _lineLabelPainter ??= (TextPainter(
+          text: const TextSpan(
+            text: 'LIGNE DE DÉPART',
+            style: TextStyle(
+              color: Color(0xCCFFFFFF),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout());
+    lineLabel.paint(
       canvas,
-      Offset(line - 8 - labelPainter.width, edge + 6),
+      Offset(line - 8 - lineLabel.width, edge + 6),
     );
   }
 
@@ -1037,18 +1122,35 @@ class _PoolTablePainter extends CustomPainter {
     const width = PoolGame.tableWidth;
     const height = PoolGame.tableHeight;
     const edge = PoolGame.rail;
-    final frame = Paint()
+    _framePaint ??= Paint()
       ..shader = const LinearGradient(
         colors: [_railLight, _railDark, _railLight],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(const Rect.fromLTWH(0, 0, width, height));
+    _feltPaint ??= Paint()
+      ..shader = const RadialGradient(
+        center: Alignment.center,
+        colors: [Color(0xFF22B43F), _felt],
+        radius: 1.94,
+      ).createShader(
+        const Rect.fromLTWH(
+          edge,
+          edge,
+          width - 2 * edge,
+          height - 2 * edge,
+        ),
+      );
+    _diamondPaint ??= Paint()..color = const Color(0xFFECDCAA);
+    _pocketGoldPaint ??= Paint()..color = const Color(0xFFC9A24A);
+    _pocketBlackPaint ??= Paint()..color = const Color(0xFF080808);
+    _cushionPaint ??= Paint()..color = const Color(0xFF0B6A1F);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         const Rect.fromLTWH(0, 0, width, height),
         const Radius.circular(22),
       ),
-      frame,
+      _framePaint!,
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -1067,26 +1169,13 @@ class _PoolTablePainter extends CustomPainter {
         width - edge + 10,
         height - edge + 10,
       ),
-      Paint()..color = const Color(0xFF0B6A1F),
+      _cushionPaint!,
     );
     canvas.drawRect(
       const Rect.fromLTRB(edge, edge, width - edge, height - edge),
-      Paint()
-        ..shader =
-            const RadialGradient(
-              center: Alignment.center,
-              colors: [Color(0xFF22B43F), _felt],
-              radius: 1.94,
-            ).createShader(
-              const Rect.fromLTWH(
-                edge,
-                edge,
-                width - 2 * edge,
-                height - 2 * edge,
-              ),
-            ),
+      _feltPaint!,
     );
-    final diamond = Paint()..color = const Color(0xFFECDCAA);
+    final diamond = _diamondPaint!;
     for (var i = 1; i <= 7; i++) {
       if (i == 4) continue;
       final x = edge + (width - 2 * edge) * i / 8;
@@ -1105,39 +1194,78 @@ class _PoolTablePainter extends CustomPainter {
         ..drawCircle(
           Offset(pocket[0], pocket[1]),
           PoolGame.pocketRadius + 3,
-          Paint()..color = const Color(0xFFC9A24A),
+          _pocketGoldPaint!,
         )
         ..drawCircle(
           Offset(pocket[0], pocket[1]),
           PoolGame.pocketRadius,
-          Paint()..color = const Color(0xFF080808),
+          _pocketBlackPaint!,
         );
     }
+  }
+
+  static TextPainter _numberPainter(int id) {
+    return _numberPainters.putIfAbsent(
+      id,
+      () => TextPainter(
+        text: TextSpan(
+          text: '$id',
+          style: TextStyle(
+            color: const Color(0xFF111111),
+            fontSize: PoolGame.ballRadius * .7,
+            fontFamily: _poolBoldFont,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(),
+    );
   }
 
   void _drawBall(Canvas canvas, PoolBall ball, {int alpha = 255}) {
     if (ball.pocketed) return;
     final radius = PoolGame.ballRadius;
     final center = Offset(ball.x, ball.y);
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: center + const Offset(3, 4),
-        width: radius * 2,
-        height: radius * 1.6,
-      ),
-      Paint()..color = Colors.black.withAlpha(76 * alpha ~/ 255),
-    );
+    _shadowPaint ??= Paint()..color = const Color(0x4D000000);
+    if (alpha == 255) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: center + const Offset(3, 4),
+          width: radius * 2,
+          height: radius * 1.6,
+        ),
+        _shadowPaint!,
+      );
+    } else {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: center + const Offset(3, 4),
+          width: radius * 2,
+          height: radius * 1.6,
+        ),
+        Paint()..color = Colors.black.withAlpha(76 * alpha ~/ 255),
+      );
+    }
     final color = switch (ball.id) {
       0 => const Color(0xFFF7F7EF),
       8 => const Color(0xFF111111),
       _ when game.groupOf(ball.id) == 1 => const Color(0xFFD9302A),
       _ => const Color(0xFFF2A61C),
     };
-    canvas.drawCircle(center, radius, Paint()..color = color.withAlpha(alpha));
+    // Paint cache: full opacity à l'identique pour 60 fps ; couleur de repli allouée seulement pour les cas translucides (bille blanche invalide).
+    if (alpha == 255) {
+      _fillPaints.putIfAbsent(color, () => Paint()..color = color);
+      canvas.drawCircle(center, radius, _fillPaints[color]!);
+    } else {
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = color.withAlpha(alpha),
+      );
+    }
     canvas.save();
-    final clip = Path()
-      ..addOval(Rect.fromCircle(center: center, radius: radius));
-    canvas.clipPath(clip);
+    canvas.clipPath(
+      Path()..addOval(Rect.fromCircle(center: center, radius: radius)),
+    );
     final rotation = ball.orientation;
     if (ball.id != 0) {
       for (final side in const [1, -1]) {
@@ -1166,19 +1294,14 @@ class _PoolTablePainter extends CustomPainter {
         canvas.drawCircle(
           Offset.zero,
           radius * .5,
-          Paint()..color = Colors.white.withAlpha(alpha),
+          alpha == 255
+              ? _fillPaints.putIfAbsent(
+                    Colors.white,
+                    () => Paint()..color = Colors.white,
+                  )
+              : Paint()..color = Colors.white.withAlpha(alpha),
         );
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: '${ball.id}',
-            style: TextStyle(
-              color: const Color(0xFF111111).withAlpha(alpha),
-              fontSize: radius * .7,
-              fontFamily: _poolBoldFont,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
+        final textPainter = _numberPainter(ball.id);
         textPainter.paint(
           canvas,
           Offset(-textPainter.width / 2, radius * .25 - textPainter.height),
@@ -1336,7 +1459,8 @@ class _PoolTablePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PoolTablePainter oldDelegate) => true;
+  bool shouldRepaint(covariant _PoolTablePainter oldDelegate) =>
+      oldDelegate._signature != _signature;
 }
 
 class _PoolAccountHeader extends StatelessWidget {

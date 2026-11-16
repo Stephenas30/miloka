@@ -6,6 +6,7 @@ import 'screens/splash_screen.dart';
 import 'service/supabase_service.dart';
 import 'providers/auth_provider.dart';
 import 'utils/app_navigator.dart';
+import 'utils/game_wake_lock.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,9 +24,6 @@ void main() async {
   ]);
 
   await SupabaseService().initialize();
-
-  // Bloquer la mise en veille tant que l'app est ouverte
-  await WakelockPlus.enable();
 
   runApp(const MilokaApp());
 }
@@ -56,7 +54,7 @@ class _MilokaAppState extends State<MilokaApp> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive) {
       WakelockPlus.disable();
     } else if (state == AppLifecycleState.resumed) {
-      WakelockPlus.enable();
+      GameWakeLock.onAppResumed();
     }
   }
 

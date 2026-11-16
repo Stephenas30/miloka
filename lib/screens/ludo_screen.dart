@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/material.dart';
 import 'package:miloka/service/ludo_team_lobby_service.dart';
 import 'package:miloka/service/friends_service.dart';
@@ -11,6 +12,7 @@ import '../providers/auth_provider.dart';
 import '../service/ludo_multiplayer_service.dart';
 import '../service/stats_service.dart';
 import '../utils/image_cache.dart';
+import '../utils/game_wake_lock.dart';
 import '../widgets/friends_dialog.dart';
 import '../widgets/game_result_animation.dart';
 import 'home_screen.dart';
@@ -111,7 +113,12 @@ class _LudoScreenState extends State<LudoScreen>
   Offset _slideVelocity = Offset.zero;
   final ValueNotifier<Offset> _diceDragOffset = ValueNotifier<Offset>(Offset.zero);
   final ValueNotifier<double> _diceSlideAngle = ValueNotifier<double>(0);
-  Timer? _slideTimer;
+  Ticker? _slideTicker;
+  AnimationController? _diceBackController;
+  Duration _lastPhysicsTick = Duration.zero;
+  double? _slideTopBound;
+  double? _slideLeftBound;
+  double? _slideRightBound;
   final GlobalKey _stackKey = GlobalKey();
   double _cellSize = 0;
   int? _movingPawnId;
@@ -122,6 +129,7 @@ class _LudoScreenState extends State<LudoScreen>
   @override
   void initState() {
     super.initState();
+    GameWakeLock.acquire();
     _diceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -157,8 +165,11 @@ class _LudoScreenState extends State<LudoScreen>
 
   @override
   void dispose() {
+    GameWakeLock.release();
+    _slideTicker?.stop();
+    _slideTicker?.dispose();
+    _diceBackController?.dispose();
     _aiTimer?.cancel();
-    _slideTimer?.cancel();
     _inactivityTimer?.cancel();
     _inactivityWarningTimer?.cancel();
     _multiplayerSubscription?.cancel();
@@ -563,9 +574,10 @@ class _LudoScreenState extends State<LudoScreen>
   }
 
   void _startDiceSlide() {
-    _slideTimer?.cancel();
-    const friction = 0.96;
-    const minVelocity = 20.0;
+    _slideTicker?.stop();
+    _slideTicker?.dispose();
+    _slideTicker = null;
+    _lastPhysicsTick = Duration.zero;
 
     final renderBox =
         _stackKey.currentContext?.findRenderObject() as RenderBox?;
@@ -573,64 +585,73 @@ class _LudoScreenState extends State<LudoScreen>
     final stackSize = renderBox.size;
     final diceSize = 60.0;
     const bottomPadding = 24.0;
-    final topBound = -stackSize.height + bottomPadding + diceSize;
-    final leftBound = -stackSize.width / 2 + diceSize / 2;
-    final rightBound = stackSize.width / 2 - diceSize / 2;
+    _slideTopBound = -stackSize.height + bottomPadding + diceSize;
+    _slideLeftBound = -stackSize.width / 2 + diceSize / 2;
+    _slideRightBound = stackSize.width / 2 - diceSize / 2;
 
-    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      _slideVelocity *= friction;
+    _slideTicker = Ticker(_diceSlideTick)..start();
+  }
 
-      if (_slideVelocity.distance < minVelocity) {
-        timer.cancel();
-        _animateDiceBack();
-        return;
-      }
+  void _diceSlideTick(Duration elapsed) {
+    final dt = _lastPhysicsTick == Duration.zero
+        ? 0.016
+        : ((elapsed - _lastPhysicsTick).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _lastPhysicsTick = elapsed;
+    final frictionStep = math.pow(0.96, dt / 0.016).toDouble();
+    _slideVelocity = Offset(_slideVelocity.dx * frictionStep, _slideVelocity.dy * frictionStep);
 
-      _diceDragOffset.value += _slideVelocity * 0.016;
-      _diceSlideAngle.value += _slideVelocity.distance * 0.0003;
+    if (_slideVelocity.distance < 20.0) {
+      _slideTicker?.stop();
+      _slideTicker?.dispose();
+      _slideTicker = null;
+      _animateDiceBack();
+      return;
+    }
 
-      if (_diceDragOffset.value.dx < leftBound) {
-        _diceDragOffset.value =
-            Offset(leftBound, _diceDragOffset.value.dy);
-        _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
-      } else if (_diceDragOffset.value.dx > rightBound) {
-        _diceDragOffset.value =
-            Offset(rightBound, _diceDragOffset.value.dy);
-        _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
-      }
-      if (_diceDragOffset.value.dy < topBound) {
-        _diceDragOffset.value =
-            Offset(_diceDragOffset.value.dx, topBound);
-        _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
-      }
-    });
+    _diceDragOffset.value += _slideVelocity * dt;
+    _diceSlideAngle.value += _slideVelocity.distance * dt * 0.01875;
+
+    if (_diceDragOffset.value.dx < _slideLeftBound!) {
+      _diceDragOffset.value = Offset(_slideLeftBound!, _diceDragOffset.value.dy);
+      _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+    } else if (_diceDragOffset.value.dx > _slideRightBound!) {
+      _diceDragOffset.value = Offset(_slideRightBound!, _diceDragOffset.value.dy);
+      _slideVelocity = Offset(-_slideVelocity.dx, _slideVelocity.dy);
+    }
+    if (_diceDragOffset.value.dy < _slideTopBound!) {
+      _diceDragOffset.value = Offset(_diceDragOffset.value.dx, _slideTopBound!);
+      _slideVelocity = Offset(_slideVelocity.dx, -_slideVelocity.dy);
+    }
   }
 
   void _animateDiceBack() {
     const duration = Duration(milliseconds: 300);
     final startOffset = _diceDragOffset.value;
     final startAngle = _diceSlideAngle.value;
-    final startTime = DateTime.now();
 
-    _slideTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      final elapsed =
-          DateTime.now().difference(startTime).inMilliseconds /
-          duration.inMilliseconds;
-      final t = elapsed.clamp(0.0, 1.0);
-      final easeOut = 1 - (1 - t) * (1 - t);
-
-      _diceDragOffset.value = Offset.lerp(startOffset, Offset.zero, easeOut)!;
-      _diceSlideAngle.value = startAngle * (1 - easeOut);
-
-      if (t >= 1) {
-        timer.cancel();
+    _diceBackController?.dispose();
+    final controller = AnimationController(vsync: this, duration: duration);
+    _diceBackController = controller;
+    controller
+      ..addListener(() {
+        final easeOut = Curves.easeOutQuad.transform(controller.value);
+        _diceDragOffset.value =
+            Offset.lerp(startOffset, Offset.zero, easeOut)!;
+        _diceSlideAngle.value = startAngle * (1 - easeOut);
+      })
+      ..addStatusListener((status) {
+        if (status != AnimationStatus.completed) return;
         _isSlidingDice.value = false;
         _diceDragOffset.value = Offset.zero;
         _diceSlideAngle.value = 0;
         _slideVelocity = Offset.zero;
+        controller.dispose();
+        if (identical(_diceBackController, controller)) {
+          _diceBackController = null;
+        }
         _onRollDice();
-      }
-    });
+      })
+      ..forward();
   }
 
   void _startGame(LudoColor color) {
@@ -1311,7 +1332,7 @@ class _LudoScreenState extends State<LudoScreen>
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/background.png'),
+            image: AssetImage('assets/images/background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -1341,7 +1362,12 @@ class _LudoScreenState extends State<LudoScreen>
                             return GestureDetector(
                               onTap: canRoll ? _onRollDice : null,
                               onPanStart: (_) {
-                                _slideTimer?.cancel();
+                                _slideTicker?.stop();
+                                _slideTicker?.dispose();
+                                _slideTicker = null;
+                                _diceBackController?.dispose();
+                                _diceBackController = null;
+                                _lastPhysicsTick = Duration.zero;
                                 _isDraggingDice.value = true;
                                 _isSlidingDice.value = false;
                                 _slideVelocity = Offset.zero;

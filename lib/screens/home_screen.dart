@@ -794,20 +794,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider?>(context);
-    final coins =
-        int.tryParse((authProvider?.userProfile?['coins'] ?? '0').toString()) ??
-        0;
-    final avatarUrl = authProvider?.userProfile?['avatar_url']?.toString();
-    final username =
-        authProvider?.userProfile?['username']?.toString() ?? 'Profil';
-
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage("assets/images/background.png"),
+            image: AssetImage("assets/images/background.jpg"),
             fit: BoxFit.cover,
           ),
         ),
@@ -913,91 +905,115 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           }).toList(),
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ProfileScreen(),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                      Consumer<AuthProvider?>(
+                        builder: (context, authProvider, _) {
+                          final coins =
+                              int.tryParse(
+                                  (authProvider?.userProfile?['coins'] ?? '0')
+                                      .toString(),
+                                ) ??
+                                0;
+                          final avatarUrl = authProvider?.userProfile?[
+                              'avatar_url']?.toString();
+                          final username =
+                              authProvider?.userProfile?['username']
+                                  ?.toString() ??
+                              'Profil';
+                          return Row(
+                            spacing: 8,
                             children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: Colors.white24,
-                                backgroundImage:
-                                    avatarUrl != null && avatarUrl.isNotEmpty
-                                    ? cachedNetworkImage(avatarUrl)
-                                    : null,
-                                child: avatarUrl == null || avatarUrl.isEmpty
-                                    ? const Icon(
-                                        Icons.person,
-                                        color: Colors.white,
-                                        size: 16,
-                                      )
-                                    : null,
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const ProfileScreen(),
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: Colors.white24,
+                                        backgroundImage:
+                                            avatarUrl != null &&
+                                                avatarUrl.isNotEmpty
+                                            ? cachedNetworkImage(avatarUrl)
+                                            : null,
+                                        child:
+                                            avatarUrl == null ||
+                                                avatarUrl.isEmpty
+                                            ? const Icon(
+                                                Icons.person,
+                                                color: Colors.white,
+                                                size: 16,
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        username,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                username,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const PurchaseScreen(),
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.monetization_on,
+                                        color: Colors.amber,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '$coins',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const PurchaseScreen(),
-                            ),
                           );
                         },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.monetization_on,
-                                color: Colors.amber,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$coins',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                     ],
                   ),

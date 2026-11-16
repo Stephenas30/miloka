@@ -78,7 +78,7 @@ class _CallPopupState extends State<CallPopup> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    final size = MediaQuery.sizeOf(context);
     final isSmall = size.width < 380 || size.height < 600;
 
     final dialogWidth = isSmall ? size.width * 0.95 : size.width * 0.8;

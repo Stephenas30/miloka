@@ -201,6 +201,14 @@ class PoolGame {
       if (distance > 12) aim = math.atan2(dy, dx);
       _pullBase = math.min(_pullBase, math.max(distance, 20));
       power = ((distance - _pullBase) / 190).clamp(0, 1);
+      // Aide : si la bille blanche est dans la zone proche du rail bas,
+      // tout geste de tir vers le haut donne une puissance de 100 %.
+      // (dy < 0 ⇔ pointeur SOUS la bille ⇔ le tir part vers le haut.)
+      if (dy < 0 &&
+          power < 1 &&
+          cueBall.y > tableHeight - rail - 2 * ballRadius) {
+        power = 1;
+      }
     }
   }
 

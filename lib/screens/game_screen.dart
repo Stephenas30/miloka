@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../game/belote_game_logic.dart';
 import '../game/belote_rules.dart';
 import '../game/call_system.dart';
@@ -13,6 +12,8 @@ import '../widgets/call_popup.dart';
 import '../service/stats_service.dart';
 import '../service/game_channel_service.dart';
 import '../utils/image_cache.dart';
+import '../utils/svg_cache.dart';
+import '../utils/game_wake_lock.dart';
 import '../widgets/game_result_animation.dart';
 
 class HandHistoryEntry {
@@ -117,9 +118,8 @@ class _GameScreenState extends State<GameScreen>
     _playController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 820),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    );
+    GameWakeLock.acquire();
     gameLogic = BeloteGameLogic(players: players);
 
     if (widget.teamId != null) {
@@ -160,6 +160,7 @@ class _GameScreenState extends State<GameScreen>
     _autoCloseTimer?.cancel();
     _inactivityTimer?.cancel();
     _inactivityWarningTimer?.cancel();
+    GameWakeLock.release();
     _playController.dispose();
     _returnController?.dispose();
     _dragPos.dispose();
@@ -174,7 +175,6 @@ class _GameScreenState extends State<GameScreen>
     try {
       await channel.connect(widget.teamId!);
     } catch (e) {
-      print('[${widget.teamId}] ⚠️ _setupNetwork failed: $e');
       if (widget.isHost && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -188,7 +188,6 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
     _networkSubscription = channel.events.listen(_handleNetworkEvent);
-    print('[${widget.teamId}] _setupNetwork role=${widget.isHost ? "HOTE" : "INVITÉ"}');
 
     if (widget.isHost) {
       Future.delayed(Duration.zero, () => _dealCards());
@@ -203,10 +202,9 @@ class _GameScreenState extends State<GameScreen>
 
   void _handleNetworkEvent(Map<String, dynamic> event) {
     final action = event['action'] as String?;
-    if (action == null) { print('[${widget.teamId}] ⚠️ event with no action'); return; }
+    if (action == null) return;
 
     if (widget.isHost) {
-      print('[${widget.teamId}] 📥 HOST event action=$action');
       switch (action) {
         case 'request_init':
           _handleGuestRequestInit();
@@ -225,26 +223,21 @@ class _GameScreenState extends State<GameScreen>
         case 'guest_bid':
           if (_pendingBidCompleter != null) {
             final callName = event['call'] as String? ?? 'pass';
-            print('[${widget.teamId}] ✅ guest_bid received call=$callName, completing completer');
             _pendingBidCompleter!.complete(CallOption.values.byName(callName));
           } else {
-            print('[${widget.teamId}] ⚠️ guest_bid but no pending completer');
           }
         case 'counter_response':
           if (_pendingCounterCompleter != null) {
-            print('[${widget.teamId}] ✅ counter_response received');
             _pendingCounterCompleter!.complete(event['choice'] as String?);
             _pendingCounterCompleter = null;
           }
         case 'sur_counter_response':
           if (_pendingSurCounterCompleter != null) {
-            print('[${widget.teamId}] ✅ sur_counter_response received');
             _pendingSurCounterCompleter!.complete(event['choice'] as String?);
             _pendingSurCounterCompleter = null;
           }
       }
     } else {
-      print('[${widget.teamId}] 📥 GUEST event action=$action');
       switch (action) {
         case 'init_game':
           _handleGuestInit(event);
@@ -275,7 +268,6 @@ class _GameScreenState extends State<GameScreen>
   Map<String, dynamic>? _lastInitGameData;
 
   void _handleGuestRequestInit() {
-    print('[${widget.teamId}] _handleGuestRequestInit lastInit=${_lastInitGameData != null}');
     if (_lastInitGameData != null) {
       GameChannelService().send('init_game', _lastInitGameData!);
     }
@@ -286,7 +278,6 @@ class _GameScreenState extends State<GameScreen>
     _requestInitTimer?.cancel();
     final contractWinner = event['contract_winner'] as String? ?? 'Nord';
     final starterPlayer = event['starter'] as String? ?? contractWinner;
-    print('[${widget.teamId}] _handleGuestInit winner=$contractWinner starter=$starterPlayer');
     final handData = event['hand'] as List? ?? [];
     gameLogic.aiHands[0] = handData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
     final estData = event['est_hand'] as List? ?? [];
@@ -408,11 +399,10 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _handleBidRequest(Map<String, dynamic> event) {
-    if (!mounted) { print('[${widget.teamId}] ⚠️ _handleBidRequest not mounted'); return; }
+    if (!mounted) return;
     final current = event['player'] as String? ?? 'Nord';
     final callsStr = (event['available_calls'] as List?)?.cast<String>() ?? [];
     final availableCalls = callsStr.map((s) => CallOption.values.byName(s)).toList();
-    print('[${widget.teamId}] _handleBidRequest player=$current calls=${availableCalls.map((c) => c.name).join(",")}');
 
     _setHandsFromEvent(event);
     setState(() => gameLogic.waitingForNextHand = false);
@@ -420,8 +410,7 @@ class _GameScreenState extends State<GameScreen>
     _animateGuestDeal();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) { print('[${widget.teamId}] ⚠️ _handleBidRequest postFrame not mounted'); return; }
-      print('[${widget.teamId}] _handleBidRequest showing CallPopup');
+      if (!mounted) return;
       showDialog(
         context: context,
         builder: (_) => CallPopup(
@@ -429,7 +418,6 @@ class _GameScreenState extends State<GameScreen>
           availableCalls: availableCalls,
           timeoutSeconds: 10,
           onCall: (option) {
-            print('[${widget.teamId}] guest_bid selected=${option.name}');
             GameChannelService().send('guest_bid', {'call': option.name});
           },
         ),
@@ -547,7 +535,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _handleGuestPlay(Map<String, dynamic> event) {
     final cardData = event['card'] as Map<String, dynamic>?;
-    if (cardData == null) { print('[${widget.teamId}] ⚠️ _handleGuestPlay cardData null'); return; }
+    if (cardData == null) return;
     final card = CardModel.fromMap(cardData);
     final player = event['player'] as String? ?? 'Nord';
     final hand = _handFor(player);
@@ -559,11 +547,9 @@ class _GameScreenState extends State<GameScreen>
             (posData['x'] as num?)?.toDouble() ?? 0.5,
             (posData['y'] as num?)?.toDouble() ?? 0.42,
           );
-    print('[${widget.teamId}] _handleGuestPlay player=$player card=${card.suit.name}-${card.rank.name} handSize=${hand.length} contains=$contains');
     if (contains) {
       _playCardFromNetwork(player, card, position: position);
     } else {
-      print('[${widget.teamId}] ⚠️ _handleGuestPlay: card not in hand. Hand: ${hand.map((c) => "${c.suit.name}-${c.rank.name}").join(", ")}');
     }
   }
 
@@ -782,13 +768,11 @@ class _GameScreenState extends State<GameScreen>
 
   void _startGame() {
     if (gameLogic.callSystem.contractWinner != null) {
-      print('[${widget.teamId}] 🎬 Début. Preneur : ${gameLogic.callSystem.contractWinner}');
       gameLogic.callSystem.setCurrentPlayer(gameLogic.players[gameLogic.starterIndex]);
       setState(() {
         gameLogic.gameStarted = true;
         gameLogic.gameOver = false;
       });
-      print('[${widget.teamId}] 👉 Premier joueur : ${gameLogic.callSystem.currentPlayer} (starter=${gameLogic.players[gameLogic.starterIndex]})');
       _resetInactivityTimer();
     }
   }
@@ -892,7 +876,6 @@ class _GameScreenState extends State<GameScreen>
     _draggingCard = null;
     _returnAnimation = null;
     _dragPos.value = Offset.zero;
-    print('🃏 $player joue ${card.assetPath}');
     final hand = _handFor(player);
     final board = _boardSize();
     // Position fractionnelle où la carte va atterrir (relâchement du doigt, ou emplacement aléatoire)
@@ -955,7 +938,6 @@ class _GameScreenState extends State<GameScreen>
       _resolveTrick();
     } else {
       final next = _nextPlayer(player);
-      print('➡️ Prochain joueur : $next');
       gameLogic.callSystem.setCurrentPlayer(next);
       if (!_isHuman(next)) {
         await Future.delayed(const Duration(milliseconds: 700));
@@ -1004,16 +986,13 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _playAITurn() async {
     if (!gameLogic.gameStarted || gameLogic.gameOver) {
-      print('⛔ IA ne joue pas : gameStarted=${gameLogic.gameStarted}, gameOver=${gameLogic.gameOver}');
       return;
     }
     final current = gameLogic.callSystem.currentPlayer;
     if (_isHuman(current)) {
-      print("⛔ $current est humain, l'IA s'arrête.");
       return;
     }
     if (_handFor(current).isEmpty) {
-      print('⛔ $current n\'a plus de cartes.');
       return;
     }
     final card = _chooseAICard(current);
@@ -1096,7 +1075,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Rect _dropZoneRect() {
-    final size = MediaQuery.of(context).size;
+    final size = MediaQuery.sizeOf(context);
     const handZoneHeight = 150.0; // hauteur de la zone des deux mains basses
     return Rect.fromLTWH(0, 0, size.width, size.height - handZoneHeight);
   }
@@ -1121,7 +1100,6 @@ class _GameScreenState extends State<GameScreen>
   /// Relâche du doigt : déclenché par onPanEnd OU par le Listener global du Stack
   /// (quel que soit le résultat de la scène de gestes).
   void _tryResolveDragDrop() {
-    print('[drag] pointerUp card=${_draggingCard?.assetPath}');
     final card = _draggingCard;
     final playerName = _draggingCardPlayer;
     if (card == null || playerName == null) return;
@@ -1129,7 +1107,6 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _onDragEnd(CardModel card, String playerName) {
-    print('[drag] onPanEnd fired');
     _resolveDragDrop(card, playerName);
   }
 
@@ -1232,7 +1209,7 @@ class _GameScreenState extends State<GameScreen>
                             : null,
                         onPanStart: canPlay &&
                                 _canPlayCard(cards[i], player: playerName)
-                            ? (_) => print('[drag] onPanStart ${_draggingCard == null}')
+                            ? (_) {}
                             : null,
                         onPanUpdate: canPlay ? _onDragUpdate : null,
                         onPanEnd: canPlay && _draggingCard != null
@@ -1243,7 +1220,7 @@ class _GameScreenState extends State<GameScreen>
                             : null,
                         child: Opacity(
                           opacity: identical(_draggingCard, cards[i]) ? 0.0 : 1.0,
-                          child: SvgPicture.asset(
+                          child: cachedSvgAsset(
                             cards[i].assetPath,
                             width: cardWidth,
                             height: cardHeight,
@@ -1319,7 +1296,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _showTrickArea() {
-    final size = MediaQuery.of(context).size;
+    final size = MediaQuery.sizeOf(context);
     final played = gameLogic.currentTrick;
     return SizedBox.expand(
       child: Stack(
@@ -1345,7 +1322,7 @@ class _GameScreenState extends State<GameScreen>
       top: top,
       child: Transform.rotate(
         angle: playedCard.rotation * math.pi / 180,
-        child: SvgPicture.asset(
+        child: cachedSvgAsset(
           playedCard.card.assetPath,
           width: 60,
           height: 76,
@@ -1356,7 +1333,6 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _showCallBubble(String player, CallOption option) async {
     final label = '${_displayName(player)} : ${_callOptionLabel(option)}';
-    print('[${widget.teamId}] 📢 $label');
     setState(() {
       showCallBubble = true;
       callBubblePlayer = player;
@@ -1394,7 +1370,6 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _finishBidding() async {
     gameLogic.biddingFinished = true;
-    print('Appels terminés, on commence la partie !');
     await _dealRemainingCards();
     final sorted = gameLogic.sortedSouthHand(gameLogic.callSystem.contractCall);
     setState(() {
@@ -1418,23 +1393,19 @@ class _GameScreenState extends State<GameScreen>
         'starter': gameLogic.players[gameLogic.starterIndex],
       };
       _lastInitGameData = initData;
-      print('[${widget.teamId}] envoi init_game winner=${gameLogic.callSystem.contractWinner}');
       await GameChannelService().send('init_game', initData);
     }
 
     _startGame();
     if (!_isHuman(gameLogic.callSystem.currentPlayer)) {
-      print('⏳ IA doit commencer la manche.');
       Future.delayed(Duration.zero, () => _playAITurn());
     } else {
-      print('🎮 ${gameLogic.callSystem.currentPlayer} commence la manche.');
     }
   }
 
   Future<void> _showCallPopup() async {
     final current = gameLogic.callSystem.currentPlayer;
     gameLogic.starterPlayer ??= current;
-    print('[${widget.teamId}] _showCallPopup current=$current local=${_isLocalPlayer(current)} human=${_isHuman(current)}');
 
     if (widget.teamId != null && _isHuman(current) && !_isLocalPlayer(current)) {
       GameChannelService().send('bid_request', {
@@ -1450,7 +1421,6 @@ class _GameScreenState extends State<GameScreen>
       try {
         option = await _pendingBidCompleter!.future.timeout(const Duration(seconds: 15));
       } catch (_) {
-        print('[${widget.teamId}] ⏰ Bid timeout for $current, forcing pass');
         option = CallOption.pass;
       }
       _pendingBidCompleter = null;
@@ -1761,7 +1731,7 @@ class _GameScreenState extends State<GameScreen>
                   right: (cards.length - 1 - i) * overlap,
                   child: GestureDetector(
                     onTap: onCardTap != null ? () => onCardTap(cards[i]) : null,
-                    child: SvgPicture.asset(
+                    child: cachedSvgAsset(
                       (showBack && onCardTap == null)
                           ? "assets/images/card/dos.svg"
                           : cards[i].assetPath,
@@ -1800,7 +1770,7 @@ class _GameScreenState extends State<GameScreen>
                   top: i * overlap,
                   child: RotatedBox(
                     quarterTurns: 1,
-                    child: SvgPicture.asset(
+                    child: cachedSvgAsset(
                       "assets/images/card/dos.svg",
                       width: cardHeight,
                       height: cardWidth,
@@ -1869,9 +1839,9 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _positionedMarker(String player, Color color) {
-    final media = MediaQuery.of(context);
-    final w = media.size.width;
-    final h = media.size.height;
+    final media = MediaQuery.sizeOf(context);
+    final w = media.width;
+    final h = media.height;
     final pos = _mappedPosition(player);
     switch (pos) {
       case "Nord":
@@ -1903,9 +1873,9 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _positionedCallBubble() {
-    final media = MediaQuery.of(context);
-    final w = media.size.width;
-    final h = media.size.height;
+    final media = MediaQuery.sizeOf(context);
+    final w = media.width;
+    final h = media.height;
 
     Widget content = Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
@@ -2106,7 +2076,7 @@ class _GameScreenState extends State<GameScreen>
                             ),
                           ],
                         ),
-                        child: SvgPicture.asset(
+                        child: cachedSvgAsset(
                           card.assetPath,
                           width: cardWidthValue,
                           height: cardHeightValue,
@@ -2130,7 +2100,7 @@ class _GameScreenState extends State<GameScreen>
           : Alignment.center,
       duration: dealAnimationDuration,
       curve: Curves.easeInOut,
-      child: SvgPicture.asset(
+      child: cachedSvgAsset(
         "assets/images/card/dos.svg",
         width: 60,
         height: 80,
@@ -2248,7 +2218,7 @@ class _GameScreenState extends State<GameScreen>
                         ),
                       ],
                     ),
-                    child: SvgPicture.asset(
+                    child: cachedSvgAsset(
                       card.assetPath,
                       width: cardWidthValue,
                       height: cardHeightValue,
@@ -2291,10 +2261,9 @@ class _GameScreenState extends State<GameScreen>
         children: [
           Listener(
             behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => print('[drag] pointerDown'),
+            onPointerDown: (_) {},
             onPointerUp: (_) => _tryResolveDragDrop(),
             onPointerCancel: (_) {
-              print('[drag] pointerCancel');
               _tryResolveDragDrop();
             },
             child: const SizedBox.expand(),
@@ -2302,7 +2271,7 @@ class _GameScreenState extends State<GameScreen>
           Positioned.fill(
             child: RepaintBoundary(
               child: Image.asset(
-                "assets/images/background.png",
+                "assets/images/background.jpg",
                 fit: BoxFit.cover,
               ),
             ),
@@ -2313,7 +2282,7 @@ class _GameScreenState extends State<GameScreen>
               child: Column(
                 children: [
                   // Barre d'infos (Score, Contrat, Pli)
-                  _buildGameInfoBar(),
+                  RepaintBoundary(child: _buildGameInfoBar()),
                   
                   const SizedBox(height: 12),
 
@@ -2321,24 +2290,28 @@ class _GameScreenState extends State<GameScreen>
                   if (_isGuestNetworked)
                     SizedBox(
                       height: 120,
-                      child: _buildOverlapCardsRightToLeft(
-                        gameLogic.playerHand,
-                        showBack: true,
+                      child: RepaintBoundary(
+                        child: _buildOverlapCardsRightToLeft(
+                          gameLogic.playerHand,
+                          showBack: true,
+                        ),
                       ),
                     )
                   else
                     SizedBox(
                       height: 120,
-                      child: _buildOverlapCardsRightToLeft(
-                        gameLogic.aiHands[0],
-                        showBack: !_isLocalPlayer('Nord'),
-                        onCardTap: _isLocalPlayer('Nord')
-                            ? (card) {
-                                if (gameLogic.canPlayCard(card, player: 'Nord')) {
-                                  _playCard('Nord', card);
+                      child: RepaintBoundary(
+                        child: _buildOverlapCardsRightToLeft(
+                          gameLogic.aiHands[0],
+                          showBack: !_isLocalPlayer('Nord'),
+                          onCardTap: _isLocalPlayer('Nord')
+                              ? (card) {
+                                  if (gameLogic.canPlayCard(card, player: 'Nord')) {
+                                    _playCard('Nord', card);
+                                  }
                                 }
-                              }
-                            : null,
+                              : null,
+                        ),
                       ),
                     ),
 
@@ -2351,15 +2324,19 @@ class _GameScreenState extends State<GameScreen>
                       children: [
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(
-                            _isGuestNetworked ? gameLogic.aiHands[1] : gameLogic.aiHands[2],
+                          child: RepaintBoundary(
+                            child: _buildOverlapCardsTopToBottom(
+                              _isGuestNetworked ? gameLogic.aiHands[1] : gameLogic.aiHands[2],
+                            ),
                           ),
                         ),
                         const Expanded(child: SizedBox.shrink()),
                         SizedBox(
                           width: 80,
-                          child: _buildOverlapCardsTopToBottom(
-                            _isGuestNetworked ? gameLogic.aiHands[2] : gameLogic.aiHands[1],
+                          child: RepaintBoundary(
+                            child: _buildOverlapCardsTopToBottom(
+                              _isGuestNetworked ? gameLogic.aiHands[2] : gameLogic.aiHands[1],
+                            ),
                           ),
                         ),
                       ],
@@ -2371,9 +2348,11 @@ class _GameScreenState extends State<GameScreen>
                   // Sud (joueur humain) — pour l'invité : main de Nord en bas
                   SizedBox(
                     height: 140,
-                    child: _isGuestNetworked
-                        ? _buildPlayerHand(gameLogic.aiHands[0], playerName: "Nord")
-                        : _buildPlayerHand(gameLogic.playerHand, playerName: "Sud"),
+                    child: RepaintBoundary(
+                      child: _isGuestNetworked
+                          ? _buildPlayerHand(gameLogic.aiHands[0], playerName: "Nord")
+                          : _buildPlayerHand(gameLogic.playerHand, playerName: "Sud"),
+                    ),
                   ),
                 ],
               ),
@@ -2399,7 +2378,7 @@ class _GameScreenState extends State<GameScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SvgPicture.asset("assets/images/card/dos.svg", height: 80),
+                      cachedSvgAsset("assets/images/card/dos.svg", height: 80),
                       const SizedBox(height: 12),
                       const Text("Distribution...", style: TextStyle(color: Colors.white, fontSize: 16)),
                     ],
@@ -2519,9 +2498,9 @@ class _GameScreenState extends State<GameScreen>
           
           if (!gameLogic.biddingFinished)
             Positioned(
-              top: MediaQuery.of(context).size.height / 2 - 40,
-              left: MediaQuery.of(context).size.width / 2 - 30,
-              child: SvgPicture.asset("assets/images/card/dos.svg", height: 60),
+              top: MediaQuery.sizeOf(context).height / 2 - 40,
+              left: MediaQuery.sizeOf(context).width / 2 - 30,
+              child: cachedSvgAsset("assets/images/card/dos.svg", height: 60),
             ),
         ],
       ),

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../game/belote_game_logic.dart';
 import '../game/belote_rules.dart';
@@ -12,6 +11,8 @@ import '../service/private_match_service.dart';
 import '../service/supabase_service.dart';
 import '../providers/auth_provider.dart';
 import '../utils/image_cache.dart';
+import '../utils/svg_cache.dart';
+import '../utils/game_wake_lock.dart';
 import '../widgets/call_popup.dart';
 import '../widgets/game_result_animation.dart';
 import 'classic_team_lobby_screen.dart';
@@ -65,11 +66,13 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   Set<String> _confirmedPlayers = {};
   int _handResultCountdown = 10;
   Timer? _handResultTimer;
+  final ValueNotifier<int> _handResultNotifier = ValueNotifier<int>(0);
 
   // Bidding timer
   int _bidTimerSeconds = 0;
   Timer? _bidTimer;
   bool _callMade = false;
+  final ValueNotifier<int> _bidTimerNotifier = ValueNotifier<int>(0);
 
   bool get _isDealer => widget.localPosition == 'Sud';
 
@@ -205,6 +208,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   @override
   void initState() {
     super.initState();
+    GameWakeLock.acquire();
     gameLogic = BeloteGameLogic(players: List.from(allPlayers));
     _subscription = _gameChannel.events.listen(_handleEvent);
     if (_isDealer) {
@@ -242,6 +246,9 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
 
   @override
   void dispose() {
+    GameWakeLock.release();
+    _bidTimerNotifier.dispose();
+    _handResultNotifier.dispose();
     _subscription?.cancel();
     _matchSubscription?.cancel();
     _handResultTimeout?.cancel();
@@ -387,9 +394,11 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   void _startBidTimer() {
     _bidTimer?.cancel();
     _bidTimerSeconds = 10;
+    _bidTimerNotifier.value = 10;
     _bidTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) { timer.cancel(); return; }
-      setState(() => _bidTimerSeconds--);
+      _bidTimerSeconds--;
+      _bidTimerNotifier.value = _bidTimerSeconds;
       if (_bidTimerSeconds <= 0) {
         timer.cancel();
         _onBidTimeout();
@@ -400,6 +409,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   void _stopBidTimer() {
     _bidTimer?.cancel();
     _bidTimerSeconds = 0;
+    _bidTimerNotifier.value = 0;
   }
 
   void _onBidTimeout() {
@@ -1077,11 +1087,11 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
 
   void _startHandResultTimer() {
     _handResultTimer?.cancel();
+    _handResultNotifier.value = _handResultCountdown;
     _handResultTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) { timer.cancel(); return; }
-      setState(() {
-        _handResultCountdown--;
-      });
+      _handResultCountdown--;
+      _handResultNotifier.value = _handResultCountdown;
       if (_handResultCountdown <= 0) {
         timer.cancel();
         _onHandResultContinue();
@@ -1306,7 +1316,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           children: [
             Positioned.fill(
               child: RepaintBoundary(
-                child: Image.asset('assets/images/background.png', fit: BoxFit.cover),
+                child: Image.asset('assets/images/background.jpg', fit: BoxFit.cover),
               ),
             ),
             SafeArea(
@@ -1314,15 +1324,17 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Column(
                   children: [
-                    _buildGameInfoBar(),
+                    RepaintBoundary(child: _buildGameInfoBar()),
                     const SizedBox(height: 4),
                     Text(_statusText, style: const TextStyle(color: Colors.white70, fontSize: 13, shadows: [Shadow(blurRadius: 2, color: Colors.black)])),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 120,
-                      child: _buildOverlapCardsRightToLeft(
-                        gameLogic.handFor(_topPlayer()),
-                        showBack: true,
+                      child: RepaintBoundary(
+                        child: _buildOverlapCardsRightToLeft(
+                          gameLogic.handFor(_topPlayer()),
+                          showBack: true,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -1332,12 +1344,16 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                         children: [
                           SizedBox(
                             width: 80,
-                            child: _buildOverlapCardsTopToBottom(gameLogic.handFor(_leftPlayer())),
+                            child: RepaintBoundary(
+                              child: _buildOverlapCardsTopToBottom(gameLogic.handFor(_leftPlayer())),
+                            ),
                           ),
                           const Expanded(child: SizedBox.shrink()),
                           SizedBox(
                             width: 80,
-                            child: _buildOverlapCardsTopToBottom(gameLogic.handFor(_rightPlayer())),
+                            child: RepaintBoundary(
+                              child: _buildOverlapCardsTopToBottom(gameLogic.handFor(_rightPlayer())),
+                            ),
                           ),
                         ],
                       ),
@@ -1345,19 +1361,21 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                     const SizedBox(height: 24),
                     SizedBox(
                       height: 140,
-                      child: _buildPlayerHand(gameLogic.handFor(_bottomPlayer()), playerName: _bottomPlayer()),
+                      child: RepaintBoundary(
+                        child: _buildPlayerHand(gameLogic.handFor(_bottomPlayer()), playerName: _bottomPlayer()),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
             Positioned(
-              top: MediaQuery.of(context).size.height * 0.35,
+              top: MediaQuery.sizeOf(context).height * 0.35,
               left: 0,
               right: 0,
               child: IgnorePointer(
                 ignoring: true,
-                child: _buildTrickArea(),
+                child: RepaintBoundary(child: _buildTrickArea()),
               ),
             ),
             _positionedMarker(_bottomPlayer()),
@@ -1450,7 +1468,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                     onTap: _gameStarted && gameLogic.callSystem.currentPlayer == playerName && gameLogic.canPlayCard(cards[i], player: playerName)
                         ? () => _playCard(cards[i])
                         : null,
-                    child: SvgPicture.asset(
+                    child: cachedSvgAsset(
                       cards[i].assetPath,
                       width: cardWidth,
                       height: cardHeight,
@@ -1487,7 +1505,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
               for (var i = 0; i < cards.length; i++)
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
-                  child: SvgPicture.asset(
+                  child: cachedSvgAsset(
                     showBack ? 'assets/images/card/dos.svg' : cards[i].assetPath,
                     width: cardWidth,
                     height: cardHeight,
@@ -1523,7 +1541,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                   top: i * overlap,
                   child: RotatedBox(
                     quarterTurns: 1,
-                    child: SvgPicture.asset(
+                    child: cachedSvgAsset(
                       'assets/images/card/dos.svg',
                       width: cardHeight,
                       height: cardWidth,
@@ -1585,7 +1603,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
         ),
       );
     }
-    return SvgPicture.asset(
+    return cachedSvgAsset(
       playedCard.card.assetPath,
       width: 60,
       height: 76,
@@ -1595,9 +1613,9 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   // ── Avatars ──
 
   Widget _positionedMarker(String player) {
-    final media = MediaQuery.of(context);
-    final w = media.size.width;
-    final h = media.size.height;
+    final media = MediaQuery.sizeOf(context);
+    final w = media.width;
+    final h = media.height;
     if (player == _bottomPlayer()) {
       return Positioned(bottom: 12, left: w * 0.5 - 28, child: _playerAvatar(player));
     }
@@ -1642,9 +1660,9 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
   // ── Call bubble ──
 
   Widget _positionedCallBubble() {
-    final media = MediaQuery.of(context);
-    final w = media.size.width;
-    final h = media.size.height;
+    final media = MediaQuery.sizeOf(context);
+    final w = media.width;
+    final h = media.height;
 
     Widget content = Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
@@ -1694,16 +1712,25 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                   const SizedBox(height: 16),
                   Text('${_confirmedPlayers.length}/4 confirmé', style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 4),
-                  Text('$_handResultCountdown s', style: const TextStyle(color: Colors.orange, fontSize: 20, fontWeight: FontWeight.bold)),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _handResultNotifier,
+                    builder: (context, seconds, _) => Text(
+                      '$seconds s',
+                      style: const TextStyle(color: Colors.orange, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                       onPressed: _confirmedPlayers.contains(widget.localPosition) ? null : _onHandResultContinue,
-                      child: Text(
-                        _confirmedPlayers.contains(widget.localPosition) ? 'En attente des autres…' : 'Continuer (${_handResultCountdown}s)',
-                        style: const TextStyle(color: Colors.white),
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: _handResultNotifier,
+                        builder: (context, seconds, _) => Text(
+                          _confirmedPlayers.contains(widget.localPosition) ? 'En attente des autres…' : 'Continuer (${seconds}s)',
+                          style: const TextStyle(color: Colors.white),
+                        ),
                       ),
                     ),
                   ),
@@ -1728,12 +1755,15 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           shape: BoxShape.circle,
         ),
         child: Center(
-          child: Text(
-            '$_bidTimerSeconds',
-            style: TextStyle(
-              color: _bidTimerSeconds <= 3 ? Colors.red : Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
+          child: ValueListenableBuilder<int>(
+            valueListenable: _bidTimerNotifier,
+            builder: (context, seconds, _) => Text(
+              '$seconds',
+              style: TextStyle(
+                color: seconds <= 3 ? Colors.red : Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ),
@@ -1749,7 +1779,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SvgPicture.asset('assets/images/card/dos.svg', height: 80),
+              cachedSvgAsset('assets/images/card/dos.svg', height: 80),
               const SizedBox(height: 12),
               const Text('Distribution...', style: TextStyle(color: Colors.white, fontSize: 16)),
             ],

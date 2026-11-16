@@ -19,31 +19,33 @@ class _SplashScreenState extends State<SplashScreen> {
   String _appVersion = '';
 
   void loadApp() async {
+    final startedAt = DateTime.now();
     final token = await AuthService.listenSessionChange();
+    final upToDate = await VersionService.isUpToDate();
 
-    Future.delayed(const Duration(seconds: 5), () async {
-      if (!mounted) return;
+    final elapsed = DateTime.now().difference(startedAt);
+    final minimum = const Duration(milliseconds: 800) - elapsed;
+    if (minimum > Duration.zero) {
+      await Future.delayed(minimum);
+    }
+    if (!mounted) return;
 
-      final upToDate = await VersionService.isUpToDate();
-      if (!mounted) return;
-
-      if (!upToDate) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const UpdateRequiredScreen(),
-          ),
-        );
-        return;
-      }
-
+    if (!upToDate) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => token ? HomeScreen() : OnboardingScreen(),
+          builder: (_) => const UpdateRequiredScreen(),
         ),
       );
-    });
+      return;
+    }
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => token ? HomeScreen() : OnboardingScreen(),
+      ),
+    );
   }
 
   Future<void> _loadVersion() async {
@@ -64,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/background.png'),
+            image: AssetImage('assets/images/background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -74,7 +76,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Image(image: AssetImage("assets/images/logo.png")),
+                    Image(image: const AssetImage('assets/images/logo.png')),
                     const CircularProgressIndicator(),
                   ],
                 ),

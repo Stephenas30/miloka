@@ -155,7 +155,7 @@ class GameChoiceCardState extends State<GameChoiceCard>
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         image: const DecorationImage(
-          image: AssetImage("assets/images/card.png"), // fond carte
+          image: AssetImage("assets/images/card.jpg"), // fond carte
           fit: BoxFit.cover,
         ),
         boxShadow: const [

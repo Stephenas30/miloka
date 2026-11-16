@@ -1133,7 +1133,7 @@ class _PoolOnlineLobbyScreenState extends State<PoolOnlineLobbyScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/background.png', fit: BoxFit.cover),
+          Image.asset('assets/images/background.jpg', fit: BoxFit.cover),
           ColoredBox(color: Colors.black.withValues(alpha: .22)),
           SafeArea(
             child: LayoutBuilder(

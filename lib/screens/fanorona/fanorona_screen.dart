@@ -11,6 +11,7 @@ import '../../service/fanorona/lobby_service.dart';
 import '../../service/game_channel_service.dart';
 import '../../service/stats_service.dart';
 import '../../utils/image_cache.dart';
+import '../../utils/game_wake_lock.dart';
 import '../profile_screen.dart';
 import '../home_screen.dart';
 import '../purchase_screen.dart';
@@ -68,6 +69,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
   static const int _warnSecondsLeft = 10;
   Timer? _clockTimer;
   int _secondsLeft = _turnSeconds;
+  final ValueNotifier<int> _clockNotifier = ValueNotifier<int>(_turnSeconds);
   bool _timeWarnOpen = false;
   bool _timeoutHandled = false;
 
@@ -98,6 +100,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
       });
     }
     WidgetsBinding.instance.addObserver(this);
+    GameWakeLock.acquire();
   }
 
   @override
@@ -119,6 +122,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
 
   @override
   void dispose() {
+    GameWakeLock.release();
     WidgetsBinding.instance.removeObserver(this);
     // Restaurer le portrait par défaut de l'app en quittant le jeu.
     _applyOrientation(landscape: false);
@@ -126,6 +130,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
     _requestTimer?.cancel();
     _clockTimer?.cancel();
     _gameSubscription?.cancel();
+    _clockNotifier.dispose();
     if (_isOnline) {
       GameChannelService().disconnect();
     }
@@ -632,6 +637,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
   void _resetTurnClock() {
     _secondsLeft = _turnSeconds;
     _timeoutHandled = false;
+    _clockNotifier.value = _secondsLeft;
   }
 
   void _onClockTick() {
@@ -640,19 +646,16 @@ class _FanoronaScreenState extends State<FanoronaScreen>
       // Tour adverse : le chrono reste armé à 60 s.
       if (_secondsLeft != _turnSeconds || _timeoutHandled) {
         _resetTurnClock();
-        setState(() {});
       }
       return;
     }
     if (_timeoutHandled) return;
     if (_secondsLeft > 0) _secondsLeft--;
     if (_secondsLeft == _warnSecondsLeft) _showTimeWarning();
+    _clockNotifier.value = _secondsLeft;
     if (_secondsLeft <= 0) {
       _timeoutHandled = true;
-      setState(() {});
       _handleSelfTimeout();
-    } else {
-      setState(() {});
     }
   }
 
@@ -1002,7 +1005,7 @@ class _FanoronaScreenState extends State<FanoronaScreen>
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
-            image: AssetImage('assets/images/background.png'),
+            image: AssetImage('assets/images/background.jpg'),
             fit: BoxFit.cover,
           ),
         ),
@@ -1196,45 +1199,49 @@ class _FanoronaScreenState extends State<FanoronaScreen>
               children: [
                 _pieceCount(FanoronaPlayer.human),
                 if (_isMyTurn) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color:
-                          (_secondsLeft <= _warnSecondsLeft
-                                  ? Colors.redAccent
-                                  : Colors.white)
+                  ValueListenableBuilder<int>(
+                    valueListenable: _clockNotifier,
+                    builder: (context, secondsLeft, _) {
+                      final warning =
+                          secondsLeft <= _warnSecondsLeft;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (warning ? Colors.redAccent : Colors.white)
                               .withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.timer_outlined,
-                          size: 16,
-                          color: _secondsLeft <= _warnSecondsLeft
-                              ? Colors.redAccent
-                              : Colors.white70,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$_secondsLeft s',
-                          style: TextStyle(
-                            color: _secondsLeft <= _warnSecondsLeft
-                                ? Colors.redAccent
-                                : Colors.white70,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.timer_outlined,
+                              size: 16,
+                              color: warning
+                                  ? Colors.redAccent
+                                  : Colors.white70,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$secondsLeft s',
+                              style: TextStyle(
+                                color: warning
+                                    ? Colors.redAccent
+                                    : Colors.white70,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                  const SizedBox(width: 8),
                 ],
+                const SizedBox(width: 8),
                 Flexible(
                   child: Text(
                     _statusText,
@@ -1308,22 +1315,24 @@ class _FanoronaScreenState extends State<FanoronaScreen>
         return Center(
           child: GestureDetector(
             onTapUp: _onBoardTap,
-            child: CustomPaint(
-              size: size,
-              painter: FanoronaBoardPainter(
-                cellSize: cell,
-                board: _engine.board,
-                selectedPiece: _selectedPiece,
-                targets: _targets,
-                movingPiece: _engine.inCaptureSequence
-                    ? _engine.movingPiecePos
-                    : null,
-                capturedAnimating: _capturedAnimating,
-                pendingDualChoice: _pendingDualChoice,
-                highlightFrom: _highlightFrom,
-                highlightTo: _highlightTo,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  size: size,
+                  painter: FanoronaBoardPainter(
+                    cellSize: cell,
+                    board: _engine.board,
+                    selectedPiece: _selectedPiece,
+                    targets: _targets,
+                    movingPiece: _engine.inCaptureSequence
+                        ? _engine.movingPiecePos
+                        : null,
+                    capturedAnimating: _capturedAnimating,
+                    pendingDualChoice: _pendingDualChoice,
+                    highlightFrom: _highlightFrom,
+                    highlightTo: _highlightTo,
+                  ),
+                ),
               ),
-            ),
           ),
         );
       },
@@ -1602,8 +1611,9 @@ class FanoronaBoardPainter extends CustomPainter {
   final int? pendingDualChoice;
   final int? highlightFrom;
   final int? highlightTo;
+  final int _signature;
 
-  const FanoronaBoardPainter({
+  FanoronaBoardPainter({
     required this.cellSize,
     required this.board,
     this.selectedPiece,
@@ -1613,7 +1623,47 @@ class FanoronaBoardPainter extends CustomPainter {
     this.pendingDualChoice,
     this.highlightFrom,
     this.highlightTo,
-  });
+  }) : _signature = _computeSignature(
+          cellSize: cellSize,
+          board: board,
+          selectedPiece: selectedPiece,
+          targets: targets,
+          movingPiece: movingPiece,
+          capturedAnimating: capturedAnimating,
+          pendingDualChoice: pendingDualChoice,
+          highlightFrom: highlightFrom,
+          highlightTo: highlightTo,
+        );
+
+  static int _computeSignature({
+    required double cellSize,
+    required List<int> board,
+    required int? selectedPiece,
+    required Map<int, Set<FanoronaMoveType>> targets,
+    required int? movingPiece,
+    required List<int> capturedAnimating,
+    required int? pendingDualChoice,
+    required int? highlightFrom,
+    required int? highlightTo,
+  }) {
+    final parts = <num>[
+      cellSize,
+      selectedPiece ?? -1,
+      movingPiece ?? -1,
+      pendingDualChoice ?? -1,
+      highlightFrom ?? -1,
+      highlightTo ?? -1,
+      board.length,
+      ...board,
+      ...capturedAnimating,
+    ];
+    for (final entry in targets.entries) {
+      parts
+        ..add(entry.key)
+        ..add(entry.value.length);
+    }
+    return Object.hashAll(parts);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1791,15 +1841,6 @@ class FanoronaBoardPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant FanoronaBoardPainter oldDelegate) {
-    return oldDelegate.cellSize != cellSize ||
-        oldDelegate.board != board ||
-        oldDelegate.selectedPiece != selectedPiece ||
-        oldDelegate.targets != targets ||
-        oldDelegate.movingPiece != movingPiece ||
-        oldDelegate.capturedAnimating != capturedAnimating ||
-        oldDelegate.pendingDualChoice != pendingDualChoice ||
-        oldDelegate.highlightFrom != highlightFrom ||
-        oldDelegate.highlightTo != highlightTo;
-  }
+  bool shouldRepaint(covariant FanoronaBoardPainter oldDelegate) =>
+      oldDelegate._signature != _signature;
 }

@@ -855,7 +855,7 @@ _awaitingAgreement = true;
           decoration: _inColorSelection
               ? const BoxDecoration(color: Color(0xFF1C1C2E))
               : const BoxDecoration(
-                  image: DecorationImage(image: AssetImage('assets/images/background.png'), fit: BoxFit.cover),
+                  image: DecorationImage(image: AssetImage('assets/images/background.jpg'), fit: BoxFit.cover),
                 ),
           child: SafeArea(
             child: _inColorSelection ? _buildColorSelection() : _buildLobby(),
