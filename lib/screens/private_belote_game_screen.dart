@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../game/belote_game_logic.dart';
@@ -1470,6 +1471,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
                   child: GestureDetector(
+                    dragStartBehavior: DragStartBehavior.down,
                     onTap: playable[i] ? () => _playCard(cards[i]) : null,
                     child: cachedSvgAsset(
                       cards[i].assetPath,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/gestures.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -74,7 +75,9 @@ class _GameScreenState extends State<GameScreen>
   bool _playDropAndSettle = false;
   late final AnimationController _playController;
   final Duration dealAnimationDuration = const Duration(milliseconds: 200);
-  final Duration playAnimationDuration = const Duration(milliseconds: 820);
+  final Duration playAnimationDuration = const Duration(milliseconds: 450);
+  static const Duration dropAnimationDuration = Duration(milliseconds: 200);
+  static const double _cardDropAboveTable = 180.0;
 
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
 
@@ -82,6 +85,7 @@ class _GameScreenState extends State<GameScreen>
   String? _draggingCardPlayer;
   bool _dropResolveInProgress = false;
   bool _dragHasMoved = false;
+  Offset _dragStartPos = Offset.zero;
   final ValueNotifier<Offset> _dragPos = ValueNotifier<Offset>(Offset.zero);
   AnimationController? _returnController;
   Animation<Offset>? _returnAnimation;
@@ -894,7 +898,7 @@ class _GameScreenState extends State<GameScreen>
       animatingPlayPlayer = player;
     });
     _playController.duration = dropPos != null
-        ? const Duration(milliseconds: 280)
+        ? dropAnimationDuration
         : playAnimationDuration;
     await _playController.forward(from: 0);
 
@@ -1048,27 +1052,34 @@ class _GameScreenState extends State<GameScreen>
 
   static const double cardWidthValue = 80.0;
   static const double cardHeightValue = 100.0;
-  void _onDragStart(CardModel card, String playerName, DragDownDetails details) {
-    final RenderBox? box =
-        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+  /// Démarrage du drag au moment où le doigt touche la carte (events pointer bruts,
+  /// aucun délai d'arène de gestes).
+  void _onCardPointerDown(CardModel card, String playerName, PointerDownEvent details) {
+    if (!_isHuman(playerName)) return;
+    if (!_canPlayCard(card, player: playerName)) return;
+    final box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    final local = box.globalToLocal(details.globalPosition);
     setState(() {
       _draggingCard = card;
       _draggingCardPlayer = playerName;
       _dropResolveInProgress = false;
       _dragHasMoved = false;
-      _dragPos.value = local;
+      _dragStartPos = details.position;
+      _dragPos.value = box.globalToLocal(details.position);
     });
   }
 
-  void _onDragUpdate(DragUpdateDetails details) {
-    final RenderBox? box =
-        _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
+  /// Mise à jour du drag à chaque pointer (position 1:1 du doigt, sans décalage).
+  void _onCardPointerMove(PointerMoveEvent event) {
+    if (_draggingCard == null) return;
+    final box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    final local = box.globalToLocal(details.globalPosition);
-    _dragHasMoved = true;
-    _dragPos.value = local;
+    _dragPos.value = box.globalToLocal(event.position);
+    final dx = event.position.dx - _dragStartPos.dx;
+    final dy = event.position.dy - _dragStartPos.dy;
+    if (dx * dx + dy * dy > 36) {
+      _dragHasMoved = true;
+    }
   }
 
   Rect _dropZoneRect() {
@@ -1094,16 +1105,20 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
-  /// Relâche du doigt : déclenché par onPanEnd OU par le Listener global du Stack
-  /// (quel que soit le résultat de la scène de gestes).
+  /// Relâche du doigt : déclenché par le Listener global du Stack ; tap si pas de mouvement.
   void _tryResolveDragDrop() {
     final card = _draggingCard;
     final playerName = _draggingCardPlayer;
     if (card == null || playerName == null) return;
-    _resolveDragDrop(card, playerName);
-  }
-
-  void _onDragEnd(CardModel card, String playerName) {
+    if (!_dragHasMoved) {
+      setState(() {
+        _draggingCard = null;
+        _draggingCardPlayer = null;
+        _dragPos.value = Offset.zero;
+      });
+      _playCard(playerName, card);
+      return;
+    }
     _resolveDragDrop(card, playerName);
   }
 
@@ -1199,20 +1214,14 @@ class _GameScreenState extends State<GameScreen>
                     Positioned(
                       key: _cardKeyFor(cards[i]),
                       right: (cards.length - 1 - i) * overlap,
-                      child: GestureDetector(
-                        onTap: canPlay && playable[i]
-                            ? () => _playCard(playerName, cards[i])
-                            : null,
-                        onPanDown: canPlay && playable[i]
-                            ? (details) => _onDragStart(cards[i], playerName, details)
-                            : null,
-                        onPanStart: canPlay && playable[i] ? (_) {} : null,
-                        onPanUpdate: canPlay ? _onDragUpdate : null,
-                        onPanEnd: canPlay && _draggingCard != null
-                            ? (_) => _onDragEnd(cards[i], playerName)
-                            : null,
-                        onPanCancel: canPlay && _draggingCard != null
-                            ? () => _onDragEnd(cards[i], playerName)
+                      child: Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: canPlay && playable[i]
+                            ? (details) => _onCardPointerDown(
+                                  cards[i],
+                                  playerName,
+                                  details,
+                                )
                             : null,
                         child: Opacity(
                           opacity: identical(_draggingCard, cards[i]) ? 0.0 : 1.0,
@@ -1726,6 +1735,7 @@ class _GameScreenState extends State<GameScreen>
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
                   child: GestureDetector(
+                    dragStartBehavior: DragStartBehavior.down,
                     onTap: onCardTap != null ? () => onCardTap(cards[i]) : null,
                     child: cachedSvgAsset(
                       (showBack && onCardTap == null)
@@ -2132,19 +2142,44 @@ class _GameScreenState extends State<GameScreen>
         final target = _playTo;
 
         Offset cardPos;
-        double cardScale;
+        double cardScaleX = 1.0;
+        double cardScaleY = 1.0;
         double cardRotation = 0;
         if (_playDropAndSettle) {
-          cardPos = target;
-          cardScale =
-              1.24 - 0.24 * Curves.easeOutBack.transform(t);
+          // Chute gravitationnelle : la carte tombe d'au-dessus de la table
+          // avec une accélération constante, pivote légèrement puis s'écrase
+          // sur le tapis (squash) et rebondit une fois (bounceOut).
+          final fromY = _playFrom.dy - _cardDropAboveTable;
+          final fallEnd = 0.78; // fin de la chute libre
+          if (t < fallEnd) {
+            final fallP = Curves.easeInQuad.transform(t / fallEnd);
+            cardPos = Offset(
+              _playFrom.dx + (target.dx - _playFrom.dx) * Curves.easeOutCubic.transform(t),
+              fromY + (target.dy - fromY) * fallP,
+            );
+            cardRotation = math.sin(t * math.pi) * 0.18 * (1 - t);
+            // léger étirement vertical pendant la chute (stretch en Y)
+            cardScaleX = 1.0 - 0.04 * fallP;
+            cardScaleY = 1.0 + 0.04 * fallP;
+          } else {
+            // Impact + rebond (elastic out)
+            final s = _phase(t, fallEnd, 1.0);
+            cardPos = Offset(target.dx, target.dy);
+            cardRotation = 0;
+            // écraser à l'impact puis relâcher
+            final bounce = Curves.elasticOut.transform(s);
+            cardScaleX = 1.12 + (1 - bounce) * 0.14 * (1 - s);
+            cardScaleY = 0.88 + (bounce - 1) * 0.14 * (1 - s);
+          }
         } else if (t < 0.17) {
           cardPos = rest;
-          cardScale = 1.0;
+          cardScaleX = 1.0;
+          cardScaleY = 1.0;
         } else if (t < 0.28) {
           cardPos = rest;
-          cardScale =
-              1.0 + 0.09 * Curves.easeOut.transform(_phase(t, 0.17, 0.28));
+          final before = 1.0 + 0.09 * Curves.easeOut.transform(_phase(t, 0.17, 0.28));
+          cardScaleX = before;
+          cardScaleY = before;
         } else if (t < 0.80) {
           final p = _phase(t, 0.28, 0.80);
           final eased = Curves.easeInOutCubic.transform(p);
@@ -2153,13 +2188,15 @@ class _GameScreenState extends State<GameScreen>
             rest.dy + (target.dy - rest.dy) * eased -
                 math.sin(p * math.pi) * 110,
           );
-          cardScale = 1.09;
+          cardScaleX = 1.09;
+          cardScaleY = 1.09;
           cardRotation = math.sin(p * math.pi) * 0.15 *
               (target.dx >= rest.dx ? 1 : -1);
         } else {
           cardPos = target;
-          cardScale =
-              1.09 - 0.09 * Curves.easeOutBack.transform(_phase(t, 0.80, 1.0));
+          final after = 1.09 - 0.09 * Curves.easeOutBack.transform(_phase(t, 0.80, 1.0));
+          cardScaleX = after;
+          cardScaleY = after;
         }
 
         final liftFactor = _playDropAndSettle
@@ -2199,7 +2236,8 @@ class _GameScreenState extends State<GameScreen>
               child: Transform.rotate(
                 angle: cardRotation,
                 child: Transform.scale(
-                  scale: cardScale,
+                  scaleX: cardScaleX,
+                  scaleY: cardScaleY,
                   child: Container(
                     width: cardWidthValue,
                     height: cardHeightValue,
@@ -2255,15 +2293,6 @@ class _GameScreenState extends State<GameScreen>
       body: Stack(
         key: _dragStackKey,
         children: [
-          Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) {},
-            onPointerUp: (_) => _tryResolveDragDrop(),
-            onPointerCancel: (_) {
-              _tryResolveDragDrop();
-            },
-            child: const SizedBox.expand(),
-          ),
           Positioned.fill(
             child: RepaintBoundary(
               child: Image.asset(
@@ -2501,6 +2530,18 @@ class _GameScreenState extends State<GameScreen>
               left: MediaQuery.sizeOf(context).width / 2 - 30,
               child: cachedSvgAsset("assets/images/card/dos.svg", height: 60),
             ),
+
+          // Listener global (top) — reçoit tous les pointer events, passe-through translucent
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {},
+            onPointerMove: _onCardPointerMove,
+            onPointerUp: (_) => _tryResolveDragDrop(),
+            onPointerCancel: (_) {
+              _tryResolveDragDrop();
+            },
+            child: const SizedBox.expand(),
+          ),
         ],
       ),
     );
