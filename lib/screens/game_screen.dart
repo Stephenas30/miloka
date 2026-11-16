@@ -1082,13 +1082,10 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
-  Rect _dropZoneRect() {
+  bool _isOverDropZone(Offset pos) {
     final size = MediaQuery.sizeOf(context);
-    const handZoneHeight = 150.0; // hauteur de la zone des deux mains basses
-    return Rect.fromLTWH(0, 0, size.width, size.height - handZoneHeight);
+    return _dropZoneRectFor(size).contains(pos);
   }
-
-  bool _isOverDropZone(Offset pos) => _dropZoneRect().contains(pos);
 
   void _onReturnTick() {
     final animation = _returnAnimation;
@@ -1214,23 +1211,25 @@ class _GameScreenState extends State<GameScreen>
                     Positioned(
                       key: _cardKeyFor(cards[i]),
                       right: (cards.length - 1 - i) * overlap,
-                      child: Listener(
-                        behavior: HitTestBehavior.translucent,
-                        onPointerDown: canPlay && playable[i]
-                            ? (details) => _onCardPointerDown(
-                                  cards[i],
-                                  playerName,
-                                  details,
-                                )
-                            : null,
-                        child: Opacity(
-                          opacity: identical(_draggingCard, cards[i]) ? 0.0 : 1.0,
-                          child: cachedSvgAsset(
-                            cards[i].assetPath,
-                            width: cardWidth,
-                            height: cardHeight,
-                          ),
-                        ),
+                      child: IgnorePointer(
+                        ignoring: !(canPlay && playable[i]),
+                        child: Listener(
+                          behavior: HitTestBehavior.translucent,
+                          onPointerDown: canPlay && playable[i]
+                              ? (details) => _onCardPointerDown(
+                                    cards[i],
+                                    playerName,
+                                    details,
+                                  )
+                              : null,
+                           child: identical(_draggingCard, cards[i])
+                               ? const SizedBox.shrink()
+                               : cachedSvgAsset(
+                                   cards[i].assetPath,
+                                   width: cardWidth,
+                                   height: cardHeight,
+                                 ),
+                       ),
                       ),
                     ),
                 ],
@@ -1242,61 +1241,91 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  Widget _buildDropZoneHighlight() {
-    if (_draggingCard == null) return const SizedBox.shrink();
-    return AnimatedBuilder(
-      animation: _dragPos,
-      builder: (context, _) {
-        final over = _isOverDropZone(_dragPos.value);
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Container(
-                  color: over
-                      ? const Color(0x14FFC107)
-                      : Colors.black.withValues(alpha: 0.12),
+  Rect _dropZoneRectFor(Size size) =>
+      Rect.fromLTWH(0, 0, size.width, size.height - 150.0);
+
+  Widget _buildDragMergedOverlay() {
+    final card = _draggingCard;
+    if (card == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _dragPos,
+          builder: (context, _) {
+            final size = MediaQuery.sizeOf(context);
+            final pos = _dragPos.value;
+            final over = _dropZoneRectFor(size).contains(pos);
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: over
+                        ? const Color(0x14FFC107)
+                        : Colors.black.withValues(alpha: 0.12),
+                  ),
                 ),
-              ),
-            ),
-            Positioned(
-              top: 70,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      over ? Icons.touch_app : Icons.touch_app_outlined,
-                      color: over
-                          ? const Color(0xFFFFC107)
-                          : Colors.white54,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      over
-                          ? 'Relâchez la carte !'
-                          : 'Déposez la carte n\'importe où sur la table',
-                      style: TextStyle(
-                        color: over
-                            ? const Color(0xFFFFC107)
-                            : Colors.white70,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        shadows: const [
-                          Shadow(color: Colors.black54, blurRadius: 4),
-                        ],
+                Positioned(
+                  top: 70,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        over ? Icons.touch_app : Icons.touch_app_outlined,
+                        color: over ? const Color(0xFFFFC107) : Colors.white54,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        over
+                            ? 'Relâchez la carte !'
+                            : 'Déposez la carte n\'importe où sur la table',
+                        style: TextStyle(
+                          color: over ? const Color(0xFFFFC107) : Colors.white70,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          shadows: const [
+                            Shadow(color: Colors.black54, blurRadius: 4),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: pos.dx - 40,
+                  top: pos.dy - 50,
+                  child: Transform.scale(
+                    scale: 1.07,
+                    child: RepaintBoundary(
+                      child: Container(
+                        width: cardWidthValue,
+                        height: cardHeightValue,
+                        decoration: const BoxDecoration(
+                          borderRadius: BorderRadius.all(Radius.circular(9)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x59000000),
+                              blurRadius: 8,
+                              offset: Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: cachedSvgAsset(
+                          card.assetPath,
+                          width: cardWidthValue,
+                          height: cardHeightValue,
+                        ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
-        );
-      },
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -1307,7 +1336,6 @@ class _GameScreenState extends State<GameScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          _buildDropZoneHighlight(),
           for (final playedCard in played) _buildPlacedCard(playedCard, size),
         ],
       ),
@@ -2051,54 +2079,6 @@ class _GameScreenState extends State<GameScreen>
     return _alignmentForPlayer(player);
   }
 
-  Widget _buildDragOverlay() {
-    final card = _draggingCard;
-    if (card == null) return const SizedBox.shrink();
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: AnimatedBuilder(
-          animation: _dragPos,
-          builder: (context, _) {
-            final pos = _dragPos.value;
-            return Stack(
-              children: [
-                Positioned(
-                  left: pos.dx - 40,
-                  top: pos.dy - 50,
-                  child: Transform.rotate(
-                    angle: 0.04,
-                    child: Transform.scale(
-                      scale: 1.07,
-                      child: Container(
-                        width: cardWidthValue,
-                        height: cardHeightValue,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(9),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Colors.black54,
-                              blurRadius: 18,
-                              offset: Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: cachedSvgAsset(
-                          card.assetPath,
-                          width: cardWidthValue,
-                          height: cardHeightValue,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   Widget _buildDealAnimation() {
     return AnimatedAlign(
       alignment: dealCardAtTarget
@@ -2396,7 +2376,7 @@ class _GameScreenState extends State<GameScreen>
           if (animatingPlayCard != null)
             RepaintBoundary(child: _buildPlayAnimation()),
           if (_draggingCard != null)
-            RepaintBoundary(child: _buildDragOverlay()),
+            RepaintBoundary(child: _buildDragMergedOverlay()),
 
           if (_guestDealing)
             Positioned.fill(
