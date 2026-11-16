@@ -973,7 +973,7 @@ class _PlayerBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(9),
         border: Border.all(
           color: active ? _poolAccent : _poolHudLine,
-          width: active ? 3 : 2,
+          width: 2,
         ),
       ),
       child: Column(

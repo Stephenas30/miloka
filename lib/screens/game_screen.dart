@@ -73,7 +73,7 @@ class _GameScreenState extends State<GameScreen>
   Offset _playTo = Offset.zero;
   bool _playDropAndSettle = false;
   late final AnimationController _playController;
-  final Duration dealAnimationDuration = const Duration(milliseconds: 500);
+  final Duration dealAnimationDuration = const Duration(milliseconds: 200);
   final Duration playAnimationDuration = const Duration(milliseconds: 820);
 
   final List<String> players = ["Nord", "Est", "Sud", "Ouest"];
@@ -470,11 +470,6 @@ class _GameScreenState extends State<GameScreen>
       setState(() => gameLogic.waitingForNextHand = true);
       _startAutoCloseTimer();
     }
-    if (!gameLogic.gameOver) {
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) setState(() {});
-      });
-    }
   }
 
   void _handleGuestHandFinished(Map<String, dynamic> event) {
@@ -599,7 +594,7 @@ class _GameScreenState extends State<GameScreen>
       if (widget.teamId != null && !widget.isHost) {
         // guest waits for host broadcast
       } else if (!_isHuman(next)) {
-        await Future.delayed(const Duration(milliseconds: 700));
+        await Future.delayed(const Duration(milliseconds: 250));
         Future.delayed(Duration.zero, () => _playAITurn());
       }
     }
@@ -646,11 +641,13 @@ class _GameScreenState extends State<GameScreen>
       dealCardAtTarget = false;
     });
 
-    await Future.delayed(const Duration(milliseconds: 20));
+    await Future.delayed(const Duration(milliseconds: 16));
+    if (!mounted) return;
     setState(() {
       dealCardAtTarget = true;
     });
-    await Future.delayed(dealAnimationDuration + const Duration(milliseconds: 50));
+    await Future.delayed(dealAnimationDuration + const Duration(milliseconds: 30));
+    if (!mounted) return;
 
     setState(() {
       if (player == "Nord") {
@@ -940,7 +937,7 @@ class _GameScreenState extends State<GameScreen>
       final next = _nextPlayer(player);
       gameLogic.callSystem.setCurrentPlayer(next);
       if (!_isHuman(next)) {
-        await Future.delayed(const Duration(milliseconds: 700));
+        await Future.delayed(const Duration(milliseconds: 250));
         _isPlayingCard = false;
         _playAITurn();
       }
@@ -1176,6 +1173,9 @@ class _GameScreenState extends State<GameScreen>
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
     const cardWidth = 80.0;
     const cardHeight = 100.0;
+    final playable = [
+      for (final c in cards) _canPlayCard(c, player: playerName),
+    ];
     return LayoutBuilder(
       builder: (context, constraints) {
         final available = constraints.maxWidth;
@@ -1200,17 +1200,13 @@ class _GameScreenState extends State<GameScreen>
                       key: _cardKeyFor(cards[i]),
                       right: (cards.length - 1 - i) * overlap,
                       child: GestureDetector(
-                        onTap: canPlay && _canPlayCard(cards[i], player: playerName)
+                        onTap: canPlay && playable[i]
                             ? () => _playCard(playerName, cards[i])
                             : null,
-                        onPanDown: canPlay &&
-                                _canPlayCard(cards[i], player: playerName)
+                        onPanDown: canPlay && playable[i]
                             ? (details) => _onDragStart(cards[i], playerName, details)
                             : null,
-                        onPanStart: canPlay &&
-                                _canPlayCard(cards[i], player: playerName)
-                            ? (_) {}
-                            : null,
+                        onPanStart: canPlay && playable[i] ? (_) {} : null,
                         onPanUpdate: canPlay ? _onDragUpdate : null,
                         onPanEnd: canPlay && _draggingCard != null
                             ? (_) => _onDragEnd(cards[i], playerName)
@@ -1719,8 +1715,8 @@ class _GameScreenState extends State<GameScreen>
 
     return SizedBox(
       height: cardHeight,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: Align(
+        alignment: Alignment.centerRight,
         child: SizedBox(
           width: width,
           child: Stack(
@@ -1758,8 +1754,8 @@ class _GameScreenState extends State<GameScreen>
     return SizedBox(
       width: cardWidth,
       height: height,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.vertical,
+      child: Align(
+        alignment: Alignment.topCenter,
         child: SizedBox(
           height: height,
           child: Stack(
@@ -2366,9 +2362,12 @@ class _GameScreenState extends State<GameScreen>
               child: RepaintBoundary(child: _showTrickArea()),
             ),
           ),
-          if (animatingDealCard != null) _buildDealAnimation(),
-          if (animatingPlayCard != null) _buildPlayAnimation(),
-          if (_draggingCard != null) _buildDragOverlay(),
+          if (animatingDealCard != null)
+            RepaintBoundary(child: _buildDealAnimation()),
+          if (animatingPlayCard != null)
+            RepaintBoundary(child: _buildPlayAnimation()),
+          if (_draggingCard != null)
+            RepaintBoundary(child: _buildDragOverlay()),
 
           if (_guestDealing)
             Positioned.fill(
@@ -2658,62 +2657,87 @@ class _ForfeitWarningDialogState extends State<_ForfeitWarningDialog> {
 class _PlayHandPainter extends CustomPainter {
   const _PlayHandPainter();
 
+  static Paint? _skinFill;
+  static Paint? _skinHeatLarge;
+  static Paint? _skinHeatSmall;
+  static Paint? _skinOutlineMedField;
+  static Paint? _skinOutlineThumb1Field;
+  static Paint? _skinOutlineThumb2Field;
+  static Paint? _creaseLarge;
+  static Paint? _creaseSmall;
+  static Paint? _nailFill;
+  static Paint? _shadowFill;
+  static Path? _crease1Path;
+  static Path? _crease2Path;
+  static const _gradTop = Color(0xFFF3C6A3);
+  static const _gradBase = Color(0xFFDEA174);
+  static const _outline = Color(0xFF9A6444);
+  static const _crease = Color(0xFFA96F46);
+  static const _nail = Color(0xFFF6DCC9);
+
+  static Paint _skin() => _skinFill ??= Paint()
+    ..shader = const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [_gradTop, _gradBase],
+    ).createShader(const Rect.fromLTWH(-40, -110, 80, 120));
+
+  static Paint _skinLarge() =>
+      _skinHeatLarge ??= Paint()..color = _outline..style = PaintingStyle.stroke..strokeWidth = 1.7;
+
+  static Paint _skinOutlineMed() =>
+      _skinOutlineMedField ??= Paint()..color = _outline..style = PaintingStyle.stroke..strokeWidth = 1.3;
+
+  static Paint _skinOutlineSmall() =>
+      _skinHeatSmall ??= Paint()..color = _outline..style = PaintingStyle.stroke..strokeWidth = 1.1;
+
+  static Paint _skinOutlineThumb1() =>
+      _skinOutlineThumb1Field ??= Paint()..color = _outline..style = PaintingStyle.stroke..strokeWidth = 1.2;
+
+  static Paint _skinOutlineThumb2() =>
+      _skinOutlineThumb2Field ??= Paint()..color = _outline..style = PaintingStyle.stroke..strokeWidth = 1.0;
+
+  static Paint _crease13() =>
+      _creaseLarge ??= Paint()..color = _crease..style = PaintingStyle.stroke..strokeWidth = 1.3;
+
+  static Paint _crease10() =>
+      _creaseSmall ??= Paint()..color = _crease..style = PaintingStyle.stroke..strokeWidth = 1.0;
+
+  static Paint _nailPaint() => _nailFill ??= Paint()..color = _nail;
+
+  static Paint _shadowPaint() =>
+      _shadowFill ??= Paint()..color = Colors.black.withValues(alpha: 0.25);
+
+  static Path _crease1() =>
+      _crease1Path ??= Path()
+        ..moveTo(-21, -42)
+        ..quadraticBezierTo(-6, -34, 12, -46)
+        ..quadraticBezierTo(18, -49, 24, -44);
+
+  static Path _crease2() =>
+      _crease2Path ??= Path()
+        ..moveTo(-17, -27)
+        ..quadraticBezierTo(2, -21, 20, -31);
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.translate(size.width / 2, size.height);
 
-    const outline = Color(0xFF9A6444);
-    const crease = Color(0xFFA96F46);
-    const nail = Color(0xFFF6DCC9);
-
+    final skinPaint = _skin();
     canvas.drawOval(
       Rect.fromCenter(center: const Offset(1, -8), width: 84, height: 22),
-      Paint()..color = Colors.black.withValues(alpha: 0.25),
+      _shadowPaint(),
     );
-
-    final gradTop = const Color(0xFFF3C6A3);
-    final gradBase = const Color(0xFFDEA174);
-    Paint skinShaderFor(Rect rect) => Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [gradTop, gradBase],
-      ).createShader(rect);
 
     RRect rounded(double x, double y, double w, double h, double r) =>
         RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(r));
 
     final palm = rounded(-27, -68, 54, 48, 15);
-    canvas.drawRRect(palm, skinShaderFor(palm.outerRect));
-    canvas.drawRRect(
-      palm,
-      Paint()
-        ..color = outline
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.7,
-    );
+    canvas.drawRRect(palm, skinPaint);
+    canvas.drawRRect(palm, _skinLarge());
 
-    final crease1 = Path()
-      ..moveTo(-21, -42)
-      ..quadraticBezierTo(-6, -34, 12, -46)
-      ..quadraticBezierTo(18, -49, 24, -44);
-    canvas.drawPath(
-      crease1,
-      Paint()
-        ..color = crease
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.3,
-    );
-    final crease2 = Path()
-      ..moveTo(-17, -27)
-      ..quadraticBezierTo(2, -21, 20, -31);
-    canvas.drawPath(
-      crease2,
-      Paint()
-        ..color = crease
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
-    );
+    canvas.drawPath(_crease1(), _crease13());
+    canvas.drawPath(_crease2(), _crease10());
 
     const fingers = [
       (-19.0, 9.2, 24.0),
@@ -2725,7 +2749,7 @@ class _PlayHandPainter extends CustomPainter {
       final seg1 = total * 0.55;
       final seg2 = total - seg1;
       final r1 = rounded(fx - fw / 2, -68 - seg1, fw, seg1 + 1.5, fw / 2);
-      canvas.drawRRect(r1, skinShaderFor(r1.outerRect));
+      canvas.drawRRect(r1, skinPaint);
       final r2 = rounded(
         fx - fw / 2,
         -68 - seg1 - seg2,
@@ -2733,28 +2757,13 @@ class _PlayHandPainter extends CustomPainter {
         seg2 + 1.0,
         fw / 2,
       );
-      canvas.drawRRect(r2, skinShaderFor(r2.outerRect));
-      canvas.drawRRect(
-        r1,
-        Paint()
-          ..color = outline
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.3,
-      );
-      canvas.drawRRect(
-        r2,
-        Paint()
-          ..color = outline
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.1,
-      );
+      canvas.drawRRect(r2, skinPaint);
+      canvas.drawRRect(r1, _skinOutlineMed());
+      canvas.drawRRect(r2, _skinOutlineSmall());
       canvas.drawLine(
         Offset(fx - fw / 2 + 1.5, -68 - seg1),
         Offset(fx + fw / 2 - 1.5, -68 - seg1),
-        Paint()
-          ..color = crease
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0,
+        _crease10(),
       );
       canvas.drawOval(
         Rect.fromCenter(
@@ -2762,7 +2771,7 @@ class _PlayHandPainter extends CustomPainter {
           width: fw * 0.5,
           height: fw * 0.33,
         ),
-        Paint()..color = nail,
+        _nailPaint(),
       );
     }
 
@@ -2770,30 +2779,15 @@ class _PlayHandPainter extends CustomPainter {
     canvas.translate(-26, -24);
     canvas.rotate(-0.55);
     final thumb1 = rounded(-6.2, -15, 12.4, 17, 6.2);
-    canvas.drawRRect(thumb1, skinShaderFor(thumb1.outerRect));
-    canvas.drawRRect(
-      thumb1,
-      Paint()
-        ..color = outline
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
-    );
+    canvas.drawRRect(thumb1, skinPaint);
+    canvas.drawRRect(thumb1, _skinOutlineThumb1());
     final thumb2 = rounded(-5, -25, 10, 12, 5);
-    canvas.drawRRect(thumb2, skinShaderFor(thumb2.outerRect));
-    canvas.drawRRect(
-      thumb2,
-      Paint()
-        ..color = outline
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
-    );
+    canvas.drawRRect(thumb2, skinPaint);
+    canvas.drawRRect(thumb2, _skinOutlineThumb2());
     canvas.drawLine(
       const Offset(-6.2, -15),
       const Offset(6.2, -15),
-      Paint()
-        ..color = crease
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
+      _crease10(),
     );
     canvas.restore();
   }

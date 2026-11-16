@@ -970,14 +970,13 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
     });
     _restartSyncTimer();
     _resetInactivityTimer();
-    if (_isDealer) _sendStateSync();
   }
 
   Timer? _handResultTimeout;
 
   void _resolveTrick() {
     setState(() { _statusText = 'Plie en cours...'; });
-    Future.delayed(const Duration(seconds: 3), () {
+    Future.delayed(const Duration(milliseconds: 800), () {
       if (!mounted) return;
       gameLogic.resolveTrick();
       final totalTricks = gameLogic.tricksPlayed;
@@ -1450,12 +1449,18 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
     const cardWidth = 80.0;
     const cardHeight = 100.0;
     const overlap = 36.0;
+    final playable = [
+      for (final c in cards)
+        _gameStarted &&
+            gameLogic.callSystem.currentPlayer == playerName &&
+            gameLogic.canPlayCard(c, player: playerName),
+    ];
     final width = cards.isEmpty ? 0.0 : cardWidth + (cards.length - 1) * overlap;
 
     return SizedBox(
       height: cardHeight,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: Align(
+        alignment: Alignment.centerRight,
         child: SizedBox(
           width: width,
           child: Stack(
@@ -1465,9 +1470,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
                   child: GestureDetector(
-                    onTap: _gameStarted && gameLogic.callSystem.currentPlayer == playerName && gameLogic.canPlayCard(cards[i], player: playerName)
-                        ? () => _playCard(cards[i])
-                        : null,
+                    onTap: playable[i] ? () => _playCard(cards[i]) : null,
                     child: cachedSvgAsset(
                       cards[i].assetPath,
                       width: cardWidth,
@@ -1495,8 +1498,8 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
 
     return SizedBox(
       height: cardHeight,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: Align(
+        alignment: Alignment.centerRight,
         child: SizedBox(
           width: width,
           child: Stack(
@@ -1529,8 +1532,8 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
     return SizedBox(
       width: cardWidth,
       height: height,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.vertical,
+      child: Align(
+        alignment: Alignment.topCenter,
         child: SizedBox(
           height: height,
           child: Stack(
