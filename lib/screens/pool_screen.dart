@@ -14,6 +14,8 @@ import '../utils/game_wake_lock.dart';
 import '../widgets/friends_dialog.dart';
 import 'pool_online_lobby_screen.dart';
 import 'home_screen.dart';
+import 'profile_screen.dart';
+import 'purchase_screen.dart';
 
 const _poolInk = Color(0xFF17110C);
 const _poolHudCard = Color(0xFF261A10);
@@ -1483,49 +1485,60 @@ class _PoolAccountHeader extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 10 : 12,
-                vertical: compact ? 4 : 6,
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
               ),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: compact ? 12 : 14,
-                    backgroundColor: Colors.white24,
-                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                        ? cachedNetworkImage(avatarUrl)
-                        : null,
-                    child: avatarUrl == null || avatarUrl.isEmpty
-                        ? Icon(
-                            Icons.person,
-                            color: Colors.white,
-                            size: compact ? 12 : 14,
-                          )
-                        : null,
-                  ),
-                  SizedBox(width: compact ? 6 : 8),
-                  SizedBox(
-                    child: Text(
-                      username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: compact ? 13 : 14,
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 10 : 12,
+                  vertical: compact ? 4 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: compact ? 12 : 14,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                          ? cachedNetworkImage(avatarUrl)
+                          : null,
+                      child: avatarUrl == null || avatarUrl.isEmpty
+                          ? Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: compact ? 12 : 14,
+                            )
+                          : null,
+                    ),
+                    SizedBox(width: compact ? 6 : 8),
+                    SizedBox(
+                      child: Text(
+                        username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 13 : 14,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             SizedBox(width: compact ? 6 : 8),
-            Container(
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+              ),
+              child: Container(
               padding: EdgeInsets.symmetric(
                 horizontal: compact ? 10 : 12,
                 vertical: compact ? 6 : 6,
@@ -1549,6 +1562,7 @@ class _PoolAccountHeader extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
             ),
           ],
         );
