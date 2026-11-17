@@ -790,11 +790,12 @@ class _PoolGameScreenState extends State<PoolGameScreen>
                   spacing: 16,
                   runSpacing: 12,
                   children: [
-                    _GameOverButton(
-                      label: 'Rejouer',
-                      color: _poolAccent,
-                      onPressed: _restart,
-                    ),
+                    if (widget.kadri == null)
+                      _GameOverButton(
+                        label: 'Rejouer',
+                        color: _poolAccent,
+                        onPressed: _restart,
+                      ),
                     _GameOverButton(
                       label: '🏠 Accueil',
                       color: const Color(0xFF9A5424),
