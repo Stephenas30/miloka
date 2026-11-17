@@ -15,10 +15,9 @@ class CardModel {
   int get hashCode => Object.hash(suit, rank);
 
   String get assetPath {
-    // Exemple : assets/images/card/carreau-9.svg
-    final suitName = suit.name; // carreau, coeur, pique, trefle
+    final suitName = suit.name;
     final rankName = _rankToString(rank);
-    return "assets/images/card/$suitName-$rankName.svg";
+    return "assets/images/card/$suitName-$rankName.png";
   }
 
   String _rankToString(Rank r) {

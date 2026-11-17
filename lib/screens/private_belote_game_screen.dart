@@ -1511,7 +1511,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                 Positioned(
                   right: (cards.length - 1 - i) * overlap,
                   child: cachedSvgAsset(
-                    showBack ? 'assets/images/card/dos.svg' : cards[i].assetPath,
+                    showBack ? 'assets/images/card/dos.png' : cards[i].assetPath,
                     width: cardWidth,
                     height: cardHeight,
                   ),
@@ -1547,7 +1547,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
                   child: RotatedBox(
                     quarterTurns: 1,
                     child: cachedSvgAsset(
-                      'assets/images/card/dos.svg',
+                      'assets/images/card/dos.png',
                       width: cardHeight,
                       height: cardWidth,
                     ),
@@ -1784,7 +1784,7 @@ class _PrivateBeloteGameScreenState extends State<PrivateBeloteGameScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              cachedSvgAsset('assets/images/card/dos.svg', height: 80),
+              cachedSvgAsset('assets/images/card/dos.png', height: 80),
               const SizedBox(height: 12),
               const Text('Distribution...', style: TextStyle(color: Colors.white, fontSize: 16)),
             ],

@@ -1767,7 +1767,7 @@ class _GameScreenState extends State<GameScreen>
                     onTap: onCardTap != null ? () => onCardTap(cards[i]) : null,
                     child: cachedSvgAsset(
                       (showBack && onCardTap == null)
-                          ? "assets/images/card/dos.svg"
+                          ? "assets/images/card/dos.png"
                           : cards[i].assetPath,
                       width: cardWidth,
                       height: cardHeight,
@@ -1805,7 +1805,7 @@ class _GameScreenState extends State<GameScreen>
                   child: RotatedBox(
                     quarterTurns: 1,
                     child: cachedSvgAsset(
-                      "assets/images/card/dos.svg",
+                      "assets/images/card/dos.png",
                       width: cardHeight,
                       height: cardWidth,
                     ),
@@ -2087,7 +2087,7 @@ class _GameScreenState extends State<GameScreen>
       duration: dealAnimationDuration,
       curve: Curves.easeInOut,
       child: cachedSvgAsset(
-        "assets/images/card/dos.svg",
+        "assets/images/card/dos.png",
         width: 60,
         height: 80,
       ),
@@ -2386,7 +2386,7 @@ class _GameScreenState extends State<GameScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      cachedSvgAsset("assets/images/card/dos.svg", height: 80),
+                      cachedSvgAsset("assets/images/card/dos.png", height: 80),
                       const SizedBox(height: 12),
                       const Text("Distribution...", style: TextStyle(color: Colors.white, fontSize: 16)),
                     ],
@@ -2508,7 +2508,7 @@ class _GameScreenState extends State<GameScreen>
             Positioned(
               top: MediaQuery.sizeOf(context).height / 2 - 40,
               left: MediaQuery.sizeOf(context).width / 2 - 30,
-              child: cachedSvgAsset("assets/images/card/dos.svg", height: 60),
+              child: cachedSvgAsset("assets/images/card/dos.png", height: 60),
             ),
 
           // Listener global (top) — reçoit tous les pointer events, passe-through translucent
