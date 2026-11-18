@@ -53,7 +53,7 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen>
-  with SingleTickerProviderStateMixin {
+  with TickerProviderStateMixin {
   late BeloteGameLogic gameLogic;
 
   bool get _isGuestNetworked => widget.teamId != null && !widget.isHost;
@@ -86,6 +86,7 @@ class _GameScreenState extends State<GameScreen>
   bool _dropResolveInProgress = false;
   bool _dragHasMoved = false;
   Offset _dragStartPos = Offset.zero;
+  int _dragPointerId = -1;
   final ValueNotifier<Offset> _dragPos = ValueNotifier<Offset>(Offset.zero);
   AnimationController? _flybackCtrl;
   Animation<Offset>? _returnAnimation;
@@ -106,6 +107,8 @@ class _GameScreenState extends State<GameScreen>
   bool _initReceived = false;
   Timer? _requestInitTimer;
   bool _isPlayingCard = false;
+  Offset? _lastLocalPlayPos; // dernière position relâchée par CE joueur (invité)
+  CardModel? _optimisticLocalCard; // carte déjà posée localement, en attente de confirmation de l'hôte
   Completer<CallOption>? _pendingBidCompleter;
   Completer<String?>? _pendingCounterCompleter;
   Completer<String?>? _pendingSurCounterCompleter;
@@ -320,9 +323,9 @@ class _GameScreenState extends State<GameScreen>
       Navigator.of(context).pop();
     }
     if (!gameLogic.gameStarted || gameLogic.gameOver) return;
-    // L'inactivitÃ© (forfait) ne s'applique que lorsque 2 joueurs rÃ©els
-    // jouent ensemble (partie en ligne / contre un adversaire rÃ©el).
-    // En solo contre l'IA, aucun forfait d'inactivitÃ© n'est dÃ©clenchÃ©.
+    // L'inactivité (forfait) ne s'applique que lorsque 2 joueurs réels
+    // jouent ensemble (partie en ligne / contre un adversaire réel).
+    // En solo contre l'IA, aucun forfait d'inactivité n'est déclenché.
     if (!_inactivityEnabled) return;
     final current = gameLogic.callSystem.currentPlayer;
     if (!_isHuman(current)) return;
@@ -441,12 +444,22 @@ class _GameScreenState extends State<GameScreen>
             (posData['x'] as num?)?.toDouble() ?? 0.5,
             (posData['y'] as num?)?.toDouble() ?? 0.42,
           );
+    final shownPosition =
+        position ?? (_isLocalPlayer(player) ? _lastLocalPlayPos : null);
+    final opt = _optimisticLocalCard;
+    final alreadyPlaced = opt != null &&
+        _isLocalPlayer(player) &&
+        opt.suit == card.suit &&
+        opt.rank == card.rank;
+    if (alreadyPlaced) _optimisticLocalCard = null;
     final hand = _handFor(player);
     hand.removeWhere((c) => c.suit == card.suit && c.rank == card.rank);
     setState(() {
-      gameLogic.currentTrick.add(
-        PlayedCard(player, card, position: position),
-      );
+      if (!alreadyPlaced) {
+        gameLogic.currentTrick.add(
+          PlayedCard(player, card, position: shownPosition),
+        );
+      }
       gameLogic.callSystem.setCurrentPlayer(
         event['next_player'] as String? ?? _nextPlayer(player),
       );
@@ -586,6 +599,7 @@ class _GameScreenState extends State<GameScreen>
         'player': player,
         'card': card.toMap(),
         'next_player': _nextPlayer(player),
+        'pos': {'x': relative.dx, 'y': relative.dy},
       });
     }
 
@@ -606,7 +620,7 @@ class _GameScreenState extends State<GameScreen>
     _resetInactivityTimer();
   }
 
-  /// Distribution animÃ©e : 3 cartes chacun puis 2 cartes chacun
+  /// Distribution animée : 3 cartes chacun puis 2 cartes chacun
   Future<void> _dealCards() async {
     // Premier tour : 3 cartes chacun
     for (var player in gameLogic.order) {
@@ -615,7 +629,7 @@ class _GameScreenState extends State<GameScreen>
       }
     }
 
-    // DeuxiÃ¨me tour : 2 cartes chacun
+    // Deuxième tour : 2 cartes chacun
     for (var player in gameLogic.order) {
       for (var i = 0; i < 2; i++) {
         await _dealCardToPlayer(player);
@@ -633,7 +647,7 @@ class _GameScreenState extends State<GameScreen>
       });
     }
 
-    // Quand la distribution est terminÃ©e â†’ lancer le popup d'appel
+    // Quand la distribution est terminée → lancer le popup d'appel
     await _showCallPopup();
   }
 
@@ -702,7 +716,7 @@ class _GameScreenState extends State<GameScreen>
         content: SizedBox(
           width: double.maxFinite,
           child: handHistory.isEmpty
-              ? const Text('Aucune manche jouÃ©e pour cette partie.')
+              ? const Text('Aucune manche jouée pour cette partie.')
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: handHistory.length,
@@ -875,11 +889,15 @@ class _GameScreenState extends State<GameScreen>
     if (_isPlayingCard) return;
     _isPlayingCard = true;
     _draggingCard = null;
+    _dragPointerId = -1;
     _returnAnimation = null;
     _dragPos.value = Offset.zero;
+    _draggingCardPlayer = null;
+    _dragHasMoved = false;
+    _dropResolveInProgress = false;
     final hand = _handFor(player);
     final board = _boardSize();
-    // Position fractionnelle oÃ¹ la carte va atterrir (relÃ¢chement du doigt, ou emplacement alÃ©atoire)
+    // Position fractionnelle où la carte va atterrir (relâchement du doigt, ou emplacement aléatoire)
     final relative = dropPos != null
         ? Offset(
             dropPos.dx / board.width,
@@ -905,9 +923,14 @@ class _GameScreenState extends State<GameScreen>
     if (widget.teamId != null && !widget.isHost) {
       // Guest : envoie au host, ne fait rien d'autre (host broadcast card_played)
       setState(() {
+        gameLogic.currentTrick.add(
+          PlayedCard(player, card, position: relative),
+        );
         animatingPlayCard = null;
         animatingPlayPlayer = null;
       });
+      _optimisticLocalCard = card;
+      _lastLocalPlayPos = relative;
       GameChannelService().send('play_card', {
         'player': player,
         'card': card.toMap(),
@@ -1013,7 +1036,7 @@ class _GameScreenState extends State<GameScreen>
     return renderBox?.size ?? const Size(400, 700);
   }
 
-  /// Position de la carte dans les coordonnÃ©es du Stack de la table.
+  /// Position de la carte dans les coordonnées du Stack de la table.
   Offset? _cardStackOffset(CardModel card) {
     final cardKey = _cardKeys[card.assetPath];
     final stackBox =
@@ -1025,7 +1048,7 @@ class _GameScreenState extends State<GameScreen>
     return cardBox.localToGlobal(Offset.zero) - stackOrigin;
   }
 
-  /// Position fractionnelle alÃ©atoire naturelle prÃ¨s du centre de la table.
+  /// Position fractionnelle aléatoire naturelle près du centre de la table.
   Offset _randomDropPos() {
     final random = math.Random();
     return Offset(
@@ -1052,63 +1075,75 @@ class _GameScreenState extends State<GameScreen>
 
   static const double cardWidthValue = 80.0;
   static const double cardHeightValue = 100.0;
-  /// DÃ©marrage du drag au moment oÃ¹ le doigt touche la carte (events pointer bruts,
-  /// aucun dÃ©lai d'arÃ¨ne de gestes).
-  void _onCardPointerDown(CardModel card, String playerName, Offset globalPosition) {
+  /// Démarrage du drag au moment où le doigt touche la carte (events pointer bruts,
+  /// aucun délai d'arène de gestes).
+  void _onCardPointerDown(CardModel card, String playerName, PointerDownEvent details) {
     if (!_isHuman(playerName)) return;
-    // Stopper toute fly-back-animation en cours pour Ã©viter qu'elle ne continue
-    // aprÃ¨s un nouveau pointerDown â€” sinon elle Ã©crase _draggingCard Ã  null.
-    _flybackCtrl?.stop();
-    _flybackCtrl?.dispose();
-    _flybackCtrl = null;
-    _returnAnimation = null;
+    if (!_canPlayCard(card, player: playerName)) return;
     final box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    final local = box.globalToLocal(globalPosition);
-    // Re-toucher la carte actuellement draggÃ©e : on adopte ce doigt comme nouveau tracker.
-    // Quel que soit le nombre de choix lÃ©gaux, c'est le comportement attendu.
-    if (_draggingCard == card) {
-      setState(() {
-        _dragStartPos = globalPosition;
-        _dragPos.value = local;
-        _dragHasMoved = false;
-      });
+    // Un doigt est-il encore réellement posé sur une carte ? (_dragPointerId == -1 après relâchement)
+    final fingerStillDown = _draggingCard != null && _dragPointerId != -1;
+    // Un 2e doigt sur une AUTRE carte n'est accepté que s'il reste plusieurs choix légaux.
+    if (fingerStillDown &&
+        !identical(_draggingCard, card) &&
+        gameLogic.legalCards(playerName).length <= 1) {
       return;
     }
-    if (_draggingCard != null) {
-      // Autorise la bascule SEULEMENT lorsqu'au moins un autre choix lÃ©gal reste.
-      // En cas de choix unique, on verrouille pour empÃªcher la carte de changer.
-      if (gameLogic.legalCards(playerName).length <= 1) return;
-      if (!_canPlayCard(card, player: playerName)) return;
-      setState(() {
-        _draggingCard = card;
-        _draggingCardPlayer = playerName;
-        _dropResolveInProgress = false;
-        _dragHasMoved = false;
-        _dragStartPos = globalPosition;
-        _dragPos.value = local;
-      });
-      return;
-    }
-    if (!_canPlayCard(card, player: playerName)) return;
+    // Tout nouveau toucher repart d'un état propre : on tue le fly-back éventuel
+    // et on ne réutilise jamais les restes d'un drag précédent.
+    _disposeFlyback();
+    final local = box.globalToLocal(details.position);
     setState(() {
       _draggingCard = card;
       _draggingCardPlayer = playerName;
       _dropResolveInProgress = false;
+      _dragPointerId = details.pointer;
       _dragHasMoved = false;
-      _dragStartPos = globalPosition;
+      _dragStartPos = details.position;
       _dragPos.value = local;
     });
   }
 
-  /// Mise Ã  jour du drag Ã  chaque pointer (position 1:1 du doigt, sans dÃ©calage).
-  void _onCardPointerMove(Offset globalPosition) {
+  void _disposeFlyback() {
+    _flybackCtrl?.stop();
+    _flybackCtrl?.dispose();
+    _flybackCtrl = null;
+    _returnAnimation = null;
+  }
+
+  /// Remet TOUT l'état de drag à zéro (à appeler dans un setState si l'UI doit se mettre à jour).
+  void _clearDragState() {
+    _disposeFlyback();
+    _draggingCard = null;
+    _draggingCardPlayer = null;
+    _dragPointerId = -1;
+    _dragHasMoved = false;
+    _dropResolveInProgress = false;
+    _dragPos.value = Offset.zero;
+  }
+
+  /// Touch Cancel : le geste est annulé par le système → jamais de carte jouée.
+  void _onCardPointerCancel() {
+    final card = _draggingCard;
+    if (card == null) return;
+    if (_dragHasMoved && _draggingCardPlayer != null) {
+      _dragPointerId = -1;
+      _flyBackToHand(card);
+    } else {
+      setState(_clearDragState);
+    }
+  }
+
+  /// Mise à jour du drag à chaque pointer (position 1:1 du doigt, sans décalage).
+  void _onCardPointerMove(PointerMoveEvent event) {
     if (_draggingCard == null) return;
+    if (event.pointer != _dragPointerId) return;
     final box = _dragStackKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
-    _dragPos.value = box.globalToLocal(globalPosition);
-    final dx = globalPosition.dx - _dragStartPos.dx;
-    final dy = globalPosition.dy - _dragStartPos.dy;
+    _dragPos.value = box.globalToLocal(event.position);
+    final dx = event.position.dx - _dragStartPos.dx;
+    final dy = event.position.dy - _dragStartPos.dy;
     if (dx * dx + dy * dy > 36) {
       _dragHasMoved = true;
     }
@@ -1127,26 +1162,21 @@ class _GameScreenState extends State<GameScreen>
 
   void _onReturnDone(AnimationStatus status) {
     if (status != AnimationStatus.completed) return;
-    setState(() {
-      _draggingCard = null;
-      _dragPos.value = Offset.zero;
-      _returnAnimation = null;
-    });
-    _flybackCtrl?.dispose();
-    _flybackCtrl = null;
+    if (!mounted) return;
+    setState(_clearDragState);
   }
 
-  /// RelÃ¢che du doigt : dÃ©clenchÃ© par le Listener global du Stack ; tap si pas de mouvement.
+  /// Relâche du doigt : déclenché par le Listener global du Stack ; tap si pas de mouvement.
   void _tryResolveDragDrop() {
     final card = _draggingCard;
     final playerName = _draggingCardPlayer;
-    if (card == null || playerName == null) return;
+    if (card == null || playerName == null) {
+      // État incohérent : on nettoie pour ne jamais bloquer les prochains toucher.
+      if (_draggingCard != null) setState(_clearDragState);
+      return;
+    }
     if (!_dragHasMoved) {
-      setState(() {
-        _draggingCard = null;
-        _draggingCardPlayer = null;
-        _dragPos.value = Offset.zero;
-      });
+      setState(_clearDragState);
       _playCard(playerName, card);
       return;
     }
@@ -1154,15 +1184,14 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _flyBackToHand(CardModel card) {
+    // Le doigt est levé : plus aucun pointer n'est suivi pendant le retour.
+    _dragPointerId = -1;
     final rest = _cardStackOffset(card);
     if (rest == null) {
-      setState(() {
-        _draggingCard = null;
-        _dragPos.value = Offset.zero;
-      });
+      setState(_clearDragState);
       return;
     }
-    _flybackCtrl?.dispose();
+    _disposeFlyback();
     _flybackCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 230),
@@ -1182,44 +1211,37 @@ class _GameScreenState extends State<GameScreen>
     if (_dropResolveInProgress) return;
     if (_draggingCard == null) return;
     if (!_dragHasMoved) {
-      setState(() {
-        _draggingCard = null;
-      });
-      _draggingCardPlayer = null;
+      setState(_clearDragState);
       return;
     }
     _dropResolveInProgress = true;
-
-    if (!_canPlayCard(card, player: playerName)) {
-      // Carte non jouable maintenant â†’ retour en main + message
-      _flyBackToHand(card);
-      _draggingCardPlayer = null;
-      _dropResolveInProgress = false;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Carte non jouable â€” suivez la couleur jouÃ©e'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+    try {
+      if (!_canPlayCard(card, player: playerName)) {
+        // Carte non jouable maintenant → retour en main + message
+        _flyBackToHand(card);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Carte non jouable — suivez la couleur jouée'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
       }
-      return;
-    }
-    if (_isOverDropZone(_dragPos.value)) {
-      final dropPos = _dragPos.value;
-      setState(() {
-        _draggingCard = null;
-      });
-      _draggingCardPlayer = null;
+      if (_isOverDropZone(_dragPos.value)) {
+        final dropPos = _dragPos.value;
+        setState(_clearDragState);
+        _playCard(playerName, card, dropPos: dropPos);
+        return;
+      }
+      // Ailleurs : retour animé de la carte vers sa place dans la main
+      _flyBackToHand(card);
+    } finally {
+      // Garanti même si une exception survient : ne jamais bloquer le prochain drag.
       _dropResolveInProgress = false;
-      _playCard(playerName, card, dropPos: dropPos);
-      return;
     }
-    // Ailleurs : retour animÃ© de la carte vers sa place dans la main
-    _flyBackToHand(card);
-    _draggingCardPlayer = null;
-    _dropResolveInProgress = false;
   }
   Widget _buildPlayerHand(List<CardModel> cards, {required String playerName}) {
     const cardWidth = 80.0;
@@ -1254,27 +1276,14 @@ class _GameScreenState extends State<GameScreen>
                         ignoring: !(canPlay && playable[i]),
                         child: Opacity(
                           opacity: identical(_draggingCard, cards[i]) ? 0.0 : 1.0,
-                          child: GestureDetector(
+                          child: Listener(
                             behavior: HitTestBehavior.translucent,
-                            onPanDown: canPlay && playable[i]
+                            onPointerDown: canPlay && playable[i]
                                 ? (details) => _onCardPointerDown(
                                       cards[i],
                                       playerName,
-                                      details.globalPosition,
+                                      details,
                                     )
-                                : null,
-                            onPanUpdate: canPlay && playable[i]
-                                ? (details) =>
-                                    _onCardPointerMove(details.globalPosition)
-                                : null,
-                            onPanEnd: canPlay && playable[i]
-                                ? (_) => _tryResolveDragDrop()
-                                : null,
-                            onPanCancel: canPlay && playable[i]
-                                ? () => _tryResolveDragDrop()
-                                : null,
-                            onTap: canPlay && playable[i]
-                                ? () => _tryResolveDragDrop()
                                 : null,
                             child: cachedSvgAsset(
                               cards[i].assetPath,
@@ -1332,8 +1341,8 @@ class _GameScreenState extends State<GameScreen>
                       const SizedBox(width: 8),
                       Text(
                         over
-                            ? 'RelÃ¢chez la carte !'
-                            : 'DÃ©posez la carte n\'importe oÃ¹ sur la table',
+                            ? 'Relâchez la carte !'
+                            : 'Déposez la carte n\'importe où sur la table',
                         style: TextStyle(
                           color: over ? const Color(0xFFFFC107) : Colors.white70,
                           fontSize: 15,
@@ -1911,10 +1920,10 @@ class _GameScreenState extends State<GameScreen>
   String _mappedPosition(String player) {
     if (widget.teamId == null) return player;
     if (widget.isHost) {
-      // Host: Sud(me)â†’bottom, Nord(partner)â†’top, Ouestâ†’left, Estâ†’right
+      // Host: Sud(me)→bottom, Nord(partner)→top, Ouest→left, Est→right
       return player;
     } else {
-      // Guest: Nord(me)â†’bottom, Sud(partner)â†’top, Ouestâ†’right, Estâ†’left
+      // Guest: Nord(me)→bottom, Sud(partner)→top, Ouest→right, Est→left
       switch (player) {
         case "Nord": return "Sud";
         case "Sud": return "Nord";
@@ -2180,7 +2189,7 @@ class _GameScreenState extends State<GameScreen>
         double cardRotation = 0;
         if (_playDropAndSettle) {
           // Chute gravitationnelle : la carte tombe d'au-dessus de la table
-          // avec une accÃ©lÃ©ration constante, pivote lÃ©gÃ¨rement puis s'Ã©crase
+          // avec une accélération constante, pivote légèrement puis s'écrase
           // sur le tapis (squash) et rebondit une fois (bounceOut).
           final fromY = _playFrom.dy - _cardDropAboveTable;
           final fallEnd = 0.78; // fin de la chute libre
@@ -2191,7 +2200,7 @@ class _GameScreenState extends State<GameScreen>
               fromY + (target.dy - fromY) * fallP,
             );
             cardRotation = math.sin(t * math.pi) * 0.18 * (1 - t);
-            // lÃ©ger Ã©tirement vertical pendant la chute (stretch en Y)
+            // léger étirement vertical pendant la chute (stretch en Y)
             cardScaleX = 1.0 - 0.04 * fallP;
             cardScaleY = 1.0 + 0.04 * fallP;
           } else {
@@ -2199,7 +2208,7 @@ class _GameScreenState extends State<GameScreen>
             final s = _phase(t, fallEnd, 1.0);
             cardPos = Offset(target.dx, target.dy);
             cardRotation = 0;
-            // Ã©craser Ã  l'impact puis relÃ¢cher
+            // écraser à l'impact puis relâcher
             final bounce = Curves.elasticOut.transform(s);
             cardScaleX = 1.12 + (1 - bounce) * 0.14 * (1 - s);
             cardScaleY = 0.88 + (bounce - 1) * 0.14 * (1 - s);
@@ -2344,7 +2353,7 @@ class _GameScreenState extends State<GameScreen>
                   
                   const SizedBox(height: 12),
 
-                  // Nord (invitÃ© : affiche Sud face cachÃ©e)
+                  // Nord (invité : affiche Sud face cachée)
                   if (_isGuestNetworked)
                     SizedBox(
                       height: 120,
@@ -2403,7 +2412,7 @@ class _GameScreenState extends State<GameScreen>
 
                   const SizedBox(height: 12),
 
-                  // Sud (joueur humain) â€” pour l'invitÃ© : main de Nord en bas
+                  // Sud (joueur humain) — pour l'invité : main de Nord en bas
                   SizedBox(
                     height: 140,
                     child: RepaintBoundary(
@@ -2417,7 +2426,7 @@ class _GameScreenState extends State<GameScreen>
             ),
           ),
 
-          // Zone de pli en overlay plein Ã©cran â€” chaque carte reste oÃ¹ elle est jouÃ©e
+          // Zone de pli en overlay plein écran — chaque carte reste où elle est jouée
           Positioned.fill(
             child: IgnorePointer(
               ignoring: true,
@@ -2456,7 +2465,7 @@ class _GameScreenState extends State<GameScreen>
           _positionedMarker("Ouest", Colors.white),
           _positionedMarker("Sud", Colors.black),
 
-          // Overlay : rÃ©sultat de la manche + bouton Suivant
+          // Overlay : résultat de la manche + bouton Suivant
           if (gameLogic.waitingForNextHand)
             Positioned.fill(
               child: Container(
@@ -2470,7 +2479,7 @@ class _GameScreenState extends State<GameScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('RÃ©sultat de la manche', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          const Text('Résultat de la manche', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 12),
                           if (handHistory.isNotEmpty && handHistory.last.dedans)
                             const Text('Dedans !', style: TextStyle(color: Colors.orangeAccent, fontSize: 16, fontWeight: FontWeight.bold)),
@@ -2511,17 +2520,17 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
 
-          // Overlay : rÃ©sultat de la partie
+          // Overlay : résultat de la partie
           if (overallWinner != null)
             Positioned.fill(
               child: GameResultAnimation(
                 won: localWon,
-                title: localWon ? 'VICTOIRE !' : 'DÃ‰FAITE',
+                title: localWon ? 'VICTOIRE !' : 'DÉFAITE',
                 subtitle:
                     'Victoire : ${overallWinner == 'NS' ? 'Nord-Sud' : 'Est-Ouest'}',
                 details: [
                   Text(
-                    'NS : ${gameLogic.gameScore['NS'] ?? 0}  â€¢  EO : ${gameLogic.gameScore['EO'] ?? 0}',
+                    'NS : ${gameLogic.gameScore['NS'] ?? 0}  •  EO : ${gameLogic.gameScore['EO'] ?? 0}',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 17,
@@ -2563,6 +2572,21 @@ class _GameScreenState extends State<GameScreen>
               left: MediaQuery.sizeOf(context).width / 2 - 30,
               child: cachedSvgAsset("assets/images/card/dos.png", height: 60),
             ),
+
+          // Listener global (top) — reçoit tous les pointer events, passe-through translucent
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerMove: _onCardPointerMove,
+            onPointerUp: (event) {
+              if (event.pointer != _dragPointerId) return;
+              _tryResolveDragDrop();
+            },
+            onPointerCancel: (event) {
+              if (event.pointer != _dragPointerId) return;
+              _onCardPointerCancel();
+            },
+            child: const SizedBox.expand(),
+          ),
         ],
       ),
     );
@@ -2680,14 +2704,14 @@ class _ForfeitWarningDialogState extends State<_ForfeitWarningDialog> {
         children: [
           Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
           SizedBox(width: 8),
-          Text('InactivitÃ©', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Text('Inactivité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ],
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'Vous n\'avez pas jouÃ© depuis 50s.\nJouez une carte dans les',
+            'Vous n\'avez pas joué depuis 50s.\nJouez une carte dans les',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white, fontSize: 15),
           ),
@@ -2706,7 +2730,7 @@ class _ForfeitWarningDialogState extends State<_ForfeitWarningDialog> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'sinon votre Ã©quipe sera forfait.',
+            'sinon votre équipe sera forfait.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white70, fontSize: 13),
           ),
