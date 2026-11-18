@@ -174,6 +174,9 @@
     .game-card .icon-wrap.fanorona {
       background: rgba(100,50,150,0.2); border: 1px solid rgba(100,50,150,0.3);
     }
+    .game-card .icon-wrap.billard {
+      background: rgba(143, 150, 50, 0.2); border: 1px solid rgba(150, 50, 137, 0.336);
+    }
     .game-card .icon-wrap.rami {
       background: rgba(0,150,200,0.2); border: 1px solid rgba(0,150,200,0.3);
     }
@@ -438,11 +441,15 @@
             <h3>Ludo</h3>
             <p>Le jeu de plateau classique revisité. Course effrénée, stratégie et fun pour toute la famille jusqu'à 4 joueurs.</p>
           </div>
-          <div class="game-card" onclick="openSoonModal('Fanorona')">
+          <div class="game-card" onclick="openGameModal('fanorona')">
             <div class="icon-wrap fanorona">🏰</div>
             <h3>Fanorona</h3>
             <p>Jeu de stratégie traditionnel malgache. Un véritable défi tactique ancestral à maîtriser.</p>
-            <div class="soon-tag">Prochainement</div>
+          </div>
+          <div class="game-card" onclick="openGameModal('billard')">
+            <div class="icon-wrap billard">🎱</div>
+            <h3>Billard</h3>
+            <p>Le billard 8 sur mobile. Visez au doigt, réglez la puissance et empochez vos billes. Seul contre l'IA, à deux ou en ligne.</p>
           </div>
           <div class="game-card" onclick="openSoonModal('Rami')">
             <div class="icon-wrap rami">🀄</div>
@@ -572,6 +579,48 @@
       </button>
     </div>
   </div>
+
+  <!-- Fanorona Modal -->
+<div class="modal-overlay" id="modal-fanorona">
+  <div class="modal">
+    <button class="close" onclick="closeGameModal('fanorona')">&times;</button>
+    <div class="icon-big">🏰</div>
+    <h2>Fanorona</h2>
+    <p>Jeu de stratégie traditionnel malgache. Un véritable défi tactique ancestral à maîtriser.</p>
+    <ul class="features-list">
+      <li>Parties à deux joueurs, en ligne ou en local</li>
+      <li>Règles traditionnelles malgaches : captures par approche ou par retrait</li>
+      <li>Plateau authentique et animations fluides</li>
+      <li>Mode solo contre l’IA</li>
+      <li>Salles privées avec vos amis</li>
+    </ul>
+    <button class="btn-download" onclick="closeGameModal('billard'); downloadApk()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Télécharger l'APK
+    </button>
+  </div>
+</div>  
+
+  <!-- Billard Modal -->
+<div class="modal-overlay" id="modal-billard">
+  <div class="modal">
+    <button class="close" onclick="closeGameModal('billard')">&times;</button>
+    <div class="icon-big">🎱</div>
+    <h2>Billard</h2>
+    <p>Le billard 8 en version mobile. Visez au doigt, réglez la puissance de votre tir et empochez vos billes avant votre adversaire.</p>
+    <ul class="features-list">
+      <li>Mode solo contre l'IA (3 niveaux)</li>
+      <li>Deux joueurs sur le même téléphone</li>
+      <li>Parties en ligne entre amis</li>
+      <li>Tir au doigt avec réglage de la puissance</li>
+      <li>Animations de victoire et de défaite</li>
+    </ul>
+    <button class="btn-download" onclick="closeGameModal('billard'); downloadApk()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Télécharger l'APK
+    </button>
+  </div>
+</div>
 
   <!-- Soon Modal -->
   <div class="modal-overlay" id="modal-soon">
