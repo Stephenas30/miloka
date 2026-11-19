@@ -5,6 +5,7 @@ import 'package:miloka/screens/update_required_screen.dart';
 import 'package:miloka/service/auth_service.dart';
 import 'package:miloka/service/version_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -20,7 +21,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void loadApp() async {
     final startedAt = DateTime.now();
-    final token = await AuthService.listenSessionChange();
+    final token =
+        Supabase.instance.client.auth.currentSession != null ||
+        await AuthService.listenSessionChange();
     final upToDate = await VersionService.isUpToDate();
 
     final elapsed = DateTime.now().difference(startedAt);

@@ -1,4 +1,5 @@
 import 'package:miloka/service/storage_service.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService {
@@ -56,6 +57,9 @@ class AuthService {
   }
 
   static Future<void> signOut() async {
+    try {
+      await GoogleSignIn.instance.signOut();
+    } catch (_) {}
     await supabase.auth.signOut();
     await TokenStorage.allDeleteStorage();
   }
